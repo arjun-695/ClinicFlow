@@ -26,7 +26,7 @@ func InitDB() {
 	}
 
 	// Connection pool settings
-	config.MaxConns = 20
+	config.MaxConns = 50
 	config.MinConns = 2
 	config.MaxConnIdleTime = 30 * time.Minute
 

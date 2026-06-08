@@ -1223,7 +1223,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
                     <FloatingPanelTrigger
                       title="Register New Patient"
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Register Patient</span>
@@ -1353,7 +1353,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen}>
                     <FloatingPanelTrigger
                       title="Book Appointment"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Book Appointment</span>
@@ -1492,7 +1492,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isCreateBillOpen} onOpenChange={setIsCreateBillOpen}>
                     <FloatingPanelTrigger
                       title="Generate Bill & Prescription"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Compose Bill & Prescription</span>
@@ -1824,7 +1824,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isAddMedicineOpen} onOpenChange={setIsAddMedicineOpen}>
                     <FloatingPanelTrigger
                       title="Register New Medicine"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Add New Medicine</span>

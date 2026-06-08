@@ -109,12 +109,32 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListPatients returns all patients with their total outstanding dues calculated
+// ListPatients returns all patients with their total outstanding dues calculated (paginated)
 func ListPatients(w http.ResponseWriter, r *http.Request) {
 	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
 	}
 
 	query := `
@@ -126,8 +146,9 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		WHERE p.doctor_id = $1
 		GROUP BY p.id
 		ORDER BY total_dues DESC, p.name ASC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, doctorID)
+	rows, err := db.Pool.Query(r.Context(), query, doctorID, limit, offset)
 	if err != nil {
 		log.Printf("ListPatients DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

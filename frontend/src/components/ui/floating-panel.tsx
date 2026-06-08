@@ -133,7 +133,8 @@ export function FloatingPanelTrigger({
   return (
     <MetalButton
       ref={triggerRef}
-      preset="chromatic"
+      preset="silver"
+      ringCssPx={2}
       onClick={handleClick}
       className={cn("border-none text-xs font-bold rounded-2xl h-auto py-2 px-4 shadow-md leading-none", className)}
       aria-haspopup="dialog"

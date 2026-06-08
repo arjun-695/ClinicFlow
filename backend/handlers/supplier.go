@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"backend/db"
@@ -79,6 +80,7 @@ func CreateSupplierDue(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListSupplierDues lists all supplier dues for the logged-in doctor (paginated)
 func ListSupplierDues(w http.ResponseWriter, r *http.Request) {
 	shopkeeperID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
@@ -86,13 +88,34 @@ func ListSupplierDues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
 	query := `
 		SELECT id, supplier_name, amount, due_date, notified, created_at
 		FROM supplier_dues
 		WHERE shopkeeper_id = $1
 		ORDER BY due_date ASC, created_at DESC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, shopkeeperID)
+	rows, err := db.Pool.Query(r.Context(), query, shopkeeperID, limit, offset)
 	if err != nil {
 		log.Printf("ListSupplierDues DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

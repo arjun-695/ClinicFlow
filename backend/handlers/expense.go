@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"backend/db"
@@ -88,6 +89,7 @@ func CreateExpense(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ListExpenses lists all expenses for the logged-in doctor (paginated)
 func ListExpenses(w http.ResponseWriter, r *http.Request) {
 	shopkeeperID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
@@ -95,13 +97,34 @@ func ListExpenses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+	
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
 	query := `
 		SELECT id, description, amount, payment_mode, expense_date, created_at
 		FROM expenses
 		WHERE shopkeeper_id = $1
 		ORDER BY expense_date DESC, created_at DESC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, shopkeeperID)
+	rows, err := db.Pool.Query(r.Context(), query, shopkeeperID, limit, offset)
 	if err != nil {
 		log.Printf("ListExpenses DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

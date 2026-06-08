@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -116,9 +118,18 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // --- Rate Limit Middleware ---
 func rateLimitMiddleware(limiter *rateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
+		// Strip port from RemoteAddr to get the actual client IP.
+		// Without this, each TCP connection (with a unique ephemeral port)
+		// is treated as a separate visitor, completely bypassing rate limits.
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr // fallback for unexpected format
+		}
+		// If behind a reverse proxy, use the first IP in X-Forwarded-For
+		// (the original client). Ignore appended proxy IPs.
 		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-			ip = fwd
+			parts := strings.Split(fwd, ",")
+			ip = strings.TrimSpace(parts[0])
 		}
 		if !limiter.allow(ip) {
 			w.Header().Set("Content-Type", "application/json")
