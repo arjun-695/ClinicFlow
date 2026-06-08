@@ -1,0 +1,233 @@
+Created At: 2026-05-27T15:55:37Z
+Completed At: 2026-05-27T15:55:37Z
+File Path: `file:///c:/Users/tando/Desktop/khataFlow/frontend/src/app/page.tsx`
+Total Lines: 1666
+Total Bytes: 76744
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: 'use client';
+2: 
+3: import React, { useState, useEffect } from 'react';
+4: import { 
+5:   BookOpen, 
+6:   Truck, 
+7:   IndianRupee, 
+8:   MessageSquare, 
+9:   Fingerprint, 
+10:   Search, 
+11:   Plus, 
+12:   ArrowLeft, 
+13:   Calendar, 
+14:   FileText, 
+15:   FileCode, 
+16:   AlertCircle, 
+17:   CheckCircle2, 
+18:   Clock, 
+19:   Download, 
+20:   LogOut, 
+21:   RefreshCw, 
+22:   PlusCircle, 
+23:   MinusCircle, 
+24:   Calculator,
+25:   ExternalLink
+26: } from 'lucide-react';
+27: import { fetchAPI, API_URL } from '../utils/api';
+28: import { bufferToBase64url, base64urlToBuffer } from '../utils/webauthn';
+29: import { jsPDF } from 'jspdf';
+30: 
+31: // --- View State Types ---
+32: type ViewState = 
+33:   | { type: 'list' } 
+34:   | { type: 'customer'; customerId: number } 
+35:   | { type: 'contract'; contractId: number };
+36: 
+37: export default function App() {
+38:   // Authentication & Global State
+39:   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+40:   const [authError, setAuthError] = useState<string>('');
+41:   const [authSuccess, setAuthSuccess] = useState<string>('');
+42:   const [activeTab, setActiveTab] = useState<'ledger' | 'suppliers' | 'expenses' | 'whatsapp'>('ledger');
+43:   const [viewState, setViewState] = useState<ViewState>({ type: 'list' });
+44: 
+45:   // Data State
+46:   const [customers, setCustomers] = useState<any[]>([]);
+47:   const [suppliers, setSuppliers] = useState<any[]>([]);
+48:   const [expenses, setExpenses] = useState<any[]>([]);
+49:   const [currentCustomerData, setCurrentCustomerData] = useState<any>(nul
+<truncated 30897 bytes>
+     <div className="text-right">
+775:                           <p className={`font-black ${c.total_dues > 0 ? 'text-red-400' : 'text-slate-450'}`}>
+776:                             ₹{c.total_dues.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+777:                           </p>
+778:                           <p className="text-[10px] uppercase font-bold text-slate-500 mt-0.5">
+779:                             {c.dues_count} active {c.dues_count === 1 ? 'due' : 'dues'}
+780:                           </p>
+781:                         </div>
+782:                       </div>
+783:                     ))
+784:                   )}
+785:                 </div>
+786:               </div>
+787:             )}
+788: 
+789:             {/* SUPPLIERS TAB */}
+790:             {activeTab === 'suppliers' && (
+791:               <div className="space-y-4">
+792:                 <div className="bg-slate-900/60 border border-slate-800/60 rounded-3xl p-6 shadow-xl relative overflow-hidden">
+793:                   <div className="absolute right-0 bottom-0 translate-x-12 translate-y-12 w-32 h-32 bg-purple-500 rounded-full blur-3xl opacity-10"></div>
+794:                   <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Supplier Payables</p>
+795:                   <h2 className="text-4xl font-extrabold text-white mt-1">
+796:                     ₹{suppliers.reduce((acc, s) => acc + s.amount, 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+797:                   </h2>
+798:                   <button 
+799:                     onClick={() => setIsAddSupplierOpen(true)}
+800:                     className="w-full mt-6 py-3 px-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-2xl font-semibold flex items-center justify-center space-x-2 shadow-lg shadow-indigo-500/20 cursor-pointer text-sm"
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+Created At: 2026-05-27T15:55:42Z
+Completed At: 2026-05-27T15:55:42Z
+File Path: `file:///c:/Users/tando/Desktop/khataFlow/frontend/src/app/page.tsx`
+Total Lines: 1666
+Total Bytes: 76744
+Showing lines 801 to 1600
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+801:                   >
+802:                     <Plus className="w-4 h-4" />
+803:                     <span>Log Supplier Liability</span>
+804:                   </button>
+805:                 </div>
+806: 
+807:                 <div className="space-y-3">
+808:                   <h3 className="text-sm font-semibold text-slate-400 px-1 uppercase tracking-wider">Upcoming Deadlines</h3>
+809:                   {suppliers.length === 0 ? (
+810:                     <div className="text-center py-12 text-slate-500 border border-dashed border-slate-800 rounded-3xl">
+811:                       <Truck className="w-10 h-10 mx-auto mb-2 text-slate-600" />
+812:                       <p className="text-sm">No wholesale liabilities recorded</p>
+813:                     </div>
+814:                   ) : (
+815:                     suppliers.map((s) => (
+816:                       <div 
+817:                         key={s.id}
+818:                         className="bg-slate-900/40 border border-slate-850 p-4 rounded-3xl flex items-center justify-between"
+819:                       >
+820:                         <div className="space-y-1">
+821:                           <h4 className="font-bold text-white">{s.supplier_name}</h4>
+822:                           <div className="flex items-center space-x-2 text-xs text-slate-400">
+823:                             <Calendar className="w-3.5 h-3.5" />
+824:                             <span>Due: {new Date(s.due_date).toLocaleDateString()}</span>
+825:                           </div>
+826:                         </div>
+827:                        
+<truncated 44425 bytes>
+t-semibold text-slate-400 mb-1.5">Promise Due Date</label>
+1567:               <input
+1568:                 type="date"
+1569:                 value={newSuppDueDate}
+1570:                 onChange={(e) => setNewSuppDueDate(e.target.value)}
+1571:                 className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 focus:outline-none focus:border-indigo-500 text-sm transition"
+1572:                 required
+1573:               />
+1574:             </div>
+1575:             <div className="flex space-x-3 pt-2">
+1576:               <button 
+1577:                 type="button" 
+1578:                 onClick={() => setIsAddSupplierOpen(false)}
+1579:                 className="flex-1 py-3 border border-slate-800 hover:bg-slate-850 rounded-2xl text-slate-300 text-sm font-semibold cursor-pointer"
+1580:               >
+1581:                 Cancel
+1582:               </button>
+1583:               <button 
+1584:                 type="submit"
+1585:                 className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl text-sm font-bold cursor-pointer"
+1586:               >
+1587:                 Save Payable
+1588:               </button>
+1589:             </div>
+1590:           </form>
+1591:         </div>
+1592:       )}
+1593: 
+1594:       {/* Add Expense Modal */}
+1595:       {isAddExpenseOpen && (
+1596:         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+1597:           <form onSubmit={handleAddExpense} className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 space-y-4">
+1598:             <h3 className="text-lg font-bold text-white">Record Shop Expense</h3>
+1599:             <div>
+1600:               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Expense Description</label>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+Created At: 2026-05-27T15:55:48Z
+Completed At: 2026-05-27T15:55:49Z
+File Path: `file:///c:/Users/tando/Desktop/khataFlow/frontend/src/app/page.tsx`
+Total Lines: 1666
+Total Bytes: 76744
+Showing lines 1601 to 1666
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1601:               <input
+1602:                 type="text"
+1603:                 placeholder="e.g. Electric bill, Tea & snacks"
+1604:                 value={newExpDesc}
+1605:                 onChange={(e) => setNewExpDesc(e.target.value)}
+1606:                 className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 placeholder-slate-655 focus:outline-none focus:border-indigo-500 text-sm transition"
+1607:                 required
+1608:               />
+1609:             </div>
+1610:             <div>
+1611:               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Amount (INR)</label>
+1612:               <input
+1613:                 type="number"
+1614:                 step="0.01"
+1615:                 placeholder="e.g. 450"
+1616:                 value={newExpAmount}
+1617:                 onChange={(e) => setNewExpAmount(e.target.value)}
+1618:                 className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 placeholder-slate-655 focus:outline-none focus:border-indigo-500 text-sm transition"
+1619:                 required
+1620:               />
+1621:             </div>
+1622:             <div>
+1623:               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Payment Mode (No default to CASH)</label>
+1624:               <select
+1625:                 value={newExpMode}
+1626:                 onChange={(e) => setNewExpMode(e.target.value as any)}
+1627:                 className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 focus:outline-none focus:border-indigo-500 text-sm transition cursor-pointer"
+1628:                 required
+1629:               >
+1630:                 <option value="CASH">CASH</option>
+1631:                 <option value="ONLINE_UPI">ONLINE UPI</option>
+1632:                 <option value="BANK_TRANSFER">BANK TRANSFER</option>
+1633:               </select>
+1634:             </div>
+1635:             <div>
+1636:               <label className="block text-xs font-semibold text-slate-400 mb-1.5">Expense Date (Defaults to now)</label>
+1637:               <input
+1638:                 type="datetime-local"
+1639:                 value={newExpDate}
+1640:                 onChange={(e) => setNewExpDate(e.target.value)}
+1641:                 className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl text-slate-100 focus:outline-none focus:border-indigo-500 text-sm transition"
+1642:               />
+1643:             </div>
+1644:             <div className="flex space-x-3 pt-2">
+1645:               <button 
+1646:                 type="button" 
+1647:                 onClick={() => setIsAddExpenseOpen(false)}
+1648:                 className="flex-1 py-3 border border-slate-800 hover:bg-slate-850 rounded-2xl text-slate-300 text-sm font-semibold cursor-pointer"
+1649:               >
+1650:                 Cancel
+1651:               </button>
+1652:               <button 
+1653:                 type="submit"
+1654:                 className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 text-white rounded-2xl text-sm font-bold cursor-pointer"
+1655:               >
+1656:                 Record Expense
+1657:               </button>
+1658:             </div>
+1659:           </form>
+1660:         </div>
+1661:       )}
+1662: 
+1663:     </div>
+1664:   );
+1665: }
+1666: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+

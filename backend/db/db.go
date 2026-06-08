@@ -1,0 +1,45 @@
+// Package db initializes and exposes the shared PostgreSQL connection pool
+// used by the backend handlers, services, and worker tasks.
+package db
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+var Pool *pgxpool.Pool
+
+func InitDB() {
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		log.Fatal("DATABASE_URL environment variable is required but not set. Please configure it in .env or system environment.")
+	}
+
+	config, err := pgxpool.ParseConfig(connStr)
+	if err != nil {
+		log.Fatalf("Unable to parse database URL: %v\n", err)
+	}
+
+	// Connection pool settings
+	config.MaxConns = 20
+	config.MinConns = 2
+	config.MaxConnIdleTime = 30 * time.Minute
+
+	Pool, err = pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		log.Fatalf("Unable to connect to database: %v\n", err)
+	}
+
+	// Test the connection
+	err = Pool.Ping(context.Background())
+	if err != nil {
+		log.Fatalf("Database connection check failed: %v\n", err)
+	}
+
+	fmt.Println("Successfully connected to the database!")
+}

@@ -1,0 +1,290 @@
+// Package main boots the HTTP API, wires middleware and routes, initializes
+// the database and WhatsApp services, and starts the background worker before
+// serving the ClinicFlow backend.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"backend/db"
+	"backend/handlers"
+	"backend/services"
+	"backend/worker"
+
+	"github.com/joho/godotenv"
+)
+
+// --- Rate Limiter ---
+type visitor struct {
+	tokens   float64
+	lastSeen time.Time
+}
+
+type rateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*visitor
+	rate     float64 // tokens per second
+	burst    float64 // max tokens
+}
+
+func newRateLimiter(requestsPerMinute float64) *rateLimiter {
+	rl := &rateLimiter{
+		visitors: make(map[string]*visitor),
+		rate:     requestsPerMinute / 60.0,
+		burst:    requestsPerMinute,
+	}
+	// Cleanup stale entries every 3 minutes
+	go func() {
+		ticker := time.NewTicker(3 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.lastSeen) > 5*time.Minute {
+					delete(rl.visitors, ip)
+				}
+			}
+			rl.mu.Unlock()
+		}
+	}()
+	return rl
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	v, exists := rl.visitors[ip]
+	if !exists {
+		rl.visitors[ip] = &visitor{tokens: rl.burst - 1, lastSeen: time.Now()}
+		return true
+	}
+
+	// Refill tokens based on elapsed time
+	elapsed := time.Since(v.lastSeen).Seconds()
+	v.tokens += elapsed * rl.rate
+	if v.tokens > rl.burst {
+		v.tokens = rl.burst
+	}
+	v.lastSeen = time.Now()
+
+	if v.tokens < 1 {
+		return false
+	}
+	v.tokens--
+	return true
+}
+
+var (
+	generalLimiter  = newRateLimiter(100) // 100 req/min
+	whatsappLimiter = newRateLimiter(5)   // 5 req/min for WhatsApp send
+)
+
+// --- Auth Middleware ---
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("auth_session")
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication required"})
+			return
+		}
+
+		shopkeeperID, err := handlers.ValidateSessionToken(cookie.Value)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), handlers.ShopkeeperIDKey, shopkeeperID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// --- Rate Limit Middleware ---
+func rateLimitMiddleware(limiter *rateLimiter, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ip := r.RemoteAddr
+		if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
+			ip = fwd
+		}
+		if !limiter.allow(ip) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{"error": "Too many requests. Please try again later."})
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
+}
+
+// --- Body Size Limit Middleware ---
+func bodySizeLimit(maxBytes int64, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		}
+		next.ServeHTTP(w, r)
+	}
+}
+
+func main() {
+	// Load environment variables from .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: No .env file found, relying on system environment variables")
+	}
+
+	// Initialize session signing key
+	handlers.InitSessionSecret()
+
+	// Initialize Database Pool
+	db.InitDB()
+	defer db.Pool.Close()
+
+
+
+	// Initialize whatsmeow WhatsApp client
+	services.InitWhatsApp()
+
+	// Start Background Cron Notification Worker
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	worker.StartWorker(ctx)
+
+	// Set up router
+	mux := http.NewServeMux()
+
+	// --- Public Auth Endpoints (no auth middleware) ---
+	mux.HandleFunc("GET /api/auth/session", rateLimitMiddleware(generalLimiter, handlers.CheckSession))
+	mux.HandleFunc("GET /api/auth/logout", rateLimitMiddleware(generalLimiter, handlers.Logout))
+	mux.HandleFunc("POST /api/auth/signup", rateLimitMiddleware(generalLimiter, bodySizeLimit(1<<20, handlers.Signup)))
+	mux.HandleFunc("POST /api/auth/login", rateLimitMiddleware(generalLimiter, bodySizeLimit(1<<20, handlers.Login)))
+	mux.HandleFunc("GET /api/auth/google/login", rateLimitMiddleware(generalLimiter, handlers.GoogleLogin))
+	mux.HandleFunc("GET /api/auth/google/callback", rateLimitMiddleware(generalLimiter, handlers.GoogleCallback))
+	mux.HandleFunc("PUT /api/auth/profile", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateProfile))))
+
+	// --- Protected Business Endpoints (require auth) ---
+	// Patients / Customers (Aliases)
+	mux.HandleFunc("GET /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
+	mux.HandleFunc("POST /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreatePatient))))
+	mux.HandleFunc("GET /api/patients/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
+	mux.HandleFunc("GET /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
+	mux.HandleFunc("POST /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreatePatient))))
+	mux.HandleFunc("GET /api/customers/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
+
+	// Appointments
+	mux.HandleFunc("POST /api/appointments", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreateAppointment))))
+	mux.HandleFunc("GET /api/appointments", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListAppointments)))
+	mux.HandleFunc("PUT /api/appointments/status", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateAppointmentStatus))))
+
+	// Bills / Contracts (Aliases)
+	mux.HandleFunc("POST /api/bills", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.CreateBill)))
+	mux.HandleFunc("GET /api/bills/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetBillDetails)))
+	mux.HandleFunc("GET /api/bills", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListBills)))
+	mux.HandleFunc("POST /api/contracts", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.CreateBill)))
+	mux.HandleFunc("GET /api/contracts/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetBillDetails)))
+
+	// Medicines Inventory
+	mux.HandleFunc("GET /api/medicines", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListMedicines)))
+	mux.HandleFunc("POST /api/medicines", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreateMedicine))))
+	mux.HandleFunc("PUT /api/medicines", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateMedicine))))
+	mux.HandleFunc("DELETE /api/medicines", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.DeleteMedicine))))
+
+	// Analytics
+	mux.HandleFunc("GET /api/analytics", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetAnalytics)))
+
+	// Payments
+	mux.HandleFunc("POST /api/payments", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.LogPayment))))
+
+	// Suppliers
+	mux.HandleFunc("GET /api/suppliers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListSupplierDues)))
+	mux.HandleFunc("POST /api/suppliers", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreateSupplierDue))))
+
+	// Expenses
+	mux.HandleFunc("GET /api/expenses", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListExpenses)))
+	mux.HandleFunc("POST /api/expenses", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreateExpense))))
+
+	// WhatsApp
+	mux.HandleFunc("GET /api/whatsapp/qr", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetWhatsAppQR)))
+	mux.HandleFunc("GET /api/whatsapp/status", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetWhatsAppStatus)))
+	mux.HandleFunc("POST /api/whatsapp/test", rateLimitMiddleware(whatsappLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.SendWhatsAppTest))))
+	mux.HandleFunc("POST /api/whatsapp/pair-phone", rateLimitMiddleware(whatsappLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.PairWhatsAppPhone))))
+	mux.HandleFunc("GET /api/whatsapp/templates", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetWhatsAppTemplates)))
+	mux.HandleFunc("PUT /api/whatsapp/templates", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateWhatsAppTemplate))))
+
+	// Configure HTTP server
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	server := &http.Server{
+		Addr:         ":" + port,
+		Handler:      corsMiddleware(mux),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		fmt.Printf("Go Backend REST API listening on http://localhost:%s\n", port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	<-quit
+	log.Println("Shutting down server...")
+	cancel() // Stop the background worker
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+	log.Println("Server stopped gracefully.")
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		allowedOrigin := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		if allowedOrigin == "" {
+			allowedOrigin = "http://localhost:3000"
+		}
+
+		isAllowed := origin == allowedOrigin || origin == "http://localhost:3000" || origin == "http://localhost:3001"
+
+		if isAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie")
+		}
+
+		// Handle preflight OPTIONS request
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
