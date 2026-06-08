@@ -1,9 +1,24 @@
 # Secrets
 backend/.env
+.env.local
+.env.development
+.env.production
 .env
 
 # Database
 db_data/
+
+# Node
+node_modules/
+**/node_modules/
+
+# Build output
+.next/
+**/.next/
+out/
+**/out/
+dist/
+**/dist/
 
 # Binaries
 *.exe
@@ -22,6 +37,10 @@ Thumbs.db
 frontend/.next/
 frontend/node_modules/
 frontend/out/
+frontend/public/money-jar/
+next-app/.next/
+next-app/node_modules/
+next-app/out/
 
 # Logs
 *.log
