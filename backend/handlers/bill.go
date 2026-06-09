@@ -167,6 +167,10 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 
 	// Process receipt file attachment if present
 	var invoiceURL *string
+	var attachedFileBytes []byte
+	var attachedFilename string
+	var attachedMIME string
+
 	file, fileHeader, err := r.FormFile("invoice")
 	if err == nil {
 		defer file.Close()
@@ -191,11 +195,13 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 
 		url, err := services.UploadReceipt(fileBytes, fileHeader.Filename, detectedMIME)
 		if err != nil {
-			log.Printf("CreateBill upload error: %v", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to upload receipt"})
-			return
+			log.Printf("CreateBill upload warning (proceeding without Supabase URL): %v", err)
+		} else {
+			invoiceURL = &url
 		}
-		invoiceURL = &url
+		attachedFileBytes = fileBytes
+		attachedFilename = fileHeader.Filename
+		attachedMIME = detectedMIME
 	}
 
 	// Begin ACID Database Transaction
@@ -284,8 +290,14 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate caches
+	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(patientID))
+	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(doctorID)+":*")
+
 	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
-	go func() {
+	skipWhatsApp := r.FormValue("skip_whatsapp") == "true"
+	if !skipWhatsApp {
+		go func() {
 		// Fetch doctor custom template or default
 		tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
@@ -329,8 +341,14 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
-		// Send WhatsApp
-		err := services.SendWhatsApp(pt.Phone, messageText)
+		// Send WhatsApp (with attachment if present)
+		var err error
+		if len(attachedFileBytes) > 0 {
+			err = services.SendWhatsAppWithAttachment(pt.Phone, messageText, attachedFileBytes, attachedFilename, attachedMIME)
+		} else {
+			err = services.SendWhatsApp(pt.Phone, messageText)
+		}
+
 		if err != nil {
 			log.Printf("WhatsApp billing dispatch failed for Patient %s (%s): %v", pt.Name, pt.Phone, err)
 		} else {
@@ -338,6 +356,7 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 			_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
 		}
 	}()
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"bill_id":          billID,
@@ -536,3 +555,202 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 		"limit":       limit,
 	})
 }
+
+// UploadInvoice handles uploading a generated PDF invoice for an existing bill, uploading to Supabase, and dispatching it via WhatsApp.
+func UploadInvoice(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(10 << 20) // 10MB max
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to parse form data"})
+		return
+	}
+
+	billIDStr := r.FormValue("bill_id")
+	billID, err := strconv.Atoi(billIDStr)
+	if err != nil || billID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Valid bill_id is required"})
+		return
+	}
+
+	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch bill and patient details to verify ownership and construct the message
+	var b Bill
+	queryBill := `
+		SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
+		       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
+		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+		FROM bills b
+		JOIN patients p ON b.patient_id = p.id
+		LEFT JOIN doctors d ON b.doctor_id = d.id
+		WHERE b.id = $1 AND p.doctor_id = $2
+	`
+	err = db.Pool.QueryRow(ctx, queryBill, billID, doctorID).Scan(
+		&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
+		&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
+	)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found or unauthorized"})
+		return
+	}
+
+	file, fileHeader, err := r.FormFile("invoice")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invoice file is required"})
+		return
+	}
+	defer file.Close()
+
+	if fileHeader.Size > 5*1024*1024 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "File size must be under 5MB"})
+		return
+	}
+
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		log.Printf("UploadInvoice file read error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read uploaded file"})
+		return
+	}
+
+	detectedMIME := http.DetectContentType(fileBytes)
+	if detectedMIME != "image/png" && detectedMIME != "image/jpeg" && detectedMIME != "application/pdf" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Only PNG, JPEG, and PDF files are allowed"})
+		return
+	}
+
+	// Upload receipt file to Supabase and update database
+	url, err := services.UploadReceipt(fileBytes, fileHeader.Filename, detectedMIME)
+	if err != nil {
+		log.Printf("UploadInvoice upload warning (proceeding without Supabase URL): %v", err)
+	} else {
+		_, err = db.Pool.Exec(ctx, "UPDATE bills SET invoice_url = $1 WHERE id = $2", url, billID)
+		if err != nil {
+			log.Printf("UploadInvoice database update error: %v", err)
+		}
+		b.InvoiceURL = &url
+	}
+
+	// Load bill items to construct the WhatsApp message
+	queryItems := `
+		SELECT id, bill_id, item_name, quantity, unit_price, dosage
+		FROM bill_items
+		WHERE bill_id = $1
+		ORDER BY id ASC
+	`
+	rowsItems, err := db.Pool.Query(ctx, queryItems, billID)
+	if err != nil {
+		log.Printf("UploadInvoice items query error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+	defer rowsItems.Close()
+
+	var items []struct {
+		ItemName  string
+		Quantity  int
+		UnitPrice float64
+		Dosage    string
+	}
+	for rowsItems.Next() {
+		var item struct {
+			ID        int
+			BillID    int
+			ItemName  string
+			Quantity  int
+			UnitPrice float64
+			Dosage    string
+		}
+		err = rowsItems.Scan(&item.ID, &item.BillID, &item.ItemName, &item.Quantity, &item.UnitPrice, &item.Dosage)
+		if err != nil {
+			log.Printf("UploadInvoice item scan error: %v", err)
+			continue
+		}
+		items = append(items, struct {
+			ItemName  string
+			Quantity  int
+			UnitPrice float64
+			Dosage    string
+		}{
+			ItemName:  item.ItemName,
+			Quantity:  item.Quantity,
+			UnitPrice: item.UnitPrice,
+			Dosage:    item.Dosage,
+		})
+	}
+
+	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
+	go func() {
+		tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
+
+		// Build payment details string
+		paymentDetails := ""
+		totalPaid := b.TotalAmount - b.RemainingAmount
+		if totalPaid > 0 {
+			var payMode string
+			_ = db.Pool.QueryRow(context.Background(), "SELECT payment_mode FROM payments WHERE bill_id = $1 ORDER BY payment_date DESC LIMIT 1", billID).Scan(&payMode)
+			if payMode == "" {
+				payMode = "CASH"
+			}
+			paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", totalPaid, payMode)
+		}
+
+		// Build items list
+		itemsList := ""
+		if len(items) > 0 {
+			for i, item := range items {
+				dosageStr := ""
+				if item.Dosage != "" {
+					dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
+				}
+				itemsList += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit%s\n", i+1, item.ItemName, item.Quantity, item.UnitPrice, dosageStr)
+			}
+		}
+
+		appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		if appURL == "" {
+			appURL = "http://localhost:3000"
+		}
+		billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
+
+		// Combine template sections
+		msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+
+		// Replace placeholders
+		replacer := strings.NewReplacer(
+			"{patient_name}", b.PatientName,
+			"{total_amount}", fmt.Sprintf("%.2f", b.TotalAmount),
+			"{clinic_name}", b.ClinicName,
+			"{payment_details}", paymentDetails,
+			"{remaining_amount}", fmt.Sprintf("%.2f", b.RemainingAmount),
+			"{items_list}", itemsList,
+			"{bill_link}", billLink,
+			"{description}", b.Description,
+		)
+		messageText := replacer.Replace(msgTemplate)
+
+		// Send WhatsApp with attachment
+		err = services.SendWhatsAppWithAttachment(b.PatientPhone, messageText, fileBytes, fileHeader.Filename, detectedMIME)
+		if err != nil {
+			log.Printf("WhatsApp billing dispatch failed (UploadInvoice) for Patient %s (%s): %v", b.PatientName, b.PatientPhone, err)
+		} else {
+			_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
+		}
+	}()
+
+	// Invalidate caches
+	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(b.PatientID))
+	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(doctorID)+":*")
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"success":     true,
+		"bill_id":     billID,
+		"invoice_url": b.InvoiceURL,
+	})
+}
+

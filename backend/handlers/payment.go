@@ -8,10 +8,13 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"backend/db"
+	"backend/services"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -117,7 +120,7 @@ func GetContractDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"contract": cc, // Keep key for compatibility
+		"contract": cc,   // Keep key for compatibility
 		"customer": cust, // Keep key for compatibility
 		"payments": payments,
 	})
@@ -180,18 +183,35 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 	// 2. Select bill state and LOCK row for update (ACID compliance)
 	var cc struct {
 		ID              int
+		PatientID       int
 		RemainingAmount float64
 		TotalAmount     float64
 		Status          string
+		Description     string
+		PatientName     string
+		PatientPhone    string
+		ClinicName      string
 	}
 	querySelect := `
-		SELECT b.id, b.remaining_amount, b.total_amount, b.status 
+		SELECT b.id, b.patient_id, b.remaining_amount, b.total_amount, b.status,
+		       b.description, p.name, p.phone, COALESCE(d.clinic_name, 'Our Clinic')
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
+		LEFT JOIN doctors d ON b.doctor_id = d.id
 		WHERE b.id = $1 AND p.doctor_id = $2 
-		FOR UPDATE
+		FOR UPDATE OF b
 	`
-	err = tx.QueryRow(ctx, querySelect, input.BillID, shopkeeperID).Scan(&cc.ID, &cc.RemainingAmount, &cc.TotalAmount, &cc.Status)
+	err = tx.QueryRow(ctx, querySelect, input.BillID, shopkeeperID).Scan(
+		&cc.ID,
+		&cc.PatientID,
+		&cc.RemainingAmount,
+		&cc.TotalAmount,
+		&cc.Status,
+		&cc.Description,
+		&cc.PatientName,
+		&cc.PatientPhone,
+		&cc.ClinicName,
+	)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found"})
 		return
@@ -254,6 +274,41 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}
+
+	// Invalidate caches
+	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(shopkeeperID)+":"+strconv.Itoa(cc.PatientID))
+	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(shopkeeperID)+":*")
+
+	go func() {
+		appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		if appURL == "" {
+			appURL = "http://localhost:3000"
+		}
+		billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, input.BillID)
+
+		remarks := strings.TrimSpace(input.Remarks)
+		if remarks == "" {
+			remarks = "Installment payment"
+		}
+
+		messageText := fmt.Sprintf(
+			"Dear %s,\n\nWe received your installment payment of *₹%.2f* via *%s* for invoice #INV-%d at *%s*.\n\nPrevious Balance: ₹%.2f\nRemaining Balance: *₹%.2f*\nStatus: %s\nNotes: %s\n\nView your receipt here:\n%s",
+			cc.PatientName,
+			input.AmountPaid,
+			input.PaymentMode,
+			input.BillID,
+			cc.ClinicName,
+			cc.RemainingAmount,
+			newRemaining,
+			newStatus,
+			remarks,
+			billLink,
+		)
+
+		if err := services.SendWhatsApp(cc.PatientPhone, messageText); err != nil {
+			log.Printf("WhatsApp installment dispatch failed for Patient %s (%s): %v", cc.PatientName, cc.PatientPhone, err)
+		}
+	}()
 
 	// Return response payload
 	writeJSON(w, http.StatusOK, map[string]interface{}{

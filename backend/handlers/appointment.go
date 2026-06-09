@@ -85,6 +85,10 @@ func CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Invalidate caches
+	db.InvalidateCache(r.Context(), "appointments:list:"+strconv.Itoa(doctorID)+":*")
+	db.InvalidateCache(r.Context(), "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(input.PatientID))
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":               id,
 		"patient_id":       input.PatientID,
@@ -124,6 +128,13 @@ func ListAppointments(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	cacheKey := "appointments:list:" + strconv.Itoa(doctorID) + ":" + strconv.Itoa(limit) + ":" + strconv.Itoa(offset)
+	var cachedAppointments []Appointment
+	if db.GetCache(r.Context(), cacheKey, &cachedAppointments) {
+		writeJSON(w, http.StatusOK, cachedAppointments)
+		return
+	}
+
 	query := `
 		SELECT a.id, a.patient_id, p.name as patient_name, p.phone as patient_phone, 
 		       a.doctor_id, a.appointment_date, a.status, a.reason, a.created_at
@@ -152,6 +163,8 @@ func ListAppointments(w http.ResponseWriter, r *http.Request) {
 		}
 		appointments = append(appointments, a)
 	}
+
+	db.SetCache(r.Context(), cacheKey, appointments, 10*time.Minute)
 
 	writeJSON(w, http.StatusOK, appointments)
 }
@@ -184,10 +197,10 @@ func UpdateAppointmentStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify appointment belongs to doctor
-	var exists bool
-	err := db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM appointments WHERE id = $1 AND doctor_id = $2)", input.ID, doctorID).Scan(&exists)
-	if err != nil || !exists {
+	// Verify appointment belongs to doctor and get patient ID
+	var patientID int
+	err := db.Pool.QueryRow(r.Context(), "SELECT patient_id FROM appointments WHERE id = $1 AND doctor_id = $2", input.ID, doctorID).Scan(&patientID)
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Appointment not found"})
 		return
 	}
@@ -198,6 +211,10 @@ func UpdateAppointmentStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}
+
+	// Invalidate caches
+	db.InvalidateCache(r.Context(), "appointments:list:"+strconv.Itoa(doctorID)+":*")
+	db.InvalidateCache(r.Context(), "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(patientID))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":     input.ID,

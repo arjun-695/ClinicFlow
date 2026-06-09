@@ -136,6 +136,13 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheKey := "doctor:profile:" + strconv.Itoa(shopkeeperID)
+	var cachedResponse map[string]interface{}
+	if db.GetCache(r.Context(), cacheKey, &cachedResponse) {
+		writeJSON(w, http.StatusOK, cachedResponse)
+		return
+	}
+
 	// Retrieve doctor details from DB
 	var email, name, clinicName, phone string
 	query := `SELECT email, name, clinic_name, phone FROM doctors WHERE id = $1`
@@ -146,7 +153,7 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	res := map[string]interface{}{
 		"status": "Authenticated",
 		"user": map[string]interface{}{
 			"id":          shopkeeperID,
@@ -156,7 +163,10 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 			"shop_name":   clinicName, // backwards compatibility
 			"phone":       phone,
 		},
-	})
+	}
+	db.SetCache(r.Context(), cacheKey, res, 1*time.Hour)
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 // Logout clears the auth session cookie
@@ -191,7 +201,7 @@ func Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-	input.Name = strings.TrimSpace(input.Name)
+	input.Name = CapitalizeName(input.Name)
 	clinicName := input.ClinicName
 	if clinicName == "" {
 		clinicName = input.ShopName
@@ -510,6 +520,7 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 			VALUES ($1, $2, $3, $4)
 			RETURNING id
 		`
+		claims.Name = CapitalizeName(claims.Name)
 		clinicName := claims.Name + "'s Clinic"
 		err = db.Pool.QueryRow(r.Context(), insertQuery, claims.Email, claims.Name, clinicName, claims.Sub).Scan(&id)
 		if err != nil {
@@ -557,6 +568,8 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	input.Name = CapitalizeName(input.Name)
+
 	if input.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
 		return
@@ -593,6 +606,9 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}
+
+	// Invalidate cache
+	db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(doctorID))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":          doctorID,

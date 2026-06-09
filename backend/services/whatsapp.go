@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,6 +139,99 @@ func SendWhatsApp(phone string, message string) error {
 	}
 
 	log.Printf("WhatsApp message sent successfully to %s", cleaned)
+	return nil
+}
+
+// SendWhatsAppWithAttachment uploads the provided file to WhatsApp and sends it as a document or image message with a caption
+func SendWhatsAppWithAttachment(phone string, message string, fileBytes []byte, filename string, mimeType string) error {
+	if WAClient == nil {
+		return fmt.Errorf("whatsapp client is not initialized")
+	}
+
+	if !IsConnected.Load() {
+		return fmt.Errorf("whatsapp client is not authenticated/connected")
+	}
+
+	// Clean up phone number
+	re := regexp.MustCompile(`[^\d]`)
+	cleaned := re.ReplaceAllString(phone, "")
+
+	if len(cleaned) < 7 || len(cleaned) > 15 {
+		return fmt.Errorf("phone number must include country code and be 7-15 digits")
+	}
+
+	recipientJID := types.JID{
+		User:   cleaned,
+		Server: types.DefaultUserServer,
+	}
+
+	var msg *waE2E.Message
+
+	if len(fileBytes) > 0 {
+		var mediaType whatsmeow.MediaType
+		if strings.HasPrefix(mimeType, "image/") {
+			mediaType = whatsmeow.MediaImage
+		} else {
+			mediaType = whatsmeow.MediaDocument
+		}
+
+		log.Printf("[WhatsApp] Uploading file: name=%s, size=%d bytes, mime=%s", filename, len(fileBytes), mimeType)
+		ctx, uploadCancel := context.WithTimeout(context.Background(), 45*time.Second)
+		resp, err := WAClient.Upload(ctx, fileBytes, mediaType)
+		uploadCancel()
+		if err != nil {
+			return fmt.Errorf("failed to upload attachment to WhatsApp: %v", err)
+		}
+
+		log.Printf("[WhatsApp] Upload success: URL=%s, DirectPath=%s, RespLength=%d", resp.URL, resp.DirectPath, resp.FileLength)
+
+		rawLength := uint64(len(fileBytes))
+
+		if mediaType == whatsmeow.MediaImage {
+			msg = &waE2E.Message{
+				ImageMessage: &waE2E.ImageMessage{
+					URL:           proto.String(resp.URL),
+					DirectPath:    proto.String(resp.DirectPath),
+					Mimetype:      proto.String(mimeType),
+					FileSHA256:    resp.FileSHA256,
+					FileEncSHA256: resp.FileEncSHA256,
+					MediaKey:      resp.MediaKey,
+					FileLength:    proto.Uint64(rawLength),
+					Caption:       proto.String(message),
+				},
+			}
+		} else {
+			msg = &waE2E.Message{
+				DocumentMessage: &waE2E.DocumentMessage{
+					URL:           proto.String(resp.URL),
+					DirectPath:    proto.String(resp.DirectPath),
+					Mimetype:      proto.String(mimeType),
+					FileSHA256:    resp.FileSHA256,
+					FileEncSHA256: resp.FileEncSHA256,
+					MediaKey:      resp.MediaKey,
+					FileLength:    proto.Uint64(rawLength),
+					FileName:      proto.String(filename),
+					Title:         proto.String(filename),
+					Caption:       proto.String(message),
+				},
+			}
+		}
+	} else {
+		// Fallback to text message
+		msg = &waE2E.Message{
+			Conversation: proto.String(message),
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	_, err := WAClient.SendMessage(ctx, recipientJID, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %v", err)
+	}
+
+	log.Printf("WhatsApp message with attachment sent successfully to %s", cleaned)
 	return nil
 }
 

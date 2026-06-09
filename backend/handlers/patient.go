@@ -86,6 +86,8 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	input.Name = CapitalizeName(input.Name)
+
 	query := `INSERT INTO patients (doctor_id, name, phone, gender, age, medical_history) 
 	          VALUES ($1, $2, $3, $4, $5, $6) 
 	          RETURNING id, created_at`
@@ -97,6 +99,8 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}
+
+	db.InvalidateCache(r.Context(), "patients:list:"+strconv.Itoa(doctorID)+":*")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":              id,
@@ -137,6 +141,13 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	cacheKey := "patients:list:" + strconv.Itoa(doctorID) + ":" + strconv.Itoa(limit) + ":" + strconv.Itoa(offset)
+	var cachedPatients []Patient
+	if db.GetCache(r.Context(), cacheKey, &cachedPatients) {
+		writeJSON(w, http.StatusOK, cachedPatients)
+		return
+	}
+
 	query := `
 		SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
 		       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
@@ -168,6 +179,8 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		patients = append(patients, p)
 	}
 
+	db.SetCache(r.Context(), cacheKey, patients, 10*time.Minute)
+
 	writeJSON(w, http.StatusOK, patients)
 }
 
@@ -187,6 +200,13 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	cacheKey := "patient:detail:" + strconv.Itoa(doctorID) + ":" + strconv.Itoa(id)
+	var cachedData map[string]interface{}
+	if db.GetCache(ctx, cacheKey, &cachedData) {
+		writeJSON(w, http.StatusOK, cachedData)
+		return
+	}
 
 	// Load patient info
 	var p Patient
@@ -252,9 +272,12 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 		apptsList = append(apptsList, a)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	responseData := map[string]interface{}{
 		"patient":      p,
-		"contracts":    billsList, // Keep "contracts" key for compatibility with existing dashboard code
+		"contracts":    billsList,
 		"appointments": apptsList,
-	})
+	}
+	db.SetCache(ctx, cacheKey, responseData, 10*time.Minute)
+
+	writeJSON(w, http.StatusOK, responseData)
 }

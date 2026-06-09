@@ -670,6 +670,8 @@ export default function Dashboard() {
       }
       if (billFile) {
         formData.append("invoice", billFile);
+      } else {
+        formData.append("skip_whatsapp", "true");
       }
 
       const res = await fetchAPI("/api/bills", {
@@ -677,7 +679,63 @@ export default function Dashboard() {
         body: formData
       });
 
-      setToast({ message: "Bill composted and WhatsApp notification scheduled", type: "success" });
+      if (!billFile && res.bill_id) {
+        try {
+          const patient = patients.find(p => p.id.toString() === billPatientId);
+          const patientName = patient ? patient.name : "Patient";
+          const patientPhone = patient ? patient.phone : "";
+          const detail: BillDetail = {
+            bill: {
+              id: res.bill_id,
+              patient_id: parseInt(billPatientId),
+              patient_name: patientName,
+              patient_phone: patientPhone,
+              doctor_id: 0,
+              clinic_name: doctorInfo?.clinic_name || "ClinicFlow",
+              description: billDesc,
+              total_amount: res.total_amount,
+              remaining_amount: res.remaining_amount,
+              status: res.status,
+              promised_due_date: billDueDate,
+              invoice_url: null,
+              created_at: res.created_at || new Date().toISOString(),
+              notified: false
+            },
+            items: billItems.map((item, index) => ({
+              id: index,
+              bill_id: res.bill_id,
+              item_name: item.item_name,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              dosage: item.dosage
+            })),
+            payments: billAmountPaid ? [{
+              id: 0,
+              contract_id: res.bill_id,
+              amount_paid: parseFloat(billAmountPaid),
+              payment_mode: billPayMode,
+              remarks: billPayRemarks,
+              payment_date: res.created_at || new Date().toISOString()
+            }] : []
+          };
+
+          const doc = buildInvoicePDF(detail);
+          const pdfBlob = doc.output("blob");
+
+          const uploadForm = new FormData();
+          uploadForm.append("bill_id", res.bill_id.toString());
+          uploadForm.append("invoice", pdfBlob, `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`);
+
+          await fetchAPI("/api/bills/upload-invoice", {
+            method: "POST",
+            body: uploadForm
+          });
+        } catch (uploadErr) {
+          console.error("Failed to upload auto-generated invoice PDF:", uploadErr);
+        }
+      }
+
+      setToast({ message: "Bill created and WhatsApp receipt sent successfully!", type: "success" });
       setBillPatientId("");
       setBillDesc("");
       setBillDueDate("");
@@ -782,7 +840,7 @@ export default function Dashboard() {
     }
   };
 
-  const generateInvoicePDF = (detail: BillDetail) => {
+  const buildInvoicePDF = (detail: BillDetail): jsPDF => {
     const doc = new jsPDF();
     const { bill, items, payments } = detail;
 
@@ -860,7 +918,12 @@ export default function Dashboard() {
     doc.setTextColor(148, 163, 184);
     doc.text("Thank you for visiting. Please maintain regular follow-ups.", 20, y);
 
-    doc.save(`Invoice_${bill.patient_name.replace(/\s+/g, "_")}_${bill.id}.pdf`);
+    return doc;
+  };
+
+  const generateInvoicePDF = (detail: BillDetail) => {
+    const doc = buildInvoicePDF(detail);
+    doc.save(`Invoice_${detail.bill.patient_name.replace(/\s+/g, "_")}_${detail.bill.id}.pdf`);
   };
 
   // --- SVG Charts Draw Helpers ---
@@ -1223,7 +1286,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
                     <FloatingPanelTrigger
                       title="Register New Patient"
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Register Patient</span>
@@ -1320,9 +1383,9 @@ export default function Dashboard() {
                             <tr
                               key={pt.id}
                               onClick={() => setViewState({ type: "patient", patientId: pt.id })}
-                              className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition cursor-pointer"
+                              className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
                             >
-                              <td className="px-6 py-4 font-black text-sm">{pt.name}</td>
+                              <td className="px-6 py-4 font-normal text-sm">{pt.name}</td>
                               <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{pt.phone}</td>
                               <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{pt.age} yrs / {pt.gender}</td>
                               <td className="px-6 py-4 text-slate-400 truncate max-w-xs">{pt.medical_history || "No logs"}</td>
@@ -1353,7 +1416,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen}>
                     <FloatingPanelTrigger
                       title="Book Appointment"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Book Appointment</span>
@@ -1428,11 +1491,11 @@ export default function Dashboard() {
                       <tbody>
                         {appointments.length > 0 ? (
                           appointments.map((ap) => (
-                            <tr key={ap.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
+                            <tr key={ap.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
                               <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
                                 {new Date(ap.appointment_date).toLocaleString()}
                               </td>
-                              <td className="px-6 py-4 font-black text-sm">{ap.patient_name}</td>
+                              <td className="px-6 py-4 font-normal text-sm">{ap.patient_name}</td>
                               <td className="px-6 py-4 text-slate-400">{ap.reason || "General Consult"}</td>
                               <td className="px-6 py-4">
                                 <span
@@ -1492,7 +1555,7 @@ export default function Dashboard() {
                   <FloatingPanelRoot isOpen={isCreateBillOpen} onOpenChange={setIsCreateBillOpen}>
                     <FloatingPanelTrigger
                       title="Generate Bill & Prescription"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
                       <span>Compose Bill & Prescription</span>
@@ -1754,12 +1817,12 @@ export default function Dashboard() {
                             <tr
                               key={bill.id}
                               onClick={() => setViewState({ type: "bill", billId: bill.id })}
-                              className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition cursor-pointer"
+                              className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
                             >
                               <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
                                 {new Date(bill.created_at).toLocaleDateString()}
                               </td>
-                              <td className="px-6 py-4 font-black">{bill.patient_name}</td>
+                              <td className="px-6 py-4 font-normal">{bill.patient_name}</td>
                               <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{bill.description}</td>
                               <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
                                 ₹{bill.total_amount.toFixed(2)}
@@ -1939,7 +2002,7 @@ export default function Dashboard() {
                           filteredMedicines.map((med) => {
                             const isEditing = editingMedId === med.id;
                             return (
-                              <tr key={med.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
+                              <tr key={med.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
                                 <td className="px-6 py-4 font-black text-sm">
                                   {isEditing ? (
                                     <input
@@ -2535,7 +2598,7 @@ export default function Dashboard() {
                             currentPatientData.contracts.map((bill) => (
                               <tr
                                 key={bill.id}
-                                className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition cursor-pointer"
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
                                 onClick={() => setViewState({ type: "bill", billId: bill.id })}
                               >
                                 <td className="px-4 py-3 font-bold">#INV-{bill.id}</td>

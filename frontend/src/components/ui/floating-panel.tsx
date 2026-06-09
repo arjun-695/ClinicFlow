@@ -12,7 +12,6 @@ import { AnimatePresence, MotionConfig, Variants, motion } from "framer-motion"
 import { ArrowLeftIcon } from "lucide-react"
 
 import { cn } from "../../utils/cn"
-import { MetalButton } from "./metal-button"
 
 const TRANSITION = {
   type: "spring" as const,
@@ -121,7 +120,7 @@ export function FloatingPanelTrigger({
   title,
 }: FloatingPanelTriggerProps) {
   const { openFloatingPanel, uniqueId, setTitle } = useFloatingPanel()
-  const triggerRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const handleClick = () => {
     if (triggerRef.current) {
@@ -131,17 +130,19 @@ export function FloatingPanelTrigger({
   }
 
   return (
-    <MetalButton
+    <button
       ref={triggerRef}
-      preset="silver"
-      ringCssPx={2}
+      type="button"
       onClick={handleClick}
-      className={cn("border-none text-xs font-bold rounded-2xl h-auto py-2 px-4 shadow-md leading-none", className)}
+      className={cn(
+        "inline-flex h-auto items-center rounded-2xl border border-zinc-900 bg-zinc-950 px-4 py-2 text-xs font-bold leading-none text-white shadow-md transition-colors hover:bg-primary hover:border-primary hover:text-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-zinc-700 dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:border-primary dark:hover:text-black",
+        className
+      )}
       aria-haspopup="dialog"
       aria-expanded={false}
     >
       {children}
-    </MetalButton>
+    </button>
   )
 }
 

@@ -164,6 +164,9 @@ func main() {
 	db.InitDB()
 	defer db.Pool.Close()
 
+	// Initialize Redis Cache
+	db.InitRedis()
+
 
 
 	// Initialize whatsmeow WhatsApp client
@@ -202,6 +205,7 @@ func main() {
 
 	// Bills / Contracts (Aliases)
 	mux.HandleFunc("POST /api/bills", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.CreateBill)))
+	mux.HandleFunc("POST /api/bills/upload-invoice", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.UploadInvoice)))
 	mux.HandleFunc("GET /api/bills/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetBillDetails)))
 	mux.HandleFunc("GET /api/bills", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListBills)))
 	mux.HandleFunc("POST /api/contracts", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.CreateBill)))
@@ -241,8 +245,13 @@ func main() {
 		port = "8080"
 	}
 
+	addr := ":" + port
+	if strings.Contains(port, ":") {
+		addr = port
+	}
+
 	server := &http.Server{
-		Addr:         ":" + port,
+		Addr:         addr,
 		Handler:      corsMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
