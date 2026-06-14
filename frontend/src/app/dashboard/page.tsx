@@ -274,6 +274,17 @@ export default function Dashboard() {
 
   const checkAuthSession = async () => {
     try {
+      // Check if there is a medplum_token in the URL (from Google OAuth redirect)
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const urlToken = params.get("medplum_token");
+        if (urlToken) {
+          localStorage.setItem("medplum_access_token", urlToken);
+          // Clean up the URL query parameters to keep it clean
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+
       const data = await fetchAPI("/api/auth/session");
       if (data.status === "Authenticated") {
         setIsAuthenticated(true);
@@ -538,6 +549,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     try {
+      localStorage.removeItem("medplum_access_token");
       await fetchAPI("/api/auth/logout");
       setIsAuthenticated(false);
       router.push("/");

@@ -102,6 +102,11 @@ export default function AuthForm({ variant }: Props) {
         });
 
         if (resData.user) {
+          if (resData.medplum_token) {
+            localStorage.setItem("medplum_access_token", resData.medplum_token);
+          } else {
+            localStorage.removeItem("medplum_access_token");
+          }
           router.push("/dashboard");
         } else {
           setError("Failed to sign in. Please try again.");

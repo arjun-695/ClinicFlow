@@ -16,6 +16,11 @@ import (
 
 // StartWorker runs the background cron checker loop
 func StartWorker(ctx context.Context) {
+	if strings.ToLower(os.Getenv("DISABLE_NOTIFICATION_WORKER")) == "true" {
+		log.Println("Background clinic notification worker is disabled via environment variable.")
+		return
+	}
+
 	intervalStr := os.Getenv("WORKER_INTERVAL_MINUTES")
 	interval := 30 * time.Minute
 	if intervalStr != "" {

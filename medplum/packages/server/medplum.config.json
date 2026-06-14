@@ -1,0 +1,34 @@
+{
+  "port": 8103,
+  "baseUrl": "http://127.0.0.1:8103/",
+  "appBaseUrl": "http://127.0.0.1:3000/",
+  "binaryStorage": "file:./binary/",
+  "storageBaseUrl": "http://127.0.0.1:8103/storage/",
+  "supportEmail": "\"Medplum\" <support@medplum.com>",
+  "googleClientId": "692740282792-v1qvignpom85om3u5sgrq7nqggvlthpi.apps.googleusercontent.com",
+  "googleClientSecret": "",
+  "recaptchaSiteKey": "6LfHdsYdAAAAAC0uLnnRrDrhcXnziiUwKd8VtLNq",
+  "recaptchaSecretKey": "6LfHdsYdAAAAAH9dN154jbJ3zpQife3xaiTvPChL",
+  "botLambdaRoleArn": "",
+  "botLambdaLayerName": "medplum-bot-layer",
+  "vmContextBotsEnabled": true,
+  "defaultBotRuntimeVersion": "vmcontext",
+  "allowedOrigins": "*",
+  "introspectionEnabled": true,
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "dbname": "medplum",
+    "username": "medplum",
+    "password": "medplum"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379
+  },
+  "bullmq": {
+    "removeOnFail": { "count": 1 },
+    "removeOnComplete": { "count": 1 }
+  },
+  "shutdownTimeoutMilliseconds": 30000
+}

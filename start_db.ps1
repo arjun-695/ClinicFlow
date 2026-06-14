@@ -1,6 +1,6 @@
 # start_db.ps1
 $PG_DIR = "C:\Program Files\PostgreSQL\18"
-$DATA_DIR = "c:\Users\tando\Desktop\khataFlow\db_data"
+$DATA_DIR = "$PSScriptRoot\db_data"
 
 # Check if PostgreSQL bin exists
 if (-not (Test-Path "$PG_DIR\bin\initdb.exe")) {

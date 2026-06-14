@@ -290,24 +290,75 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try Medplum authentication fallback helper first if local user is not found,
+	// has no local password hash, or local password validation fails.
+	runMedplumFallback := func() bool {
+		medID, medName, medClinic, medPhone, medToken, medErr := TryMedplumLogin(r.Context(), input.Email, input.Password)
+		if medErr == nil {
+			token := CreateSessionToken(medID)
+			http.SetCookie(w, &http.Cookie{
+				Name:     "auth_session",
+				Value:    token,
+				Path:     "/",
+				MaxAge:   86400, // 24 hours
+				HttpOnly: true,
+				Secure:   isSecureCookie(),
+				SameSite: http.SameSiteLaxMode,
+			})
+
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"message":       "Logged in successfully via Medplum",
+				"medplum_token": medToken,
+				"user": map[string]interface{}{
+					"id":          medID,
+					"email":       input.Email,
+					"name":        medName,
+					"clinic_name": medClinic,
+					"shop_name":   medClinic,
+					"phone":       medPhone,
+				},
+			})
+			return true
+		}
+		return false
+	}
+
 	var id int
 	var passwordHash string
 	var name, clinicName, phone string
+	var googleID string
 
-	query := `SELECT id, password_hash, name, clinic_name, phone FROM doctors WHERE email = $1`
-	err := db.Pool.QueryRow(r.Context(), query, input.Email).Scan(&id, &passwordHash, &name, &clinicName, &phone)
+	query := `SELECT id, password_hash, name, clinic_name, phone, google_id FROM doctors WHERE email = $1`
+	err := db.Pool.QueryRow(r.Context(), query, input.Email).Scan(&id, &passwordHash, &name, &clinicName, &phone, &googleID)
 	if err != nil {
+		// Local doctor not found - try Medplum
+		if runMedplumFallback() {
+			return
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
 
-	if passwordHash == "" {
+	if googleID != "" && passwordHash == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "This account uses Google Sign-In. Please log in with Google."})
+		return
+	}
+
+	if passwordHash == "" {
+		// Medplum-provisioned user (no local password hash) - try Medplum
+		if runMedplumFallback() {
+			return
+		}
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(input.Password))
 	if err != nil {
+		// Local password validation failed - fallback to Medplum check (just in case they updated password in Medplum)
+		if runMedplumFallback() {
+			return
+		}
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
 		return
 	}
@@ -539,6 +590,12 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Try to authenticate/register in Medplum using the Google ID Token
+	medToken, medErr := TryMedplumGoogleLogin(r.Context(), tokenResponse.IDToken)
+	if medErr != nil {
+		log.Printf("Medplum Google login failed: %v", medErr)
+	}
+
 	// Login and set session cookie
 	token := CreateSessionToken(id)
 	http.SetCookie(w, &http.Cookie{
@@ -552,7 +609,11 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Redirect back to frontend dashboard
-	http.Redirect(w, r, frontendOrigin+"/dashboard", http.StatusSeeOther)
+	redirectURL := frontendOrigin + "/dashboard"
+	if medToken != "" {
+		redirectURL += "?medplum_token=" + medToken
+	}
+	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
 // UpdateProfile updates the profile information for the doctor

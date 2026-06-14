@@ -94,20 +94,57 @@ var (
 // --- Auth Middleware ---
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie("auth_session")
-		if err != nil {
+		var token string
+
+		// 1. Try to extract bearer token from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		// 2. Fallback to auth_session cookie
+		if token == "" {
+			cookie, err := r.Cookie("auth_session")
+			if err == nil {
+				token = cookie.Value
+			}
+		}
+
+		if token == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication required"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "Authentication token required"})
 			return
 		}
 
-		shopkeeperID, err := handlers.ValidateSessionToken(cookie.Value)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
-			return
+		var shopkeeperID int
+		var err error
+
+		// Heuristic: JWTs contain two dots separating header, payload, and signature.
+		// Legacy sessions are fully base64-encoded and contain no dots on the outside.
+		if strings.Count(token, ".") == 2 {
+			claims, errVal := handlers.ValidateMedplumToken(token)
+			if errVal != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Invalid Medplum token: " + errVal.Error()})
+				return
+			}
+			shopkeeperID, err = handlers.GetOrCreateDoctorFromClaims(r.Context(), claims)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Medplum user mapping failed: " + err.Error()})
+				return
+			}
+		} else {
+			shopkeeperID, err = handlers.ValidateSessionToken(token)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
+				return
+			}
 		}
 
 		ctx := context.WithValue(r.Context(), handlers.ShopkeeperIDKey, shopkeeperID)
@@ -290,7 +327,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 			allowedOrigin = "http://localhost:3000"
 		}
 
-		isAllowed := origin == allowedOrigin || origin == "http://localhost:3000" || origin == "http://localhost:3001"
+		isAllowed := origin == allowedOrigin || 
+			origin == "http://localhost:3000" || 
+			origin == "http://localhost:3001" || 
+			origin == "http://127.0.0.1:3000" || 
+			origin == "http://127.0.0.1:3001" || 
+			strings.HasSuffix(origin, ":3000") || 
+			strings.HasSuffix(origin, ":3001")
 
 		if isAllowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)

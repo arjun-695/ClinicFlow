@@ -1,0 +1,2443 @@
+// SPDX-FileCopyrightText: Copyright Orangebot, Inc. and Medplum contributors
+// SPDX-License-Identifier: Apache-2.0
+import type { WithId } from '@medplum/core';
+import {
+  allOk,
+  badRequest,
+  created,
+  createReference,
+  getReferenceString,
+  isOk,
+  normalizeErrorString,
+  notFound,
+  OperationOutcomeError,
+  Operator,
+  parseSearchRequest,
+  preconditionFailed,
+} from '@medplum/core';
+import type {
+  Binary,
+  BundleEntry,
+  Login,
+  OperationOutcome,
+  Organization,
+  Patient,
+  Practitioner,
+  Project,
+  ProjectMembership,
+  Questionnaire,
+  ResearchDefinition,
+  ResourceType,
+  ServiceRequest,
+  User,
+  UserConfiguration,
+} from '@medplum/fhirtypes';
+import { randomBytes, randomUUID } from 'crypto';
+import type { PoolClient } from 'pg';
+import { initAppServices, shutdownApp } from '../app';
+import { getConfig, loadTestConfig } from '../config/loader';
+import { r4ProjectId, systemResourceProjectId } from '../constants';
+import { DatabaseMode } from '../database';
+import { getLogger } from '../logger';
+import * as otelModule from '../otel/otel';
+import { bundleContains, createTestProject, withTestContext } from '../test.setup';
+import { AuditEventOutcome, createAuditEvent, ReadInteraction, RestfulOperationType } from '../util/auditevent';
+import * as workersModule from '../workers';
+import { getRepoForLogin } from './accesspolicy';
+import { getGlobalSystemRepo, getProjectSystemRepo, getShardSystemRepo, Repository } from './repo';
+import { RepositoryConnection } from './repository/repository-connection';
+import { TransactionIdleTracker } from './repository/transaction-idle-tracker';
+import { PostgresError, SelectQuery } from './sql';
+import * as tokenColumnModule from './token-column';
+
+jest.mock('hibp');
+
+describe('FHIR Repo', () => {
+  const globalSystemRepo = getGlobalSystemRepo();
+  let testProject: WithId<Project>;
+
+  let testProjectRepo: Repository;
+  let systemRepo: Repository;
+
+  beforeAll(async () => {
+    const config = await loadTestConfig();
+    await initAppServices(config);
+
+    testProject = await globalSystemRepo.createResource({
+      resourceType: 'Project',
+      id: randomUUID(),
+    });
+    systemRepo = await getProjectSystemRepo(testProject);
+    testProjectRepo = new Repository({
+      projects: [testProject],
+      extendedMode: true,
+      author: {
+        reference: 'Practitioner/' + randomUUID(),
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await shutdownApp();
+  });
+
+  function setIdleInTransactionLogThresholdMs(thresholdMs: number | undefined): () => void {
+    const config = getConfig();
+    const previousThresholdMs = config.idleInTransactionLogThresholdMs;
+    config.idleInTransactionLogThresholdMs = thresholdMs;
+    return () => {
+      config.idleInTransactionLogThresholdMs = previousThresholdMs;
+    };
+  }
+
+  test('getRepoForLogin', async () => {
+    await expect(
+      getRepoForLogin({
+        login: { resourceType: 'Login' } as Login,
+        membership: {
+          resourceType: 'ProjectMembership',
+          project: createReference(testProject),
+          profile: { display: 'Fake profile' },
+        } as WithId<ProjectMembership>,
+        project: testProject,
+        userConfig: {} as UserConfiguration,
+      })
+    ).rejects.toThrow('Invalid reference');
+  });
+
+  test('Read resource with undefined id', async () => {
+    try {
+      await systemRepo.readResource('Patient', undefined as unknown as string);
+      fail('Should have thrown');
+    } catch (err) {
+      const outcome = (err as OperationOutcomeError).outcome;
+      expect(isOk(outcome)).toBe(false);
+    }
+  });
+
+  test('Read resource with blank id', async () => {
+    try {
+      await systemRepo.readResource('Patient', '');
+      fail('Should have thrown');
+    } catch (err) {
+      const outcome = (err as OperationOutcomeError).outcome;
+      expect(isOk(outcome)).toBe(false);
+    }
+  });
+
+  test('Read resource with invalid id', async () => {
+    try {
+      await systemRepo.readResource('Patient', 'x');
+      fail('Should have thrown');
+    } catch (err) {
+      const outcome = (err as OperationOutcomeError).outcome;
+      expect(isOk(outcome)).toBe(false);
+    }
+  });
+
+  test('Read invalid resource with `checkCacheOnly` set', async () => {
+    await expect(systemRepo.readResource('Subscription', randomUUID(), { checkCacheOnly: true })).rejects.toThrow(
+      new OperationOutcomeError(notFound)
+    );
+  });
+
+  test('Read AuditEvent after update', async () => {
+    const projectId = randomUUID();
+    const resource = await systemRepo.createResource({ resourceType: 'Patient', meta: { project: projectId } });
+    const data = createAuditEvent(
+      RestfulOperationType,
+      ReadInteraction,
+      projectId,
+      undefined,
+      undefined,
+      AuditEventOutcome.Success,
+      { resource }
+    );
+
+    let auditEvent = await systemRepo.createResource(data);
+    // Read resource to load into cache
+    auditEvent = await systemRepo.readResource('AuditEvent', auditEvent.id);
+
+    const updatedEvent = await systemRepo.updateResource({ ...auditEvent, outcomeDesc: 'foo' });
+    expect(updatedEvent.outcomeDesc).not.toStrictEqual(auditEvent.outcomeDesc);
+
+    // Re-read resource; should get the updated data
+    auditEvent = await systemRepo.readResource('AuditEvent', auditEvent.id);
+    expect(updatedEvent.outcomeDesc).toStrictEqual(auditEvent.outcomeDesc);
+  });
+
+  test('Repo read malformed reference', async () => {
+    try {
+      await systemRepo.readReference({ reference: undefined });
+      fail('Should have thrown');
+    } catch (err) {
+      expect((err as OperationOutcome).id).not.toBe('ok');
+    }
+
+    try {
+      await systemRepo.readReference({ reference: '' });
+      fail('Should have thrown');
+    } catch (err) {
+      expect((err as OperationOutcome).id).not.toBe('ok');
+    }
+
+    try {
+      await systemRepo.readReference({ reference: '////' });
+      fail('Should have thrown');
+    } catch (err) {
+      expect((err as OperationOutcome).id).not.toBe('ok');
+    }
+
+    try {
+      await systemRepo.readReference({ reference: 'Patient/123/foo' });
+      fail('Should have thrown');
+    } catch (err) {
+      expect((err as OperationOutcome).id).not.toBe('ok');
+    }
+  });
+
+  test('Read references with various reference shapes', async () => {
+    const patient = await systemRepo.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [{ given: ['ReadReferences'], family: 'ReadReferences' }],
+    });
+    const references = [
+      { reference: undefined },
+      { reference: '' },
+      { reference: 'Patient/' + patient.id },
+      { display: 'test' },
+      { reference: 'Patient/' + patient.id },
+      { resource: patient },
+    ];
+    const results = await systemRepo.readReferences(references);
+    if (!Array.isArray(results)) {
+      throw new Error('Should have returned an array');
+    }
+
+    expect(results).toHaveLength(6);
+    expect((results[0] as OperationOutcomeError).outcome.id).toBe('not-found');
+    expect((results[1] as OperationOutcomeError).outcome.id).toBe('not-found');
+    expect((results[2] as WithId<Patient>).id).toBe(patient.id);
+    expect((results[3] as OperationOutcomeError).outcome.id).toBe('not-found');
+    expect((results[4] as WithId<Patient>).id).toBe(patient.id);
+    expect((results[5] as OperationOutcomeError).outcome.id).toBe('not-found');
+  });
+
+  describe('Read history', () => {
+    const versions: Record<string, WithId<Patient>> = {};
+
+    beforeAll(async () =>
+      withTestContext(async () => {
+        versions.v1 = await systemRepo.createResource<Patient>({
+          resourceType: 'Patient',
+          meta: {
+            lastUpdated: new Date(Date.now() - 1000 * 60).toISOString(),
+          },
+        });
+        expect(versions.v1.id).toBeDefined();
+
+        versions.v2 = await systemRepo.updateResource<Patient>({
+          resourceType: 'Patient',
+          id: versions.v1.id,
+          active: true,
+          meta: {
+            lastUpdated: new Date().toISOString(),
+          },
+        });
+
+        expect(versions.v2.id).toStrictEqual(versions.v1.id);
+        expect(versions.v2.meta?.versionId).not.toStrictEqual(versions.v1.meta?.versionId);
+      })
+    );
+
+    test.each([
+      ['no options', {}, ['v2', 'v1']],
+      ['limit', { limit: 1 }, ['v2']],
+      ['offset', { offset: 1 }, ['v1']],
+      ['limit and offset', { limit: 1, offset: 1 }, ['v1']],
+      ['negative offset', { offset: -1 }, ['v2', 'v1']],
+      ['large offset', { offset: 10000 }, []],
+      ['negative limit', { limit: -1 }, ['v2', 'v1']],
+      ['large limit', { limit: 100000 }, ['v2', 'v1']],
+    ])('options: %s', async (_, options, expected) => {
+      const history = await systemRepo.readHistory('Patient', versions.v1.id, options);
+      if (expected.length === 0) {
+        expect(history).toBeDefined();
+        expect(history.entry?.length).toBe(0);
+      } else {
+        expect(history).toBeDefined();
+        expect(history.entry?.length).toBe(expected.length);
+        for (let i = 0; i < expected.length; i++) {
+          expect(history.entry?.[i]?.resource?.id).toBe(versions[expected[i]].id);
+        }
+      }
+    });
+
+    test('with config.maxSearchOffset', async () => {
+      const prevMax = getConfig().maxSearchOffset;
+      getConfig().maxSearchOffset = 200;
+      try {
+        await systemRepo.readHistory('Patient', versions.v1.id, { offset: 300 });
+        throw new Error('Expected to throw');
+      } catch (err) {
+        expect(normalizeErrorString(err)).toStrictEqual('Search offset exceeds maximum (got 300, max 200)');
+      } finally {
+        getConfig().maxSearchOffset = prevMax;
+      }
+    });
+  });
+
+  test('Update patient', () =>
+    withTestContext(async () => {
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Update1'], family: 'Update1' }],
+      });
+
+      const patient2 = await systemRepo.updateResource<Patient>({
+        ...(patient1 as Patient),
+        active: true,
+      });
+
+      expect(patient2.id).toStrictEqual(patient1.id);
+      expect(patient2.meta?.versionId).not.toStrictEqual(patient1.meta?.versionId);
+    }));
+
+  test('Update patient remove meta.profile', () =>
+    withTestContext(async () => {
+      const profileUrl = 'http://example.com/patient-profile';
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        meta: { profile: [profileUrl] },
+        name: [{ given: ['Update1'], family: 'Update1' }],
+      });
+      expect(patient1.meta?.profile).toStrictEqual(expect.arrayContaining([profileUrl]));
+      expect(patient1.meta?.profile?.length).toStrictEqual(1);
+
+      const patientWithoutProfile = { ...patient1 };
+      delete (patientWithoutProfile.meta as any).profile;
+      const patient2 = await systemRepo.updateResource<Patient>(patientWithoutProfile);
+      expect('profile' in (patient2.meta as any)).toBe(false);
+    }));
+
+  test('meta.project preserved after attempting to remove it', () =>
+    withTestContext(async () => {
+      const { project, repo } = await createTestProject({ withClient: true, withRepo: true });
+
+      const patient1 = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Update1'], family: 'Update1' }],
+      });
+      expect(patient1.meta?.project).toBeDefined();
+      expect(patient1.meta?.project).toStrictEqual(project.id);
+
+      const patientWithoutProject = { ...patient1 };
+      delete (patientWithoutProject.meta as any).project;
+      const patient2 = await systemRepo.updateResource<Patient>(patientWithoutProject);
+      expect(patient2.meta?.project).toBeDefined();
+      expect(patient2.meta?.project).toStrictEqual(project.id);
+    }));
+
+  test('Update patient no changes', () =>
+    withTestContext(async () => {
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Update1'], family: 'Update1' }],
+      });
+
+      const patient2 = await systemRepo.updateResource({
+        ...(patient1 as Patient),
+      });
+
+      expect(patient2.id).toStrictEqual(patient1.id);
+      expect(patient2.meta?.versionId).toStrictEqual(patient1.meta?.versionId);
+    }));
+
+  test('Update patient multiple names', () =>
+    withTestContext(async () => {
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Suzy'], family: 'Smith' }],
+      });
+
+      const patient2 = await systemRepo.updateResource<Patient>({
+        ...(patient1 as Patient),
+        name: [
+          { given: ['Suzy'], family: 'Smith' },
+          { given: ['Suzy'], family: 'Jones' },
+        ],
+      });
+
+      expect(patient2.id).toStrictEqual(patient1.id);
+      expect(patient2.meta?.versionId).not.toStrictEqual(patient1.meta?.versionId);
+      expect(patient2.name?.length).toStrictEqual(2);
+      expect(patient2.name?.[0]?.family).toStrictEqual('Smith');
+      expect(patient2.name?.[1]?.family).toStrictEqual('Jones');
+    }));
+
+  test('Create Patient with custom ID', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+
+    await withTestContext(async () => {
+      // Try to "update" a resource, which does not exist.
+      // Some FHIR systems allow users to set ID's.
+      // We do not.
+      try {
+        await repo.updateResource<Patient>({
+          resourceType: 'Patient',
+          id: randomUUID(),
+          name: [{ given: ['Alice'], family: 'Smith' }],
+        });
+      } catch (err) {
+        const outcome = (err as OperationOutcomeError).outcome;
+        expect(outcome.id).toStrictEqual('not-found');
+      }
+    });
+  });
+
+  test('Create Patient with no author', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+      });
+
+      expect(patient.meta?.author?.reference).toStrictEqual('system');
+    }));
+
+  test('Create Patient as system on behalf of author', () =>
+    withTestContext(async () => {
+      const author = 'Practitioner/' + randomUUID();
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+        meta: {
+          author: {
+            reference: author,
+          },
+        },
+      });
+
+      expect(patient.meta?.author?.reference).toStrictEqual(author);
+    }));
+
+  test('Create Patient as ClientApplication with no author', () =>
+    withTestContext(async () => {
+      const { client, repo } = await createTestProject({ withClient: true, withRepo: true });
+      const addBackgroundJobsSpy = jest.spyOn(workersModule, 'addBackgroundJobs').mockResolvedValue(undefined);
+      try {
+        const patient = await repo.createResource<Patient>({
+          resourceType: 'Patient',
+          name: [{ given: ['Alice'], family: 'Smith' }],
+          identifier: [],
+        });
+
+        expect(patient.meta?.author?.reference).toStrictEqual(getReferenceString(client));
+
+        expect(addBackgroundJobsSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            resourceType: 'Patient',
+            id: patient.id,
+          }),
+          undefined,
+          expect.objectContaining({
+            interaction: 'create',
+            project: expect.objectContaining({
+              id: patient.meta?.project,
+            }),
+          })
+        );
+
+        // empty identifier array should removed when read from cache
+        const readPatient = await repo.readResource<Patient>('Patient', patient.id, { checkCacheOnly: true });
+        expect(readPatient.identifier).toBeUndefined();
+      } finally {
+        addBackgroundJobsSpy.mockRestore();
+      }
+    }));
+
+  test('Create Patient as Practitioner with no author', () =>
+    withTestContext(async () => {
+      const author = 'Practitioner/' + randomUUID();
+
+      const repo = new Repository({
+        extendedMode: true,
+        author: {
+          reference: author,
+        },
+      });
+
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+      });
+
+      expect(patient.meta?.author?.reference).toStrictEqual(author);
+    }));
+
+  test('Create Patient as Practitioner on behalf of author', () =>
+    withTestContext(async () => {
+      const author = 'Practitioner/' + randomUUID();
+      const fakeAuthor = 'Practitioner/' + randomUUID();
+
+      const repo = new Repository({
+        extendedMode: true,
+        author: {
+          reference: author,
+        },
+      });
+
+      // We are acting as a Practitioner
+      // Practitioner does *not* have the right to set the author
+      // So even though we pass in an author,
+      // We expect the Practitioner to be in the result.
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+        meta: {
+          author: {
+            reference: fakeAuthor,
+          },
+        },
+      });
+
+      expect(patient.meta?.author?.reference).toStrictEqual(author);
+    }));
+
+  test('Skip background jobs when configured', () =>
+    withTestContext(async () => {
+      const { project } = await createTestProject();
+
+      const repo = new Repository({
+        projects: [project],
+        currentProject: project,
+        extendedMode: true,
+        skipBackgroundJobs: true,
+        author: {
+          reference: 'Practitioner/' + randomUUID(),
+        },
+      });
+
+      expect(repo.getSystemRepo().getConfig().skipBackgroundJobs).toBe(true);
+      expect(
+        getShardSystemRepo('test-shard', undefined, { skipBackgroundJobs: true }).getConfig().skipBackgroundJobs
+      ).toBe(true);
+
+      const addBackgroundJobsSpy = jest.spyOn(workersModule, 'addBackgroundJobs').mockResolvedValue(undefined);
+      // Check that createResource, updateResource, and deleteResource all skip addBackgroundJobs.
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+      });
+
+      await repo.updateResource<Patient>({
+        ...patient,
+        active: true,
+      });
+
+      await repo.deleteResource('Patient', patient.id);
+
+      expect(addBackgroundJobsSpy).not.toHaveBeenCalled();
+      addBackgroundJobsSpy.mockRestore();
+    }));
+
+  test('Create resource with lastUpdated', () =>
+    withTestContext(async () => {
+      const lastUpdated = '2020-01-01T12:00:00Z';
+
+      // System systemRepo has the ability to write custom timestamps
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+        meta: {
+          lastUpdated,
+        },
+      });
+
+      expect(patient.meta?.lastUpdated).toStrictEqual(lastUpdated);
+    }));
+
+  const fourByteChars = '𓃒𓃔𓃕𓃖𓃗𓃘𓃙𓃚𓃛𓃜𓃝𓃞𓃟𓃠𓃡𓃢𓃥𓃦𓃧𓃩𓃪𓃭𓃮𓃯𓃰𓃱𓃲𓄁𓅂𓅃𓅠𓅚';
+  test.each([
+    ['2736 chars, 2736 random bytes', randomBytes(2050).toString('base64')],
+    ['6668 chars, 6668 random bytes', randomBytes(5000).toString('base64')],
+    ['6400 chars, 12800 bytes', shuffleString(fourByteChars.repeat(100))],
+  ])('Create ResearchDefinition with long description (%s)', (_testTitle, description) =>
+    withTestContext(async () => {
+      const author = 'Practitioner/' + randomUUID();
+
+      const repo = new Repository({
+        extendedMode: true,
+        author: {
+          reference: author,
+        },
+      });
+
+      await repo.createResource<ResearchDefinition>({
+        resourceType: 'ResearchDefinition',
+        status: 'active',
+        population: { reference: '123' },
+        description,
+      });
+    })
+  );
+
+  test('Update resource with lastUpdated', () =>
+    withTestContext(async () => {
+      const lastUpdated = '2020-01-01T12:00:00Z';
+
+      // System systemRepo has the ability to write custom timestamps
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+        meta: {
+          lastUpdated,
+        },
+      });
+      expect(patient1.meta?.lastUpdated).toStrictEqual(lastUpdated);
+
+      // But system cannot update the timestamp
+      const patient2 = await systemRepo.updateResource<Patient>({
+        ...(patient1 as Patient),
+        active: true,
+        meta: {
+          lastUpdated,
+        },
+      });
+      expect(patient2.meta?.lastUpdated).not.toStrictEqual(lastUpdated);
+    }));
+
+  test('Update resource with missing id', () =>
+    withTestContext(async () => {
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      const { id, ...rest } = patient1;
+      expect(id).toBeDefined();
+      expect((rest as Patient).id).toBeUndefined();
+
+      try {
+        await systemRepo.updateResource(rest);
+        fail('Should have thrown');
+      } catch (err) {
+        expect((err as OperationOutcomeError).outcome).toMatchObject(badRequest('Missing id'));
+      }
+    }));
+
+  test('Update resource with matching versionId', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      patient.name = [{ family: 'TestUpdated' }];
+      await systemRepo.updateResource<Patient>(patient, { ifMatch: patient.meta?.versionId });
+      expect(patient.name?.at(0)?.family).toStrictEqual('TestUpdated');
+    }));
+
+  test('Update resource with different versionId', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      await expect(systemRepo.updateResource(patient, { ifMatch: 'bad-id' })).rejects.toThrow(
+        new OperationOutcomeError(preconditionFailed)
+      );
+    }));
+
+  test('Patch resource with matching versionId', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      const patched = await systemRepo.patchResource<Patient>(
+        patient.resourceType,
+        patient.id,
+        [{ op: 'replace', path: '/name/0/family', value: 'TestUpdated' }],
+        {
+          ifMatch: patient.meta?.versionId,
+        }
+      );
+      expect(patched.name?.at(0)?.family).toStrictEqual('TestUpdated');
+    }));
+
+  test('Patch resource with different versionId', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      await expect(
+        systemRepo.patchResource<Patient>(
+          patient.resourceType,
+          patient.id,
+          [{ op: 'add', path: '/birthDate', value: '1993-09-14' }],
+          { ifMatch: 'bad-id' }
+        )
+      ).rejects.toThrow(new OperationOutcomeError(preconditionFailed));
+    }));
+
+  test('Patch resource with implicit array creation', () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ family: 'Test' }],
+      });
+
+      const patched = await systemRepo.patchResource<Patient>(patient.resourceType, patient.id, [
+        { op: 'add', path: '/identifier/-', value: { system: 'https://example.com', value: '123' } },
+      ]);
+      expect(patched.identifier?.at(0)?.system).toStrictEqual('https://example.com');
+      expect(patched.identifier?.at(0)?.value).toStrictEqual('123');
+    }));
+
+  test('Compartment permissions', () =>
+    withTestContext(async () => {
+      const { repo: repo1 } = await createTestProject({ withRepo: true });
+      const patient1 = await repo1.createResource<Patient>({
+        resourceType: 'Patient',
+      });
+
+      expect(patient1).toBeDefined();
+      expect(patient1.id).toBeDefined();
+
+      const patient2 = await repo1.readResource('Patient', patient1.id);
+      expect(patient2).toBeDefined();
+      expect(patient2.id).toStrictEqual(patient1.id);
+
+      const { repo: repo2 } = await createTestProject({ withRepo: true });
+      try {
+        await repo2.readResource('Patient', patient1.id);
+        fail('Should have thrown');
+      } catch (err) {
+        expect((err as OperationOutcomeError).outcome).toMatchObject(notFound);
+      }
+    }));
+
+  test('Read history after delete', () =>
+    withTestContext(async () => {
+      // Create the patient
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+      });
+
+      const history1 = await systemRepo.readHistory('Patient', patient.id);
+      expect(history1.entry?.length).toBe(1);
+
+      // Delete the patient
+      await systemRepo.deleteResource('Patient', patient.id);
+
+      const history2 = await systemRepo.readHistory('Patient', patient.id);
+      expect(history2.entry?.length).toBe(2);
+
+      // Restore the patient
+      await systemRepo.updateResource({ ...patient, meta: undefined });
+
+      const history3 = await systemRepo.readHistory('Patient', patient.id);
+      expect(history3.entry?.length).toBe(3);
+
+      const entries = history3.entry as BundleEntry[];
+      expect(entries[0].response?.status).toStrictEqual('200');
+      expect(entries[0].resource).toBeDefined();
+      expect(entries[1].response?.status).toStrictEqual('410');
+      expect((entries[1].response?.outcome as OperationOutcome).issue?.[0]?.details?.text).toMatch(/Deleted on /);
+      expect(entries[1].resource).toBeUndefined();
+      expect(entries[2].response?.status).toStrictEqual('200');
+      expect(entries[2].resource).toBeDefined();
+    }));
+
+  test('Delete Binary', () =>
+    withTestContext(async () => {
+      // Create the resource
+      const binary = await systemRepo.createResource<Binary>({
+        resourceType: 'Binary',
+        contentType: 'text/plain',
+      });
+
+      // Delete the resource
+      await systemRepo.deleteResource('Binary', binary.id);
+
+      const history2 = await systemRepo.readHistory('Binary', binary.id);
+      expect(history2.entry?.length).toBe(2);
+    }));
+
+  test('Reindex resource as non-admin', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+
+    try {
+      await repo.reindexResource('Practitioner', randomUUID());
+      fail('Expected error');
+    } catch (err) {
+      expect(isOk(err as OperationOutcome)).toBe(false);
+    }
+
+    const patient = await repo.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [{ given: ['Alice'], family: 'Smith' }],
+    });
+
+    try {
+      await repo.withTransaction(async (conn) => {
+        await repo.reindexResources(conn, [patient]);
+      });
+      fail('Expected error');
+    } catch (err) {
+      expect(isOk(err as OperationOutcome)).toBe(false);
+    }
+  });
+
+  test('Reindex resource not found', async () => {
+    try {
+      await systemRepo.reindexResource('Practitioner', randomUUID());
+      fail('Expected error');
+    } catch (err) {
+      expect(isOk(err as OperationOutcome)).toBe(false);
+    }
+  });
+
+  test('Reindex resource errors logged', async () => {
+    const patient1 = await systemRepo.createResource<Patient>({
+      resourceType: 'Patient',
+      name: [{ given: ['Identifier'], family: 'Test' }],
+      identifier: [{ system: 'https://example.com/', value: 'some-value' }],
+    });
+
+    // rely on Patient having a search parameter with token-column strategy
+    const buildTokenColumnsSpy = jest.spyOn(tokenColumnModule, 'buildTokenColumns').mockImplementation(() => {
+      throw new Error('test error');
+    });
+    const logger = getLogger();
+    const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => {});
+
+    await expect(
+      systemRepo.withTransaction(async (conn) => {
+        await systemRepo.reindexResources(conn, [patient1]);
+      })
+    ).rejects.toThrow('test error');
+    expect(errorSpy).toHaveBeenCalledWith('Error building row for resource', {
+      resource: 'Patient/' + patient1.id,
+      err: expect.any(Error),
+    });
+
+    buildTokenColumnsSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  test('Remove property', () =>
+    withTestContext(async () => {
+      const value = randomUUID();
+
+      // Create a patient with an identifier
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Identifier'], family: 'Test' }],
+        identifier: [{ system: 'https://example.com/', value }],
+      });
+
+      // Search for patient by identifier
+      // This should succeed
+      const bundle1 = await systemRepo.search<Patient>({
+        resourceType: 'Patient',
+        filters: [
+          {
+            code: 'identifier',
+            operator: Operator.EQUALS,
+            value,
+          },
+        ],
+      });
+      expect(bundle1.entry?.length).toStrictEqual(1);
+
+      const { identifier, ...rest } = patient1;
+      expect(identifier).toBeDefined();
+      expect((rest as Patient).identifier).toBeUndefined();
+
+      const patient2 = await systemRepo.updateResource<Patient>(rest);
+      expect(patient2.identifier).toBeUndefined();
+
+      // Try to search for the identifier
+      // This should return empty result
+      const bundle2 = await systemRepo.search<Patient>({
+        resourceType: 'Patient',
+        filters: [
+          {
+            code: 'identifier',
+            operator: Operator.EQUALS,
+            value,
+          },
+        ],
+      });
+      expect(bundle2.entry?.length).toStrictEqual(0);
+    }));
+
+  test('Delete Questionnaire.subjectType', () =>
+    withTestContext(async () => {
+      const nonce = randomUUID();
+
+      const resource1 = await systemRepo.createResource<Questionnaire>({
+        resourceType: 'Questionnaire',
+        status: 'active',
+        subjectType: [nonce as ResourceType],
+      });
+
+      const resource2 = await systemRepo.search({
+        resourceType: 'Questionnaire',
+        filters: [
+          {
+            code: 'subject-type',
+            operator: Operator.EQUALS,
+            value: nonce,
+          },
+        ],
+      });
+      expect(resource2.entry?.length).toStrictEqual(1);
+
+      delete resource1.subjectType;
+      await systemRepo.updateResource<Questionnaire>(resource1);
+
+      const resource4 = await systemRepo.search({
+        resourceType: 'Questionnaire',
+        filters: [
+          {
+            code: 'subject-type',
+            operator: Operator.EQUALS,
+            value: nonce,
+          },
+        ],
+      });
+      expect(resource4.entry?.length).toStrictEqual(0);
+    }));
+
+  test('Empty objects', () =>
+    withTestContext(async () => {
+      const patient1 = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        contact: [
+          {
+            name: {
+              given: ['Test'],
+            },
+          },
+        ],
+      });
+
+      const patient2 = await systemRepo.updateResource<Patient>({
+        resourceType: 'Patient',
+        id: patient1.id,
+        contact: [
+          {
+            name: {
+              given: ['Test'],
+            },
+          },
+        ],
+      });
+      expect(patient2.id).toStrictEqual(patient1.id);
+    }));
+
+  describe('expungeResource and expungeResources', () => {
+    async function createPatient(repo: Repository): Promise<WithId<Patient>> {
+      return repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Expunge'], family: randomUUID() }],
+      });
+    }
+
+    async function createPatients(repo: Repository, count: number): Promise<WithId<Patient>[]> {
+      const patients: WithId<Patient>[] = [];
+      for (let i = 0; i < count; i++) {
+        patients.push(await createPatient(repo));
+      }
+      return patients;
+    }
+
+    async function countRows(tableName: string, id: string): Promise<number> {
+      const query = new SelectQuery(tableName).column('id').where('id', '=', id);
+      return (await query.execute(systemRepo.getDatabaseClient(DatabaseMode.READER))).length;
+    }
+
+    async function expectPatientExpunged(patient: WithId<Patient>): Promise<void> {
+      await expect(systemRepo.readResource('Patient', patient.id)).rejects.toThrow();
+      expect(await countRows('Patient', patient.id)).toStrictEqual(0);
+      expect(await countRows('Patient_History', patient.id)).toStrictEqual(0);
+    }
+
+    async function expectPatientPresent(patient: WithId<Patient>): Promise<void> {
+      expect((await systemRepo.readResource('Patient', patient.id)).id).toStrictEqual(patient.id);
+      expect(await countRows('Patient', patient.id)).toStrictEqual(1);
+      expect(await countRows('Patient_History', patient.id)).toBeGreaterThan(0);
+    }
+
+    async function expectPatientsExpunged(...patients: WithId<Patient>[]): Promise<void> {
+      for (const patient of patients) {
+        await expectPatientExpunged(patient);
+      }
+    }
+
+    async function expectPatientsPresent(...patients: WithId<Patient>[]): Promise<void> {
+      for (const patient of patients) {
+        await expectPatientPresent(patient);
+      }
+    }
+
+    async function expectExpungeResult(
+      expunge: () => Promise<void>,
+      forbidden: boolean,
+      expunged: WithId<Patient>[],
+      present: WithId<Patient>[] = []
+    ): Promise<void> {
+      if (forbidden) {
+        await expect(expunge()).rejects.toThrow();
+        await expectPatientsPresent(...expunged, ...present);
+      } else {
+        await expunge();
+        await expectPatientsExpunged(...expunged);
+        await expectPatientsPresent(...present);
+      }
+    }
+
+    type ExpungeAccessCase = {
+      name: string;
+      createRepo: () => Promise<Repository>;
+      forbidden?: boolean;
+      canExpungeOtherProject?: boolean;
+    };
+
+    const expungeAccessCases: ExpungeAccessCase[] = [
+      {
+        name: 'Super Admin',
+        createRepo: async () => (await createTestProject({ withRepo: true, superAdmin: true })).repo,
+        canExpungeOtherProject: true,
+      },
+      {
+        name: 'Project Admin',
+        createRepo: async () => (await createTestProject({ withRepo: true, membership: { admin: true } })).repo,
+        canExpungeOtherProject: false,
+      },
+      {
+        name: 'Non-admin user',
+        createRepo: async () => (await createTestProject({ withRepo: true })).repo,
+        forbidden: true,
+      },
+    ];
+
+    describe.each(expungeAccessCases)('$name', ({ createRepo, forbidden, canExpungeOtherProject }) => {
+      test('expungeResource in own project', async () =>
+        withTestContext(async () => {
+          const repo = await createRepo();
+          const [patient, untouchedPatient] = await createPatients(repo, 2);
+
+          await expectExpungeResult(
+            () => repo.expungeResource('Patient', patient.id),
+            Boolean(forbidden),
+            [patient],
+            [untouchedPatient]
+          );
+        }));
+
+      test('expungeResources in own project', async () =>
+        withTestContext(async () => {
+          const repo = await createRepo();
+          const [patient1, patient2, untouchedPatient] = await createPatients(repo, 3);
+
+          await expectExpungeResult(
+            () => repo.expungeResources('Patient', [patient1.id, patient2.id]),
+            Boolean(forbidden),
+            [patient1, patient2],
+            [untouchedPatient]
+          );
+        }));
+
+      test('expungeResource in another project', async () =>
+        withTestContext(async () => {
+          const repo = await createRepo();
+          const { repo: otherProjectRepo } = await createTestProject({ withRepo: true });
+          const [ownPatient] = await createPatients(repo, 1);
+          const [otherProjectPatient] = await createPatients(otherProjectRepo, 1);
+
+          let expungedPatients: WithId<Patient>[];
+          let presentPatients: WithId<Patient>[];
+          if (canExpungeOtherProject) {
+            expungedPatients = [otherProjectPatient];
+            presentPatients = [ownPatient];
+          } else {
+            expungedPatients = [];
+            presentPatients = [ownPatient, otherProjectPatient];
+          }
+          await expectExpungeResult(
+            () => repo.expungeResource('Patient', otherProjectPatient.id),
+            Boolean(forbidden),
+            expungedPatients,
+            presentPatients
+          );
+        }));
+
+      test('expungeResources with own-project and other-project IDs', async () =>
+        withTestContext(async () => {
+          const repo = await createRepo();
+          const { repo: otherProjectRepo } = await createTestProject({ withRepo: true });
+          const [ownPatient, untouchedPatient] = await createPatients(repo, 2);
+          const [otherProjectPatient] = await createPatients(otherProjectRepo, 1);
+
+          let expungedPatients: WithId<Patient>[];
+          let presentPatients: WithId<Patient>[];
+          if (canExpungeOtherProject) {
+            expungedPatients = [ownPatient, otherProjectPatient];
+            presentPatients = [untouchedPatient];
+          } else {
+            expungedPatients = [ownPatient];
+            presentPatients = [untouchedPatient, otherProjectPatient];
+          }
+          await expectExpungeResult(
+            () => repo.expungeResources('Patient', [ownPatient.id, otherProjectPatient.id]),
+            Boolean(forbidden),
+            expungedPatients,
+            presentPatients
+          );
+        }));
+    });
+  });
+
+  test('Expunge too many IDs', async () => {
+    await expect(
+      systemRepo.expungeResources(
+        'Patient',
+        Array.from({ length: 10000 }, () => randomUUID())
+      )
+    ).resolves.toBeUndefined();
+    await expect(
+      systemRepo.expungeResources(
+        'Patient',
+        Array.from({ length: 10001 }, () => randomUUID())
+      )
+    ).rejects.toThrow('Expunge request contains too many IDs');
+  });
+
+  test('Purge forbidden', async () => {
+    // Try to purge as a regular user
+    await expect(testProjectRepo.purgeResources('Patient', new Date().toISOString())).rejects.toThrow('Forbidden');
+  });
+
+  test('Purge Login', () =>
+    withTestContext(async () => {
+      const oldDate = '2000-01-01T00:00:00.000Z';
+
+      // Create a login using super admin with a date in the distant past
+      // This takes advantage of the fact that super admins can set meta.lastUpdated
+      const login = await systemRepo.createResource<Login>({
+        resourceType: 'Login',
+        meta: {
+          lastUpdated: oldDate,
+        },
+        user: { reference: 'system' },
+        authMethod: 'password',
+        authTime: oldDate,
+      });
+
+      const bundle1 = await systemRepo.search({
+        resourceType: 'Login',
+        filters: [{ code: '_lastUpdated', operator: Operator.LESS_THAN_OR_EQUALS, value: oldDate }],
+      });
+      expect(bundleContains(bundle1, login)).toBeTruthy();
+
+      // Purge logins before the cutoff date
+      await systemRepo.purgeResources('Login', oldDate);
+
+      // Make sure the login is truly gone
+      const bundle = await systemRepo.search({
+        resourceType: 'Login',
+        filters: [{ code: '_lastUpdated', operator: Operator.ENDS_BEFORE, value: oldDate }],
+        total: 'accurate',
+        count: 0,
+      });
+      expect(bundle.total).toStrictEqual(0);
+    }));
+
+  test('Malformed client assigned ID', async () => {
+    await expect(systemRepo.updateResource({ resourceType: 'Patient', id: '123' })).rejects.toThrow('Invalid id');
+  });
+
+  test('Conditional update', () =>
+    withTestContext(async () => {
+      const mrn = randomUUID();
+      const patient: Patient = {
+        resourceType: 'Patient',
+        identifier: [{ system: 'http://example.com/mrn', value: mrn }],
+      };
+
+      // Invalid search resource type mismatch
+      await expect(
+        systemRepo.conditionalUpdate(patient, {
+          resourceType: 'Observation',
+          filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+        })
+      ).rejects.toThrow('Search type must match resource type for conditional update');
+
+      // Invalid create with preassigned ID
+      await expect(
+        systemRepo.conditionalUpdate(
+          { ...patient, id: randomUUID() },
+          {
+            resourceType: 'Patient',
+            filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+          }
+        )
+      ).rejects.toThrow('Cannot perform create as update with client-assigned ID (Patient.id)');
+
+      // Create new resource
+      const create = await systemRepo.conditionalUpdate(patient, {
+        resourceType: 'Patient',
+        filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+      });
+      expect(create.resource.id).toBeDefined();
+      const existing = create.resource;
+      expect(create.outcome.id).toStrictEqual(created.id);
+
+      // Update existing resource
+      patient.gender = 'unknown';
+      const update = await systemRepo.conditionalUpdate(patient, {
+        resourceType: 'Patient',
+        filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+      });
+      expect(update.resource.id).toStrictEqual(existing.id);
+      expect(update.resource.gender).toStrictEqual('unknown');
+      expect(update.outcome.id).toStrictEqual(allOk.id);
+
+      // Update with incorrect ID
+      patient.id = randomUUID();
+      await expect(
+        systemRepo.conditionalUpdate(patient, {
+          resourceType: 'Patient',
+          filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+        })
+      ).rejects.toThrow('Resource ID did not match resolved ID (Patient.id)');
+
+      // Create duplicate resource
+      const duplicate = await systemRepo.createResource(patient);
+      expect(duplicate.id).not.toStrictEqual(existing.id);
+
+      // Invalid update with ambiguous target
+      await expect(
+        systemRepo.conditionalUpdate(patient, {
+          resourceType: 'Patient',
+          filters: [{ code: 'identifier', operator: Operator.EQUALS, value: 'http://example.com/mrn|' + mrn }],
+        })
+      ).rejects.toThrow('Multiple resources found matching condition');
+    }));
+
+  test('Double DELETE', async () =>
+    withTestContext(async () => {
+      const patient = await systemRepo.createResource<Patient>({ resourceType: 'Patient' });
+      await systemRepo.deleteResource(patient.resourceType, patient.id);
+      await expect(systemRepo.deleteResource(patient.resourceType, patient.id)).resolves.toBeUndefined();
+    }));
+
+  test('Conditional reference resolution', async () =>
+    withTestContext(async () => {
+      const practitionerIdentifier = randomUUID();
+      const practitioner = await systemRepo.createResource<Practitioner>({
+        resourceType: 'Practitioner',
+        identifier: [{ system: 'http://hl7.org.fhir/sid/us-npi', value: practitionerIdentifier }],
+      });
+      const conditionalReference = {
+        reference: 'Practitioner?identifier=http://hl7.org.fhir/sid/us-npi|' + practitionerIdentifier,
+      };
+
+      const patient = await systemRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        meta: { account: conditionalReference },
+        generalPractitioner: [conditionalReference],
+      });
+      const expectedPractitioner = getReferenceString(practitioner);
+      expect(patient.generalPractitioner?.[0]?.reference).toStrictEqual(expectedPractitioner);
+      expect(patient.meta?.account?.reference).toStrictEqual(expectedPractitioner);
+      expect(patient.meta?.accounts).toHaveLength(1);
+      expect(patient.meta?.accounts).toContainEqual({ reference: expectedPractitioner });
+    }));
+
+  test('Conditional reference resolution failure', async () =>
+    withTestContext(async () => {
+      const practitionerIdentifier = randomUUID();
+      const patient: Patient = {
+        resourceType: 'Patient',
+        generalPractitioner: [
+          { reference: 'Practitioner?identifier=http://hl7.org.fhir/sid/us-npi|' + practitionerIdentifier },
+        ],
+      };
+      await expect(systemRepo.createResource(patient)).rejects.toThrow(/did not match any resources/);
+    }));
+
+  test('Conditional reference resolution multiple matches', async () =>
+    withTestContext(async () => {
+      const practitionerIdentifier = randomUUID();
+      await systemRepo.createResource<Practitioner>({
+        resourceType: 'Practitioner',
+        identifier: [{ system: 'http://hl7.org.fhir/sid/us-npi', value: practitionerIdentifier }],
+      });
+      await systemRepo.createResource<Practitioner>({
+        resourceType: 'Practitioner',
+        identifier: [{ system: 'http://hl7.org.fhir/sid/us-npi', value: practitionerIdentifier }],
+      });
+
+      const patient: Patient = {
+        resourceType: 'Patient',
+        generalPractitioner: [
+          { reference: 'Practitioner?identifier=http://hl7.org.fhir/sid/us-npi|' + practitionerIdentifier },
+        ],
+      };
+      await expect(systemRepo.createResource(patient)).rejects.toThrow();
+    }));
+
+  test('Conditional reference replaced before validation', async () =>
+    withTestContext(async () => {
+      const mrn = randomUUID();
+      const patient: Patient = {
+        resourceType: 'Patient',
+        identifier: [{ value: mrn }],
+      };
+      await systemRepo.createResource(patient);
+
+      const serviceRequest = {
+        resourceType: 'ServiceRequest',
+        status: 'active',
+        intent: 'order',
+        code: {
+          coding: [
+            {
+              system: 'http://snomed.info/sct',
+              code: '308471005',
+              display: 'Referral to cardiologist',
+            },
+          ],
+        },
+        // Reference should be replaced and NOT cause a validation error
+        subject: {
+          reference: 'Patient?identifier=' + mrn,
+        },
+        // The performerType field should be a CodeableConcept, not an array
+        performerType: [
+          {
+            coding: [
+              {
+                system: 'http://snomed.info/sct',
+                code: '17561000',
+                display: 'Cardiologist',
+              },
+            ],
+          },
+        ],
+      } as unknown as ServiceRequest;
+      await expect(systemRepo.createResource(serviceRequest)).rejects.toThrow(/^Expected single .*?performerType\)$/);
+    }));
+
+  test('Prevents setting Project compartments', async () =>
+    withTestContext(async () => {
+      const { repo, project } = await createTestProject({ withRepo: true });
+      const { project: otherProject, repo: otherRepo } = await createTestProject({ withRepo: true });
+      const projectReference = createReference(otherProject);
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        meta: { compartment: [projectReference], account: projectReference },
+      });
+      expect(patient.meta?.compartment).toContainEqual({ reference: getReferenceString(project) });
+      expect(patient.meta?.compartment).toContainEqual({ reference: getReferenceString(patient) });
+      expect(patient.meta?.compartment).not.toContainEqual({ reference: getReferenceString(otherProject) });
+
+      const results = await otherRepo.searchResources(parseSearchRequest('Patient'));
+      expect(results).toHaveLength(0);
+    }));
+
+  async function getProjectIdColumn(id: string): Promise<string | null> {
+    const projectIdQuery = new SelectQuery('User').column('projectId').where('id', '=', id);
+    const client = systemRepo.getDatabaseClient(DatabaseMode.WRITER);
+    return (await projectIdQuery.execute(client))[0].projectId;
+  }
+
+  test('Super admin can edit User.meta.project', async () =>
+    withTestContext(async () => {
+      const { project, repo } = await createTestProject({ withRepo: true, membership: { admin: true } });
+
+      // Create a user in the project
+      const user1 = await repo.createResource<User>({
+        resourceType: 'User',
+        email: randomUUID() + '@example.com',
+        firstName: randomUUID(),
+        lastName: randomUUID(),
+      });
+      expect(user1.meta?.project).toStrictEqual(project.id);
+      expect(await getProjectIdColumn(user1.id)).toStrictEqual(project.id);
+
+      // Try to change the project as the normal user
+      // Should silently fail, and preserve the meta.project
+      const user2 = await repo.updateResource<User>({
+        ...user1,
+        meta: { project: undefined },
+      });
+      expect(user2.meta?.project).toStrictEqual(project.id);
+      expect(await getProjectIdColumn(user2.id)).toStrictEqual(project.id);
+
+      // Now try to change the project as the super admin
+      // Should succeed
+      const user3 = await systemRepo.updateResource<User>({
+        ...user2,
+        meta: { project: undefined },
+      });
+      expect(user3.meta?.project).toBeUndefined();
+      expect(await getProjectIdColumn(user3.id)).toStrictEqual(systemResourceProjectId);
+    }));
+
+  test('Retry after create should not execute post-commit hooks from rollback', () =>
+    withTestContext(async () => {
+      const { repo } = await createTestProject({ withRepo: true });
+      const addBackgroundJobsSpy = jest.spyOn(workersModule, 'addBackgroundJobs');
+      const patients: WithId<Patient>[] = [];
+      let shouldError = true;
+
+      const createdPatient = await repo.withTransaction(async () => {
+        const patient = await repo.createResource<Patient>({ resourceType: 'Patient' });
+        patients.push(patient);
+
+        if (shouldError) {
+          shouldError = false;
+          throw Object.assign(new Error('serialization failure'), { code: PostgresError.SerializationFailure });
+        }
+
+        return patient;
+      });
+
+      expect(patients).toHaveLength(2);
+      expect(createdPatient).toEqual(patients[1]);
+      expect(addBackgroundJobsSpy).toHaveBeenCalledTimes(1);
+      expect(addBackgroundJobsSpy).toHaveBeenCalledWith(
+        {
+          resourceType: 'Patient',
+          id: createdPatient.id,
+          meta: expect.any(Object),
+        },
+        undefined,
+        expect.any(Object)
+      );
+
+      await expect(repo.readResource('Patient', patients[0].id)).rejects.toMatchObject(
+        new OperationOutcomeError(notFound)
+      );
+
+      addBackgroundJobsSpy.mockRestore();
+    }));
+
+  test('Patch post-commit stores full resource in cache', async () =>
+    withTestContext(async () => {
+      const { project, repo, login, membership } = await createTestProject({
+        withRepo: true,
+        withAccessToken: true,
+        withClient: true,
+        extendedMode: false,
+      });
+      const extendedRepo = await getRepoForLogin(
+        { login, project, membership, userConfig: {} as UserConfiguration },
+        true
+      );
+
+      const patient = await repo.createResource<Patient>({ resourceType: 'Patient' });
+      expect(patient.meta?.project).toBeUndefined();
+      expect(patient.gender).toBeUndefined();
+
+      const updatedPatient = await repo.patchResource<Patient>('Patient', patient.id, [
+        { op: 'add', path: '/gender', value: 'unknown' },
+      ]);
+      expect(updatedPatient.meta?.project).toBeUndefined();
+      expect(updatedPatient.gender).toStrictEqual('unknown');
+
+      const cachedPatient = await extendedRepo.readResource<Patient>('Patient', patient.id);
+      expect(cachedPatient.meta?.project).toStrictEqual(project.id);
+      expect(cachedPatient.gender).toStrictEqual('unknown');
+    }));
+
+  test('Retry executes post-commit hook once from outer transaction', async () => {
+    const repo = systemRepo;
+    const postCommit = jest.fn();
+    let shouldError = true;
+
+    await repo.withTransaction(async () => {
+      await repo.postCommit(postCommit);
+
+      await repo.withTransaction(async () => {
+        if (shouldError) {
+          shouldError = false;
+          throw Object.assign(new Error('serialization failure'), { code: PostgresError.SerializationFailure });
+        }
+      });
+    });
+
+    expect(postCommit).toHaveBeenCalledTimes(1);
+  });
+
+  test('Retry should not execute post-commit hook from rollback', async () => {
+    const repo = systemRepo;
+    const postCommit = jest.fn();
+
+    await repo.withTransaction(async () => {
+      try {
+        await repo.withTransaction(async () => {
+          await repo.postCommit(postCommit);
+          throw Object.assign(new Error('serialization failure'), { code: PostgresError.SerializationFailure });
+        });
+      } catch {
+        // Ignore error
+      }
+    });
+
+    expect(postCommit).toHaveBeenCalledTimes(0);
+  });
+
+  test('withTransaction releases connection when rollback fails on a dead backend', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+
+    const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+    let querySpy: jest.SpyInstance | undefined;
+    let releaseSpy: jest.SpyInstance | undefined;
+
+    await expect(
+      repo.withTransaction(async (client) => {
+        querySpy = jest.spyOn(client, 'query').mockImplementation(() => {
+          // Simulates a session killed by idle_in_transaction_session_timeout: every query
+          // issued on the client — including the ROLLBACK the error handler sends — rejects.
+          const terminationErr = Object.assign(new Error('terminating connection due to idle-in-transaction timeout'), {
+            code: '57P01',
+          });
+          throw terminationErr;
+        });
+        releaseSpy = jest.spyOn(client, 'release');
+        await client.query('SELECT 1');
+      })
+    ).rejects.toThrow('terminating connection due to idle-in-transaction timeout');
+
+    if (!querySpy) {
+      throw new Error('querySpy is undefined');
+    }
+    if (!releaseSpy) {
+      throw new Error('releaseSpy is undefined');
+    }
+
+    // Bookkeeping must be fully reset so the repo is safe for future use
+    expect((repo as any).connection.transactionDepth).toBe(0);
+    expect((repo as any).connection.conn).toBeUndefined();
+
+    // Dead client must be released with a truthy err so pg-pool discards it
+    expect(releaseSpy).toHaveBeenCalledTimes(1);
+    expect(releaseSpy?.mock.calls[0][0]).toBeDefined();
+
+    // The rollback failure should be logged, not thrown
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Error rolling back transaction',
+      expect.objectContaining({
+        err: expect.stringContaining('terminating connection'),
+      })
+    );
+
+    querySpy.mockRestore();
+    releaseSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  test.each([undefined, -1] as (number | undefined)[])(
+    'withTransaction does not record transaction idle metrics when threshold is %s',
+    async (thresholdMs) => {
+      const restoreThreshold = setIdleInTransactionLogThresholdMs(thresholdMs);
+      const query = jest.fn(async (_sql: string) => ({ rows: [] }));
+      const client = {
+        query,
+        release: jest.fn(),
+      } as unknown as PoolClient;
+      const repo = getShardSystemRepo(
+        'test-shard',
+        RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+      );
+      const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+      const recordHistogramValueSpy = jest.spyOn(otelModule, 'recordHistogramValue').mockImplementation(() => true);
+
+      try {
+        await repo.withTransaction(async (txClient) => {
+          await txClient.query('SELECT 1');
+        });
+
+        expect(query.mock.calls.map(([sql]) => sql)).toStrictEqual([
+          'BEGIN ISOLATION LEVEL REPEATABLE READ',
+          'SELECT 1',
+          'COMMIT',
+        ]);
+        expect(client.query).toBe(query);
+        expect(warnSpy).not.toHaveBeenCalledWith(TransactionIdleTracker.LOG_HIGH_IDLE_TIME_MSG, expect.anything());
+        expect(recordHistogramValueSpy).not.toHaveBeenCalled();
+      } finally {
+        restoreThreshold();
+        warnSpy.mockRestore();
+        recordHistogramValueSpy.mockRestore();
+      }
+    }
+  );
+
+  test('withTransaction disables idle tracking for callback-style queries', async () => {
+    const restoreThreshold = setIdleInTransactionLogThresholdMs(5);
+    let now = 0;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const query = jest.fn((sql: string, callback?: (err: Error | undefined, result: { rows: any[] }) => void) => {
+      if (sql === 'SELECT 1' && callback) {
+        now += 10;
+        callback(undefined, { rows: [] });
+        return undefined;
+      }
+      return Promise.resolve({ rows: [] });
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+    const recordHistogramValueSpy = jest.spyOn(otelModule, 'recordHistogramValue').mockImplementation(() => true);
+
+    try {
+      await repo.withTransaction(async (txClient) => {
+        await new Promise<void>((resolve, reject) => {
+          txClient.query('SELECT 1', (err) => (err ? reject(err) : resolve()));
+        });
+      });
+
+      expect(client.query).toBe(query);
+      expect(warnSpy).not.toHaveBeenCalledWith(TransactionIdleTracker.LOG_HIGH_IDLE_TIME_MSG, expect.anything());
+      expect(recordHistogramValueSpy).not.toHaveBeenCalled();
+    } finally {
+      restoreThreshold();
+      dateNowSpy.mockRestore();
+      warnSpy.mockRestore();
+      recordHistogramValueSpy.mockRestore();
+    }
+  });
+
+  test('withTransaction logs and records high idle time in rolled back transaction', async () => {
+    const restoreThreshold = setIdleInTransactionLogThresholdMs(0);
+    let now = 0;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const query = jest.fn(async (_sql: string) => ({ rows: [] }));
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+    const recordHistogramValueSpy = jest.spyOn(otelModule, 'recordHistogramValue').mockImplementation(() => true);
+
+    try {
+      await expect(
+        repo.withTransaction(async () => {
+          now += 10;
+          throw new Error('work failed');
+        })
+      ).rejects.toThrow('work failed');
+
+      expect(recordHistogramValueSpy).toHaveBeenCalledWith(TransactionIdleTracker.OTEL_TOTAL_METRIC_NAME, 10, {
+        attributes: { attempt: 0, serializable: false, status: 'rolled_back' },
+        options: { unit: 'ms' },
+      });
+      expect(recordHistogramValueSpy).toHaveBeenCalledWith(TransactionIdleTracker.OTEL_MAX_METRIC_NAME, 10, {
+        attributes: { attempt: 0, serializable: false, status: 'rolled_back' },
+        options: { unit: 'ms' },
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        TransactionIdleTracker.LOG_HIGH_IDLE_TIME_MSG,
+        expect.objectContaining({
+          totalIdleMs: 10,
+          maxIdleMs: 10,
+          queryCount: 1,
+          status: 'rolled_back',
+          transactionDurationMs: 10,
+        })
+      );
+    } finally {
+      restoreThreshold();
+      dateNowSpy.mockRestore();
+      warnSpy.mockRestore();
+      recordHistogramValueSpy.mockRestore();
+    }
+  });
+
+  test('withTransaction records outer transaction idle time across nested transactions', async () => {
+    const restoreThreshold = setIdleInTransactionLogThresholdMs(50);
+    let now = 0;
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const query = jest.fn(async (sql: string) => {
+      if (sql === 'SELECT 1') {
+        now += 25;
+      }
+      return { rows: [] };
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+    const recordHistogramValueSpy = jest.spyOn(otelModule, 'recordHistogramValue').mockImplementation(() => true);
+
+    try {
+      await repo.withTransaction(async () => {
+        now += 30;
+        await repo.withTransaction(async (txClient) => {
+          now += 20;
+          await txClient.query('SELECT 1');
+        });
+        now += 10;
+      });
+
+      expect(recordHistogramValueSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalledWith(TransactionIdleTracker.LOG_HIGH_IDLE_TIME_MSG, expect.anything());
+
+      now = 0;
+      query.mockClear();
+
+      await repo.withTransaction(async () => {
+        now += 20;
+        await repo.withTransaction(async (txClient) => {
+          now += 5;
+          await txClient.query('SELECT 1');
+        });
+        now += 50;
+      });
+
+      expect(query.mock.calls.map(([sql]) => sql)).toStrictEqual([
+        'BEGIN ISOLATION LEVEL REPEATABLE READ',
+        'SAVEPOINT sp2',
+        'SELECT 1',
+        'RELEASE SAVEPOINT sp2',
+        'COMMIT',
+      ]);
+      expect(recordHistogramValueSpy).toHaveBeenCalledTimes(2);
+      expect(recordHistogramValueSpy).toHaveBeenCalledWith(TransactionIdleTracker.OTEL_TOTAL_METRIC_NAME, 75, {
+        attributes: { attempt: 0, serializable: false, status: 'committed' },
+        options: { unit: 'ms' },
+      });
+      expect(recordHistogramValueSpy).toHaveBeenCalledWith(TransactionIdleTracker.OTEL_MAX_METRIC_NAME, 50, {
+        attributes: { attempt: 0, serializable: false, status: 'committed' },
+        options: { unit: 'ms' },
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        TransactionIdleTracker.LOG_HIGH_IDLE_TIME_MSG,
+        expect.objectContaining({
+          attempt: 0,
+          totalIdleMs: 75,
+          maxIdleMs: 50,
+          queryCount: 4,
+          queryDurationMs: 25,
+          serializable: false,
+          status: 'committed',
+          thresholdMs: 50,
+          transactionAttempts: 2,
+          transactionDurationMs: 100,
+        })
+      );
+      expect(client.query).toBe(query);
+    } finally {
+      restoreThreshold();
+      dateNowSpy.mockRestore();
+      warnSpy.mockRestore();
+      recordHistogramValueSpy.mockRestore();
+    }
+  });
+
+  test('withStatementTimeout pins connection and discards it after callback', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+    let releaseSpy: jest.SpyInstance | undefined;
+
+    await repo.withStatementTimeout({ timeoutMs: 0 }, async (client) => {
+      releaseSpy = jest.spyOn(client, 'release');
+
+      await repo.withTransaction(async (txClient) => {
+        expect(txClient).toBe(client);
+      });
+
+      expect(releaseSpy).not.toHaveBeenCalled();
+    });
+
+    expect(releaseSpy).toHaveBeenCalledWith(true);
+    releaseSpy?.mockRestore();
+  });
+
+  test('withStatementTimeout rejects borrowed repository connections', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+
+    await repo.withTransaction(async () => {
+      await expect(repo.getSystemRepo().withStatementTimeout({ timeoutMs: 0 }, async () => undefined)).rejects.toThrow(
+        'borrowed repository connection'
+      );
+    });
+  });
+
+  test('withStatementTimeout rejects active transactions', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+
+    await repo.withTransaction(async () => {
+      await expect(repo.withStatementTimeout({ timeoutMs: 0 }, async () => undefined)).rejects.toThrow(
+        'active transaction'
+      );
+    });
+  });
+
+  test('withStatementTimeout prevents writer operations on a pinned reader connection', async () => {
+    const { repo } = await createTestProject({ withRepo: true });
+    const errorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+
+    try {
+      await expect(
+        repo.withStatementTimeout({ timeoutMs: 0, mode: DatabaseMode.READER }, async () => {
+          // The timeout wrapper pins one physical reader client. A nested transaction
+          // must not silently reuse that reader client for writer work.
+          await repo.withTransaction(async () => undefined);
+        })
+      ).rejects.toThrow('reader database connection');
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test('borrowed repository connections do not reacquire clients after forced release', async () => {
+    const rollbackError = new Error('rollback failed');
+    const client = {
+      query: jest.fn(async (query: string) => {
+        if (query === 'ROLLBACK') {
+          throw rollbackError;
+        }
+        return { rows: [] };
+      }),
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const warnSpy = jest.spyOn(getLogger(), 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+
+    try {
+      await expect(repo.withTransaction(async () => Promise.reject(new Error('work failed')))).rejects.toThrow(
+        'work failed'
+      );
+
+      // The repository only borrowed this PoolClient, so it drops its local reference
+      // after the fatal rollback path but never releases a client it does not own.
+      expect(client.release).not.toHaveBeenCalled();
+
+      await expect(repo.withTransaction(async () => undefined)).rejects.toThrow(
+        'Borrowed repository connection is no longer available'
+      );
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test('withTransaction does not publish transaction state when BEGIN fails', async () => {
+    const beginError = new Error('begin failed');
+    const client = {
+      query: jest.fn(async () => Promise.reject(beginError)),
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const errorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+
+    try {
+      await expect(repo.withTransaction(async () => undefined)).rejects.toThrow('begin failed');
+
+      // BEGIN never succeeded, so the in-memory state must not claim an active
+      // transaction or hold callback frames for one.
+      expect((repo as any).connection.transactionDepth).toBe(0);
+      expect((repo as any).connection.callbackStack).toHaveLength(0);
+      expect((repo as any).connection.hasConnection()).toBe(false);
+      expect(client.release).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test('withTransaction rejects nested isolation upgrades', async () => {
+    const query = jest.fn(async (_sql: string) => ({ rows: [] }));
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+
+    await repo.withTransaction(async () => {
+      await expect(repo.withTransaction(async () => undefined, { serializable: true })).rejects.toThrow(
+        'Cannot start SERIALIZABLE transaction inside active REPEATABLE READ transaction'
+      );
+    });
+
+    expect(query.mock.calls.map(([sql]) => sql)).toStrictEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ', 'COMMIT']);
+  });
+
+  test('withTransaction allows nested calls at a weaker isolation level', async () => {
+    const query = jest.fn(async (_sql: string) => ({ rows: [] }));
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+
+    await repo.withTransaction(
+      async () => {
+        await repo.withTransaction(async () => undefined);
+      },
+      { serializable: true }
+    );
+
+    expect(query.mock.calls.map(([sql]) => sql)).toStrictEqual([
+      'BEGIN ISOLATION LEVEL SERIALIZABLE',
+      'SAVEPOINT sp2',
+      'RELEASE SAVEPOINT sp2',
+      'COMMIT',
+    ]);
+  });
+
+  test('withTransactionStateLock serializes concurrent transaction begins', async () => {
+    const beginIssued = Promise.withResolvers<undefined>();
+    const allowBegin = Promise.withResolvers<undefined>();
+    const finishFirstTransaction = Promise.withResolvers<undefined>();
+    const secondCallbackStarted = Promise.withResolvers<undefined>();
+    const queries: string[] = [];
+    let beginCount = 0;
+    const query = jest.fn(async (sql: string) => {
+      queries.push(sql);
+      if (sql === 'BEGIN ISOLATION LEVEL REPEATABLE READ' && ++beginCount === 1) {
+        // Pause the first BEGIN before beginTransaction can publish transactionDepth = 1.
+        beginIssued.resolve(undefined);
+        await allowBegin.promise;
+      }
+      return { rows: [] };
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+
+    const tx1 = repo.withTransaction(async () => {
+      await finishFirstTransaction.promise;
+    });
+    await beginIssued.promise;
+
+    // Start a second transaction while the first transaction is suspended in BEGIN. Without the state
+    // lock, this second call can observe transactionDepth = 0 and incorrectly issue another BEGIN.
+    const tx2 = repo.withTransaction(async () => {
+      secondCallbackStarted.resolve(undefined);
+    });
+    // Let the second transaction run any queued promise continuations. If it is not blocked by the
+    // lock, it will append its own SQL before this assertion.
+    await allowPendingMicrotasks();
+
+    // The second begin must wait until the first BEGIN has completed and published transactionDepth.
+    expect(queries).toStrictEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ']);
+
+    allowBegin.resolve(undefined);
+    await secondCallbackStarted.promise;
+    finishFirstTransaction.resolve(undefined);
+    await Promise.all([tx1, tx2]);
+
+    expect(queries).toStrictEqual([
+      'BEGIN ISOLATION LEVEL REPEATABLE READ',
+      'SAVEPOINT sp2',
+      'RELEASE SAVEPOINT sp2',
+      'COMMIT',
+    ]);
+  });
+
+  test('withTransactionStateLock serializes concurrent transaction commits', async () => {
+    const firstStarted = Promise.withResolvers<undefined>();
+    const secondStarted = Promise.withResolvers<undefined>();
+    const finishTransactions = Promise.withResolvers<undefined>();
+    const releaseSavepointIssued = Promise.withResolvers<undefined>();
+    const allowReleaseSavepoint = Promise.withResolvers<undefined>();
+    const queries: string[] = [];
+    let releaseSavepointCount = 0;
+    const query = jest.fn(async (sql: string) => {
+      queries.push(sql);
+      if (sql === 'RELEASE SAVEPOINT sp2' && ++releaseSavepointCount === 1) {
+        // Hold the inner commit in the database call before transactionDepth is decremented.
+        releaseSavepointIssued.resolve(undefined);
+        await allowReleaseSavepoint.promise;
+      }
+      return { rows: [] };
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+
+    const tx1 = repo.withTransaction(async () => {
+      firstStarted.resolve(undefined);
+      await secondStarted.promise;
+      await finishTransactions.promise;
+    });
+    await firstStarted.promise;
+
+    const tx2 = repo.withTransaction(async () => {
+      secondStarted.resolve(undefined);
+      await finishTransactions.promise;
+    });
+    await secondStarted.promise;
+
+    expect(queries).toStrictEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ', 'SAVEPOINT sp2']);
+    finishTransactions.resolve(undefined);
+    await releaseSavepointIssued.promise;
+    // Both transaction callbacks have finished. Yield so the second commit path can attempt to run;
+    // it must not issue COMMIT until the first RELEASE SAVEPOINT has decremented transactionDepth.
+    await allowPendingMicrotasks();
+
+    // The other commit path must wait until transactionDepth is decremented after RELEASE SAVEPOINT.
+    expect(queries).toStrictEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ', 'SAVEPOINT sp2', 'RELEASE SAVEPOINT sp2']);
+
+    allowReleaseSavepoint.resolve(undefined);
+    await Promise.all([tx1, tx2]);
+
+    expect(queries).toStrictEqual([
+      'BEGIN ISOLATION LEVEL REPEATABLE READ',
+      'SAVEPOINT sp2',
+      'RELEASE SAVEPOINT sp2',
+      'COMMIT',
+    ]);
+  });
+
+  test('withTransactionStateLock serializes concurrent transaction rollbacks', async () => {
+    const firstStarted = Promise.withResolvers<undefined>();
+    const secondStarted = Promise.withResolvers<undefined>();
+    const failTransactions = Promise.withResolvers<undefined>();
+    const rollbackSavepointIssued = Promise.withResolvers<undefined>();
+    const allowRollbackSavepoint = Promise.withResolvers<undefined>();
+    const queries: string[] = [];
+    let rollbackSavepointCount = 0;
+    const query = jest.fn(async (sql: string) => {
+      queries.push(sql);
+      if (sql === 'ROLLBACK TO SAVEPOINT sp2' && ++rollbackSavepointCount === 1) {
+        // Hold the inner rollback in the database call before transactionDepth is decremented.
+        rollbackSavepointIssued.resolve(undefined);
+        await allowRollbackSavepoint.promise;
+      }
+      return { rows: [] };
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+    const errorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+
+    try {
+      const tx1 = repo
+        .withTransaction(async () => {
+          firstStarted.resolve(undefined);
+          await secondStarted.promise;
+          await failTransactions.promise;
+          throw new Error('first rollback');
+        })
+        .catch((err) => err);
+      await firstStarted.promise;
+
+      const tx2 = repo
+        .withTransaction(async () => {
+          secondStarted.resolve(undefined);
+          await failTransactions.promise;
+          throw new Error('second rollback');
+        })
+        .catch((err) => err);
+      await secondStarted.promise;
+
+      expect(queries).toStrictEqual(['BEGIN ISOLATION LEVEL REPEATABLE READ', 'SAVEPOINT sp2']);
+      failTransactions.resolve(undefined);
+      await rollbackSavepointIssued.promise;
+      // Both transaction callbacks have failed. Yield so the second rollback path can attempt to run;
+      // it must not issue ROLLBACK until the savepoint rollback has updated transactionDepth.
+      await allowPendingMicrotasks();
+
+      // The other rollback path must wait until transactionDepth is decremented after ROLLBACK TO SAVEPOINT.
+      expect(queries).toStrictEqual([
+        'BEGIN ISOLATION LEVEL REPEATABLE READ',
+        'SAVEPOINT sp2',
+        'ROLLBACK TO SAVEPOINT sp2',
+      ]);
+
+      allowRollbackSavepoint.resolve(undefined);
+      const results = await Promise.all([tx1, tx2]);
+
+      expect(results).toEqual([expect.any(Error), expect.any(Error)]);
+      expect(queries).toStrictEqual([
+        'BEGIN ISOLATION LEVEL REPEATABLE READ',
+        'SAVEPOINT sp2',
+        'ROLLBACK TO SAVEPOINT sp2',
+        'ROLLBACK',
+      ]);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  test('processing pre-commit callbacks does not deadlock a transaction', async () => {
+    const queries: string[] = [];
+    const query = jest.fn(async (sql: string) => {
+      queries.push(sql);
+      return { rows: [] };
+    });
+    const client = {
+      query,
+      release: jest.fn(),
+    } as unknown as PoolClient;
+    const repo = getShardSystemRepo(
+      'test-shard',
+      RepositoryConnection.borrowClient(client, { mode: DatabaseMode.WRITER })
+    );
+
+    const result = await Promise.race([
+      repo
+        .withTransaction(async () => {
+          await repo.preCommit(async () => {
+            // Pre-commit callbacks are allowed to start their own nested transaction.
+            // If the outer commit held transactionStateLock while running callbacks, this nested
+            // transaction would wait for the lock while the outer commit waited for the callback.
+            await repo.withTransaction(async () => undefined);
+          });
+        })
+        .then(() => 'completed'),
+      new Promise((resolve) => {
+        // The broken implementation deadlocks, so the race gives the test a bounded failure mode.
+        setTimeout(() => resolve('timed out'), 100);
+      }),
+    ]);
+
+    expect(result).toBe('completed');
+    expect(queries).toStrictEqual([
+      'BEGIN ISOLATION LEVEL REPEATABLE READ',
+      'SAVEPOINT sp2',
+      'RELEASE SAVEPOINT sp2',
+      'COMMIT',
+    ]);
+  });
+
+  test.each(['commit', 'rollback'])('Post-commit handling on %s', async (mode) => {
+    const repo = systemRepo;
+    const loggerErrorSpy = jest.spyOn(getLogger(), 'error').mockImplementation(() => {});
+    const finalPostCommit = jest.fn();
+
+    const error = new Error('Post-commit hook failed');
+    const promise = repo.withTransaction(async () => {
+      await repo.postCommit(async () => {
+        throw new Error('Post-commit hook failed');
+      });
+      await repo.postCommit(async () => {
+        // eslint-disable-next-line no-throw-literal
+        throw 'Post-commit hook failed with string';
+      });
+      await repo.postCommit(finalPostCommit);
+      if (mode === 'rollback') {
+        throw new Error('Transaction failed');
+      }
+    });
+
+    if (mode === 'commit') {
+      await promise;
+      expect(finalPostCommit).toHaveBeenCalled();
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(2);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(expect.any(String), error);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          err: 'Post-commit hook failed with string',
+        })
+      );
+    } else {
+      await expect(promise).rejects.toThrow('Transaction failed');
+      expect(finalPostCommit).not.toHaveBeenCalled();
+      expect(loggerErrorSpy).toHaveBeenCalledTimes(1);
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          error: 'Transaction failed',
+        })
+      );
+    }
+
+    loggerErrorSpy.mockRestore();
+  });
+
+  test('Handles resources with many entries stored in lookup table', async () =>
+    withTestContext(async () => {
+      const { repo } = await createTestProject({ withRepo: true });
+
+      const patient: Patient = {
+        resourceType: 'Patient',
+        link: [],
+      };
+
+      // Postgres uses a 16-bit counter for placeholder formats internally,
+      // so (2^16 + 1) / 3 = (64k + 1) / 3 will definitely overflow it if not sent in smaller batches
+      // the division by three since there are 3 column placeholders per inserted row
+      for (let i = 0; i < Math.ceil((64 * 1024 + 1) / 3); i++) {
+        patient.link?.push({ type: 'seealso', other: { reference: 'Patient/' + randomUUID() } });
+      }
+
+      await repo.withTransaction(async (client) => {
+        const querySpy = jest.spyOn(client, 'query');
+        await repo.createResource(patient);
+        const calls = querySpy.mock.calls;
+        expect(calls.filter((c) => c[0].includes('INSERT INTO "Patient"'))).toHaveLength(1);
+        expect(calls.filter((c) => c[0].includes('INSERT INTO "Patient_History"'))).toHaveLength(1);
+        expect(calls.filter((c) => c[0].includes('INSERT INTO "Patient_References"')).length).toBeGreaterThanOrEqual(2);
+        querySpy.mockRestore();
+      });
+    }));
+
+  test('__version column', async () => {
+    const { repo } = await createTestProject({ withRepo: true, superAdmin: true });
+
+    await withTestContext(async () => {
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Alice'], family: 'Smith' }],
+      });
+
+      const versionQuery = new SelectQuery('Patient').column('__version').where('id', '=', patient.id);
+
+      const client = repo.getDatabaseClient(DatabaseMode.WRITER);
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(Repository.VERSION);
+
+      // Simulate the resource being at an older version
+      const OLDER_VERSION = Repository.VERSION - 1;
+      await client.query('UPDATE "Patient" SET __version = $1 WHERE id = $2', [OLDER_VERSION, patient.id]);
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(OLDER_VERSION);
+
+      // noop update should not change the version
+      await repo.updateResource<Patient>(patient);
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(OLDER_VERSION);
+
+      // meaningful update should change the version
+      await repo.updateResource<Patient>({
+        ...patient,
+        name: [{ given: ['Bob'], family: 'Smith' }],
+      });
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(Repository.VERSION);
+
+      // Simulate the resource being at an older version
+      await client.query('UPDATE "Patient" SET __version = $1 WHERE id = $2', [OLDER_VERSION, patient.id]);
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(OLDER_VERSION);
+
+      // reindex SHOULD change the version
+      await repo.reindexResource('Patient', patient.id);
+      expect((await versionQuery.execute(client))[0].__version).toStrictEqual(Repository.VERSION);
+    });
+  });
+
+  test('Legacy UUID support -- non-conformant IDs that match UUID form are accepted', () =>
+    withTestContext(async () => {
+      const { repo } = await createTestProject({ withRepo: true });
+      // Random invalid UUID that is invalid based on RFC9562 for the following reasons:
+      // 1. The version field (the first digit in the third group) should be 4 to indicate UUID version 4, but here it's e
+      // 2. The variant field (the first digit in the fourth group) should be 8, 9, a, or b, but here it's c
+      // This is invalid in a similar way to some of the legacy UUIDs imported from other systems which we must continue to support
+      // This test fails using the version of the validator.js isUUID (13.15.0) that caused the regression this PR fixed: https://github.com/medplum/medplum/pull/6289
+      const nonconformantUuid = '03a8d57b-91c2-e45f-c312-a7fe09c2d8e4';
+
+      // cleanup if it exists so the test can run again successfully
+      await systemRepo.expungeResource('Patient', nonconformantUuid);
+
+      const patient = await repo.createResource<Patient>(
+        {
+          id: nonconformantUuid,
+          resourceType: 'Patient',
+          name: [{ given: ['Alice'], family: 'Smith' }],
+        },
+        { assignedId: true }
+      );
+      expect(patient.id).toStrictEqual(nonconformantUuid);
+    }));
+
+  test('Project.exportedResourceType', () =>
+    withTestContext(async () => {
+      const { project: linkedProject, repo: linkedRepo } = await createTestProject({
+        project: { exportedResourceType: ['Organization'] },
+        withRepo: true,
+      });
+
+      const { project, repo } = await createTestProject({
+        project: { link: [{ project: createReference(linkedProject) }] },
+        membership: { admin: true },
+        withRepo: true,
+      });
+
+      // Creating via linkedRepo warms the Redis cache for this resource.
+      const linkedOrg = await linkedRepo.createResource<Organization>({
+        resourceType: 'Organization',
+        name: 'Linked Organization',
+      });
+      const linkedPatient = await linkedRepo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Linked'], family: 'Patient' }],
+        managingOrganization: createReference(linkedOrg),
+      });
+
+      const org = await repo.createResource<Organization>({
+        resourceType: 'Organization',
+        name: 'Non-linked Organization',
+      });
+
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Non-linked'], family: 'Patient' }],
+        managingOrganization: createReference(org),
+      });
+
+      const projects = await repo.searchResources({ resourceType: 'Project' });
+      expect(projects.length).toStrictEqual(3);
+      expect(projects.map((p) => p.id)).toContain(project.id);
+      expect(projects.map((p) => p.id)).toContain(linkedProject.id);
+      expect(projects.map((p) => p.id)).toContain(r4ProjectId);
+
+      const patients = await repo.searchResources({ resourceType: 'Patient' });
+      expect(patients.length).toStrictEqual(1);
+      expect(patients.map((p) => p.id)).toContain(patient.id);
+      expect(patients.map((p) => p.id)).not.toContain(linkedPatient.id);
+
+      const orgs = await repo.searchResources({ resourceType: 'Organization' });
+      expect(orgs.length).toStrictEqual(2);
+      expect(orgs.map((p) => p.id)).toContain(org.id);
+      expect(orgs.map((p) => p.id)).toContain(linkedOrg.id);
+
+      // Regression: a non-exported resource in a linked project should not be
+      // readable even when it is present in the Redis cache. Previously,
+      // canPerformInteraction only checked project-compartment membership and
+      // ignored the linked project's `exportedResourceType`, so the cache path
+      // bypassed the filter enforced by addProjectFilters in SQL.
+
+      // Exported type: should still be readable from the linked project.
+      const readOrg = await repo.readResource<Organization>('Organization', linkedOrg.id);
+      expect(readOrg.id).toStrictEqual(linkedOrg.id);
+
+      // Non-exported type: must not be readable even with a cache hit.
+      await expect(repo.readResource<Patient>('Patient', linkedPatient.id)).rejects.toThrow(
+        new OperationOutcomeError(notFound)
+      );
+    }));
+
+  test('Project.exportedResourceType allows resources in primary project', () =>
+    withTestContext(async () => {
+      // Sanity check: exportedResourceType on the *primary* project is not
+      // used to filter access to the owner's own resources.
+      const { repo } = await createTestProject({
+        project: { exportedResourceType: ['Organization'] },
+        withRepo: true,
+      });
+
+      const patient = await repo.createResource<Patient>({
+        resourceType: 'Patient',
+        name: [{ given: ['Primary'], family: 'Patient' }],
+      });
+
+      const readPatient = await repo.readResource<Patient>('Patient', patient.id);
+      expect(readPatient.id).toStrictEqual(patient.id);
+    }));
+
+  test('constructor and clone add the synthetic R4 project only once to shared context', () => {
+    const project: WithId<Project> = {
+      resourceType: 'Project',
+      id: randomUUID(),
+    };
+    const context = {
+      projects: [project],
+      author: {
+        reference: 'Practitioner/' + randomUUID(),
+      },
+    };
+
+    const repo = new Repository(context);
+    const clonedRepo = repo.clone();
+
+    // Repository construction mutates the shared context in place, but repeated
+    // construction from that context must not append duplicate synthetic projects.
+    expect(context.projects.map((p) => p.id)).toStrictEqual([project.id, r4ProjectId]);
+    expect(repo.getConfig().projects?.filter((p) => p.id === r4ProjectId)).toHaveLength(1);
+    expect(clonedRepo.getConfig().projects?.filter((p) => p.id === r4ProjectId)).toHaveLength(1);
+  });
+
+  test('clone does not share the same connection as the original repository', async () =>
+    withTestContext(async () => {
+      const { repo } = await createTestProject({ withRepo: true });
+
+      let checked = false;
+      await repo.withTransaction(async (client) => {
+        // starting a transaction will have pinned a connection to `repo`.
+        // so ensure that cloning after that pinning does not propagate the pinned connection
+        // to the cloned repository.
+        const clonedRepo1 = repo.clone();
+        expect(clonedRepo1.getDatabaseClient(DatabaseMode.WRITER)).not.toBe(client);
+        checked = true;
+      });
+      expect(checked).toBe(true);
+    }));
+});
+
+function shuffleString(s: string): string {
+  const arr = Array.from(s);
+  const len = arr.length;
+  for (let i = 0; i < len - 1; ++i) {
+    const j = Math.floor(Math.random() * len);
+    const temp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = temp;
+  }
+  return arr.join('');
+}
+
+// Some transaction race tests need to make a negative assertion: a competing async path has had a
+// chance to resume, but it must not issue SQL while the transaction state lock is held.
+async function allowPendingMicrotasks(): Promise<void> {
+  // Yield twice so already-queued promise continuations, and continuations queued by those
+  // continuations, can run far enough to issue SQL if the lock is missing.
+  await Promise.resolve();
+  await Promise.resolve();
+}
