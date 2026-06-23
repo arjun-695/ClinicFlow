@@ -142,6 +142,12 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	ctx := r.Context()
 
 	// Verify patient and fetch details
@@ -149,7 +155,7 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		Name  string
 		Phone string
 	}
-	err = db.Pool.QueryRow(ctx, "SELECT name, phone FROM patients WHERE id = $1 AND doctor_id = $2", patientID, doctorID).Scan(&pt.Name, &pt.Phone)
+	err = db.Pool.QueryRow(ctx, "SELECT name, phone FROM patients WHERE id = $1 AND doctor_id = $2 AND facility_id = $3", patientID, doctorID, facilityID).Scan(&pt.Name, &pt.Phone)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Patient not found"})
 		return
@@ -158,18 +164,19 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 	// Fetch doctor/clinic details
 	var doc struct {
 		ClinicName string
+		Location   string
 	}
-	err = db.Pool.QueryRow(ctx, "SELECT clinic_name FROM doctors WHERE id = $1", doctorID).Scan(&doc.ClinicName)
+	var locationVal *string
+	err = db.Pool.QueryRow(ctx, "SELECT clinic_name, location FROM users WHERE id = $1", doctorID).Scan(&doc.ClinicName, &locationVal)
 	if err != nil {
 		log.Printf("CreateBill clinic fetch error: %v", err)
 		doc.ClinicName = "Our Clinic"
+	} else if locationVal != nil {
+		doc.Location = *locationVal
 	}
 
 	// Process receipt file attachment if present
 	var invoiceURL *string
-	var attachedFileBytes []byte
-	var attachedFilename string
-	var attachedMIME string
 
 	file, fileHeader, err := r.FormFile("invoice")
 	if err == nil {
@@ -199,9 +206,7 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		} else {
 			invoiceURL = &url
 		}
-		attachedFileBytes = fileBytes
-		attachedFilename = fileHeader.Filename
-		attachedMIME = detectedMIME
+
 	}
 
 	// Begin ACID Database Transaction
@@ -226,12 +231,12 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 
 	// Insert bill record
 	queryBill := `
-		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, promised_due_date, invoice_url, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, promised_due_date, invoice_url, created_at, facility_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id
 	`
 	var billID int
-	err = tx.QueryRow(ctx, queryBill, patientID, doctorID, description, calculatedTotal, remainingAmount, billStatus, promisedDueDate, invoiceURL, createdAt).Scan(&billID)
+	err = tx.QueryRow(ctx, queryBill, patientID, doctorID, description, calculatedTotal, remainingAmount, billStatus, promisedDueDate, invoiceURL, createdAt, facilityID).Scan(&billID)
 	if err != nil {
 		log.Printf("CreateBill insert bill error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -298,64 +303,74 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 	skipWhatsApp := r.FormValue("skip_whatsapp") == "true"
 	if !skipWhatsApp {
 		go func() {
-		// Fetch doctor custom template or default
-		tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
+			// Fetch doctor custom template or default
+			tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
-		// Build payment details string
-		paymentDetails := ""
-		if amountPaid > 0 {
-			paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", amountPaid, paymentMode)
-		}
-
-		// Build items list
-		itemsList := ""
-		if len(items) > 0 {
-			for i, item := range items {
-				dosageStr := ""
-				if item.Dosage != "" {
-					dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
-				}
-				itemsList += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit%s\n", i+1, item.ItemName, item.Quantity, item.UnitPrice, dosageStr)
+			// Determine currency symbol based on location
+			currencySymbol := "$"
+			loc := strings.ToLower(doc.Location)
+			if strings.Contains(loc, "india") || strings.Contains(loc, "in") {
+				currencySymbol = "₹"
+			} else if strings.Contains(loc, "europe") || strings.Contains(loc, "eu") {
+				currencySymbol = "€"
+			} else if strings.Contains(loc, "uk") || strings.Contains(loc, "gbp") {
+				currencySymbol = "£"
 			}
-		}
 
-		appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
-		if appURL == "" {
-			appURL = "http://localhost:3000"
-		}
-		billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
+			// Build payment details string
+			paymentDetails := ""
+			if amountPaid > 0 {
+				paymentDetails = fmt.Sprintf("Amount Paid: %s%.2f (%s)\n", currencySymbol, amountPaid, paymentMode)
+			}
 
-		// Combine template sections
-		msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+			// Build items list
+			itemsList := ""
+			if len(items) > 0 {
+				for i, item := range items {
+					dosageStr := ""
+					if item.Dosage != "" {
+						dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
+					}
+					itemsList += fmt.Sprintf("%d. %s (Qty: %d) - %s%.2f/unit%s\n", i+1, item.ItemName, item.Quantity, currencySymbol, item.UnitPrice, dosageStr)
+				}
+			}
 
-		// Replace placeholders
-		replacer := strings.NewReplacer(
-			"{patient_name}", pt.Name,
-			"{total_amount}", fmt.Sprintf("%.2f", calculatedTotal),
-			"{clinic_name}", doc.ClinicName,
-			"{payment_details}", paymentDetails,
-			"{remaining_amount}", fmt.Sprintf("%.2f", remainingAmount),
-			"{items_list}", itemsList,
-			"{bill_link}", billLink,
-			"{description}", description,
-		)
-		messageText := replacer.Replace(msgTemplate)
+			appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+			if appURL == "" {
+				appURL = "http://localhost:3000"
+			}
+			billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
 
-		// Send WhatsApp (with attachment if present)
-		var err error
-		if len(attachedFileBytes) > 0 {
-			err = services.SendWhatsAppWithAttachment(pt.Phone, messageText, attachedFileBytes, attachedFilename, attachedMIME)
-		} else {
-			err = services.SendWhatsApp(pt.Phone, messageText)
-		}
+			// Combine template sections
+			msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
 
-		if err != nil {
-			log.Printf("WhatsApp billing dispatch failed for Patient %s (%s): %v", pt.Name, pt.Phone, err)
-		} else {
-			// Update notified status
-			_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
-		}
-	}()
+			// Replace placeholders
+			replacer := strings.NewReplacer(
+				"{patient_name}", pt.Name,
+				"{total_amount}", fmt.Sprintf("%.2f", calculatedTotal),
+				"{clinic_name}", doc.ClinicName,
+				"{payment_details}", paymentDetails,
+				"{remaining_amount}", fmt.Sprintf("%.2f", remainingAmount),
+				"{items_list}", itemsList,
+				"{bill_link}", billLink,
+				"{description}", description,
+			)
+			messageText := replacer.Replace(msgTemplate)
+
+			// Send WhatsApp via Twilio
+			var billURL string
+			if invoiceURL != nil {
+				billURL = *invoiceURL
+			}
+
+			err := services.SendTwilioWhatsApp(pt.Phone, messageText, billURL)
+			if err != nil {
+				log.Printf("Twilio WhatsApp billing dispatch failed for Patient %s (%s): %v", pt.Name, pt.Phone, err)
+			} else {
+				// Update notified status
+				_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
+			}
+		}()
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -386,20 +401,44 @@ func GetBillDetails(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Load Bill
+	var role, phone string
+	err = db.Pool.QueryRow(ctx, "SELECT role, phone FROM users WHERE id = $1", doctorID).Scan(&role, &phone)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
 	var b Bill
-	queryBill := `
-		SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
-		       b.doctor_id, d.clinic_name, b.description, b.total_amount, 
-		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
-		FROM bills b
-		JOIN patients p ON b.patient_id = p.id
-		LEFT JOIN doctors d ON b.doctor_id = d.id
-		WHERE b.id = $1 AND p.doctor_id = $2
-	`
-	err = db.Pool.QueryRow(ctx, queryBill, id, doctorID).Scan(
-		&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
-		&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
-	)
+	var queryBill string
+	if role == "USER" {
+		queryBill = `
+			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
+			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
+			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			LEFT JOIN users d ON b.doctor_id = d.id
+			WHERE b.id = $1 AND p.phone = $2
+		`
+		err = db.Pool.QueryRow(ctx, queryBill, id, phone).Scan(
+			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
+			&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
+		)
+	} else {
+		queryBill = `
+			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
+			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
+			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			LEFT JOIN users d ON b.doctor_id = d.id
+			WHERE b.id = $1 AND p.doctor_id = $2
+		`
+		err = db.Pool.QueryRow(ctx, queryBill, id, doctorID).Scan(
+			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
+			&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
+		)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found"})
 		return
@@ -496,15 +535,40 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get total count of bills matching criteria
-	countQuery := `
-		SELECT COUNT(*)
-		FROM bills b
-		JOIN patients p ON b.patient_id = p.id
-		WHERE p.doctor_id = $1
-		  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%')
-	`
+	var role, phone string
+	var err error
+	err = db.Pool.QueryRow(r.Context(), "SELECT role, phone FROM users WHERE id = $1", doctorID).Scan(&role, &phone)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	var totalCount int
-	err := db.Pool.QueryRow(r.Context(), countQuery, doctorID, search).Scan(&totalCount)
+	var countQuery string
+	if role == "USER" {
+		countQuery = `
+			SELECT COUNT(*)
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			WHERE p.phone = $1
+		`
+		err = db.Pool.QueryRow(r.Context(), countQuery, phone).Scan(&totalCount)
+	} else {
+		countQuery = `
+			SELECT COUNT(*)
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			WHERE p.doctor_id = $1 AND b.facility_id = $3
+			  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%')
+		`
+		err = db.Pool.QueryRow(r.Context(), countQuery, doctorID, search, facilityID).Scan(&totalCount)
+	}
 	if err != nil {
 		log.Printf("ListBills count error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -512,19 +576,40 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch page of bills
-	query := `
-		SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
-		       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
-		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
-		FROM bills b
-		JOIN patients p ON b.patient_id = p.id
-		LEFT JOIN doctors d ON b.doctor_id = d.id
-		WHERE p.doctor_id = $1
-		  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%')
-		ORDER BY b.created_at DESC
-		LIMIT $3 OFFSET $4
-	`
-	rows, err := db.Pool.Query(r.Context(), query, doctorID, search, limit, offset)
+	var query string
+	var rows interface {
+		Next() bool
+		Scan(dest ...any) error
+		Close()
+	}
+	if role == "USER" {
+		query = `
+			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
+			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
+			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			LEFT JOIN users d ON b.doctor_id = d.id
+			WHERE p.phone = $1
+			ORDER BY b.created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = db.Pool.Query(r.Context(), query, phone, limit, offset)
+	} else {
+		query = `
+			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
+			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
+			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			LEFT JOIN users d ON b.doctor_id = d.id
+			WHERE p.doctor_id = $1 AND b.facility_id = $5
+			  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%')
+			ORDER BY b.created_at DESC
+			LIMIT $3 OFFSET $4
+		`
+		rows, err = db.Pool.Query(r.Context(), query, doctorID, search, limit, offset, facilityID)
+	}
 	if err != nil {
 		log.Printf("ListBills query error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -587,7 +672,7 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
-		LEFT JOIN doctors d ON b.doctor_id = d.id
+		LEFT JOIN users d ON b.doctor_id = d.id
 		WHERE b.id = $1 AND p.doctor_id = $2
 	`
 	err = db.Pool.QueryRow(ctx, queryBill, billID, doctorID).Scan(

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { fetchAPI, API_URL } from "../utils/api";
 
@@ -22,6 +22,20 @@ export default function AuthForm({ variant }: Props) {
   
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const data = await fetchAPI("/api/auth/session");
+        if (data.status === "Authenticated") {
+          router.replace("/dashboard");
+        }
+      } catch {
+        // ignore
+      }
+    };
+    checkSession();
+  }, [router]);
 
   const handleGoogleLogin = () => {
     // Redirect to the Go backend Google Login redirect initiator
@@ -80,7 +94,7 @@ export default function AuthForm({ variant }: Props) {
         });
         
         if (resData.user) {
-          router.push("/dashboard");
+          router.replace("/dashboard");
         } else {
           setError("Failed to create account. Please try again.");
         }
@@ -102,12 +116,7 @@ export default function AuthForm({ variant }: Props) {
         });
 
         if (resData.user) {
-          if (resData.medplum_token) {
-            localStorage.setItem("medplum_access_token", resData.medplum_token);
-          } else {
-            localStorage.removeItem("medplum_access_token");
-          }
-          router.push("/dashboard");
+          router.replace("/dashboard");
         } else {
           setError("Failed to sign in. Please try again.");
         }

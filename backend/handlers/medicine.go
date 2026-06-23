@@ -10,12 +10,13 @@ import (
 )
 
 type Medicine struct {
-	ID        int       `json:"id"`
-	DoctorID  int       `json:"doctor_id"`
-	Name      string    `json:"name"`
-	Stock     int       `json:"stock"`
-	Price     float64   `json:"price"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         int       `json:"id"`
+	DoctorID   int       `json:"doctor_id"`
+	FacilityID int       `json:"facility_id"`
+	Name       string    `json:"name"`
+	Stock      int       `json:"stock"`
+	Price      float64   `json:"price"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // CreateMedicine adds a new medicine card to doctor's inventory
@@ -42,14 +43,20 @@ func CreateMedicine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	query := `
-		INSERT INTO medicines (doctor_id, name, stock, price)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO medicines (doctor_id, name, stock, price, facility_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
 	var id int
 	var createdAt time.Time
-	err := db.Pool.QueryRow(r.Context(), query, doctorID, input.Name, input.Stock, input.Price).Scan(&id, &createdAt)
+	err = db.Pool.QueryRow(r.Context(), query, doctorID, input.Name, input.Stock, input.Price, facilityID).Scan(&id, &createdAt)
 	if err != nil {
 		log.Printf("CreateMedicine DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -57,30 +64,37 @@ func CreateMedicine(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, Medicine{
-		ID:        id,
-		DoctorID:  doctorID,
-		Name:      input.Name,
-		Stock:     input.Stock,
-		Price:     input.Price,
-		CreatedAt: createdAt,
+		ID:         id,
+		DoctorID:   doctorID,
+		FacilityID: facilityID,
+		Name:       input.Name,
+		Stock:      input.Stock,
+		Price:      input.Price,
+		CreatedAt:  createdAt,
 	})
 }
 
-// ListMedicines fetches medicine list for doctor
+// ListMedicines fetches medicine list for the current facility
 func ListMedicines(w http.ResponseWriter, r *http.Request) {
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	query := `
-		SELECT id, doctor_id, name, stock, price, created_at
+		SELECT id, doctor_id, name, stock, price, created_at, facility_id
 		FROM medicines
-		WHERE doctor_id = $1
+		WHERE facility_id = $1
 		ORDER BY name ASC
 	`
-	rows, err := db.Pool.Query(r.Context(), query, doctorID)
+	rows, err := db.Pool.Query(r.Context(), query, facilityID)
 	if err != nil {
 		log.Printf("ListMedicines DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -91,7 +105,7 @@ func ListMedicines(w http.ResponseWriter, r *http.Request) {
 	medicines := []Medicine{}
 	for rows.Next() {
 		var m Medicine
-		err := rows.Scan(&m.ID, &m.DoctorID, &m.Name, &m.Stock, &m.Price, &m.CreatedAt)
+		err := rows.Scan(&m.ID, &m.DoctorID, &m.Name, &m.Stock, &m.Price, &m.CreatedAt, &m.FacilityID)
 		if err != nil {
 			log.Printf("ListMedicines scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -103,7 +117,7 @@ func ListMedicines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, medicines)
 }
 
-// UpdateMedicine updates an existing medicine catalog item for the doctor
+// UpdateMedicine updates an existing medicine catalog item for the facility
 func UpdateMedicine(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ID    int     `json:"id"`
@@ -122,21 +136,27 @@ func UpdateMedicine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
 		return
 	}
 
 	query := `
 		UPDATE medicines
 		SET name = $1, stock = $2, price = $3
-		WHERE id = $4 AND doctor_id = $5
-		RETURNING id, doctor_id, name, stock, price, created_at
+		WHERE id = $4 AND facility_id = $5
+		RETURNING id, doctor_id, name, stock, price, created_at, facility_id
 	`
 	var m Medicine
-	err := db.Pool.QueryRow(r.Context(), query, input.Name, input.Stock, input.Price, input.ID, doctorID).
-		Scan(&m.ID, &m.DoctorID, &m.Name, &m.Stock, &m.Price, &m.CreatedAt)
+	err = db.Pool.QueryRow(r.Context(), query, input.Name, input.Stock, input.Price, input.ID, facilityID).
+		Scan(&m.ID, &m.DoctorID, &m.Name, &m.Stock, &m.Price, &m.CreatedAt, &m.FacilityID)
 	if err != nil {
 		log.Printf("UpdateMedicine DB error: %v", err)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Medicine not found or unauthorized"})
@@ -146,7 +166,7 @@ func UpdateMedicine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// DeleteMedicine removes a medicine catalog item for the doctor
+// DeleteMedicine removes a medicine catalog item for the facility
 func DeleteMedicine(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ID int `json:"id"`
@@ -162,17 +182,23 @@ func DeleteMedicine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	query := `
 		DELETE FROM medicines
-		WHERE id = $1 AND doctor_id = $2
+		WHERE id = $1 AND facility_id = $2
 	`
-	result, err := db.Pool.Exec(r.Context(), query, input.ID, doctorID)
+	result, err := db.Pool.Exec(r.Context(), query, input.ID, facilityID)
 	if err != nil {
 		log.Printf("DeleteMedicine DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

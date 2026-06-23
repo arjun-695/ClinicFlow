@@ -29,16 +29,22 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	ctx := r.Context()
 
 	// 1. Weekly Treated Patients (Distinct Patient count with Completed Appointments or Bills in past 7 days)
 	queryWeekly := `
 		SELECT TO_CHAR(d, 'Dy') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day') d
-		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.status = 'COMPLETED'
+		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY d ORDER BY d ASC
 	`
-	weeklyPoints, err := queryDataPoints(ctx, queryWeekly, doctorID)
+	weeklyPoints, err := queryDataPoints(ctx, queryWeekly, doctorID, facilityID)
 	if err != nil {
 		log.Printf("GetAnalytics weekly error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -49,10 +55,10 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	queryMonthly := `
 		SELECT TO_CHAR(m, 'Mon') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '11 months', CURRENT_DATE, '1 month') m
-		LEFT JOIN appointments a ON DATE_TRUNC('month', a.appointment_date) = DATE_TRUNC('month', m) AND a.doctor_id = $1 AND a.status = 'COMPLETED'
+		LEFT JOIN appointments a ON DATE_TRUNC('month', a.appointment_date) = DATE_TRUNC('month', m) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY m ORDER BY m ASC
 	`
-	monthlyPoints, err := queryDataPoints(ctx, queryMonthly, doctorID)
+	monthlyPoints, err := queryDataPoints(ctx, queryMonthly, doctorID, facilityID)
 	if err != nil {
 		log.Printf("GetAnalytics monthly error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -63,10 +69,10 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	queryYearly := `
 		SELECT TO_CHAR(y, 'YYYY') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '4 years', CURRENT_DATE, '1 year') y
-		LEFT JOIN appointments a ON DATE_TRUNC('year', a.appointment_date) = DATE_TRUNC('year', y) AND a.doctor_id = $1 AND a.status = 'COMPLETED'
+		LEFT JOIN appointments a ON DATE_TRUNC('year', a.appointment_date) = DATE_TRUNC('year', y) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY y ORDER BY y ASC
 	`
-	yearlyPoints, err := queryDataPoints(ctx, queryYearly, doctorID)
+	yearlyPoints, err := queryDataPoints(ctx, queryYearly, doctorID, facilityID)
 	if err != nil {
 		log.Printf("GetAnalytics yearly error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -77,10 +83,10 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	queryRevenue := `
 		SELECT TO_CHAR(d, 'DD Mon') AS label, COALESCE(SUM(b.total_amount), 0.0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, '1 day') d
-		LEFT JOIN bills b ON DATE(b.created_at) = DATE(d) AND b.doctor_id = $1
+		LEFT JOIN bills b ON DATE(b.created_at) = DATE(d) AND b.doctor_id = $1 AND b.facility_id = $2
 		GROUP BY d ORDER BY d ASC
 	`
-	revenuePoints, err := queryDataPoints(ctx, queryRevenue, doctorID)
+	revenuePoints, err := queryDataPoints(ctx, queryRevenue, doctorID, facilityID)
 	if err != nil {
 		log.Printf("GetAnalytics revenue error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -91,10 +97,10 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	queryAppts := `
 		SELECT TO_CHAR(d, 'DD Mon') AS label, COALESCE(COUNT(a.id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '13 days', '1 day') d
-		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.status = 'PENDING'
+		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'PENDING'
 		GROUP BY d ORDER BY d ASC
 	`
-	apptPoints, err := queryDataPoints(ctx, queryAppts, doctorID)
+	apptPoints, err := queryDataPoints(ctx, queryAppts, doctorID, facilityID)
 	if err != nil {
 		log.Printf("GetAnalytics future appts error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -110,8 +116,8 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func queryDataPoints(ctx context.Context, sqlQuery string, doctorID int) ([]DataPoint, error) {
-	rows, err := db.Pool.Query(ctx, sqlQuery, doctorID)
+func queryDataPoints(ctx context.Context, sqlQuery string, doctorID int, facilityID int) ([]DataPoint, error) {
+	rows, err := db.Pool.Query(ctx, sqlQuery, doctorID, facilityID)
 	if err != nil {
 		return nil, err
 	}

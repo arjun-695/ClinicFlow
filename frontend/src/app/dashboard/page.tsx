@@ -31,7 +31,9 @@ import {
   Edit3,
   ChevronDown,
   ChevronUp,
-  RotateCcw
+  RotateCcw,
+  Settings,
+  AlertTriangle
 } from "lucide-react";
 import { fetchAPI, API_URL } from "../../utils/api";
 import { ThemeToggleButton } from "../../components/ui/theme-toggle";
@@ -103,6 +105,8 @@ interface Appointment {
   status: "PENDING" | "COMPLETED" | "CANCELLED";
   reason: string;
   created_at: string;
+  slot_time?: string;
+  doctor_name?: string;
 }
 
 interface Medicine {
@@ -125,6 +129,7 @@ interface PatientDetail {
   patient: Patient;
   contracts: Bill[]; // mapped to contracts key for dashboard compatibility
   appointments: Appointment[];
+  prescriptions?: any[];
 }
 
 interface BillDetail {
@@ -146,17 +151,51 @@ interface AnalyticsData {
   appointments_future: DataPoint[];
 }
 
+function checkBPRange(bp: string): [boolean, string] {
+  const parts = bp.split("/");
+  if (parts.length !== 2) return [false, ""];
+  const systolic = parseInt(parts[0].trim());
+  const diastolic = parseInt(parts[1].trim());
+  if (isNaN(systolic) || isNaN(diastolic)) return [false, ""];
+  if (systolic > 140) return [true, `High Systolic Blood Pressure (${systolic} mmHg)`];
+  if (systolic < 90) return [true, `Low Systolic Blood Pressure (${systolic} mmHg)`];
+  if (diastolic > 90) return [true, `High Diastolic Blood Pressure (${diastolic} mmHg)`];
+  if (diastolic < 60) return [true, `Low Diastolic Blood Pressure (${diastolic} mmHg)`];
+  return [false, ""];
+}
+
+function checkHRRange(hr: number): [boolean, string] {
+  if (hr > 100) return [true, `High Heart Rate (${hr} bpm)`];
+  if (hr < 60) return [true, `Low Heart Rate (${hr} bpm)`];
+  return [false, ""];
+}
+
 export default function Dashboard() {
   const router = useRouter();
 
   // Authentication & Theme
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [doctorInfo, setDoctorInfo] = useState<{ name: string; clinic_name: string } | null>(null);
+  const [doctorInfo, setDoctorInfo] = useState<{
+    id: number;
+    email: string;
+    name: string;
+    clinic_name: string;
+    phone: string;
+    role: string;
+    location?: string;
+    photo_url?: string;
+    specialization?: string;
+    hospital_name?: string;
+    active_facility_id?: number;
+    facilities?: { id: number; name: string; type: string; role: string }[];
+  } | null>(null);
+
+  const isClinicMode = !doctorInfo || doctorInfo.role === "DOCTOR" || doctorInfo.facilities?.find(f => f.id === doctorInfo.active_facility_id)?.type === "CLINIC";
 
 
   // Tabs & Views
   const [activeTab, setActiveTab] = useState<
-    "patients" | "appointments" | "billing" | "medicines" | "analytics" | "whatsapp"
+    "patients" | "appointments" | "billing" | "medicines" | "analytics" | "whatsapp" | "staff" | "queue" | "vitals" | "labs" | "reschedule-queue" | "availability" | "prescriptions" | "pharmacy"
   >("patients");
   const [viewState, setViewState] = useState<ViewState>({ type: "list" });
 
@@ -183,11 +222,54 @@ export default function Dashboard() {
   const [newPtGender, setNewPtGender] = useState("Male");
   const [newPtAge, setNewPtAge] = useState("");
   const [newPtHistory, setNewPtHistory] = useState("");
+  const [facilityDoctors, setFacilityDoctors] = useState<any[]>([]);
+  const [selectedDoctorIds, setSelectedDoctorIds] = useState<number[]>([]);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [isAddRxOpen, setIsAddRxOpen] = useState(false);
+  const [rxPatientId, setRxPatientId] = useState("");
+  const [rxDiagnosis, setRxDiagnosis] = useState("");
+  const [rxNotes, setRxNotes] = useState("");
+  const [rxItems, setRxItems] = useState<any[]>([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
+  const [pendingPrescriptions, setPendingPrescriptions] = useState<any[]>([]);
+  const [isDispenseModalOpen, setIsDispenseModalOpen] = useState(false);
+  const [activeRxToDispense, setActiveRxToDispense] = useState<any | null>(null);
+  const [dispenseItems, setDispenseItems] = useState<any[]>([]);
 
   // 2. Appointment Form
   const [apptPatientId, setApptPatientId] = useState("");
+  const [apptDoctorId, setApptDoctorId] = useState("");
+  const [apptSlotId, setApptSlotId] = useState("");
   const [apptDate, setApptDate] = useState("");
   const [apptReason, setApptReason] = useState("");
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [checkinDoctorId, setCheckinDoctorId] = useState("");
+
+  // Slot Configurator state
+  const [configDoctorId, setConfigDoctorId] = useState("");
+  const [configWeeklyAvail, setConfigWeeklyAvail] = useState<any[]>(
+    Array.from({ length: 7 }, (_, i) => ({
+      day_of_week: i,
+      start_time: "09:00",
+      end_time: "17:00",
+      slot_duration_minutes: 60,
+      max_patients_per_slot: 1,
+      is_active: false
+    }))
+  );
+  const [generateStartDate, setGenerateStartDate] = useState("");
+  const [generateEndDate, setGenerateEndDate] = useState("");
+  const [slotPreviews, setSlotPreviews] = useState<any[]>([]);
+
+  // Unavailability & Rescheduling state
+  const [unavailDoctorId, setUnavailDoctorId] = useState("");
+  const [unavailDate, setUnavailDate] = useState("");
+  const [unavailReason, setUnavailReason] = useState("");
+  const [rescheduleQueue, setRescheduleQueue] = useState<any[]>([]);
+  const [activeRescheduleItem, setActiveRescheduleItem] = useState<any | null>(null);
+  const [reschedNewSlotId, setReschedNewSlotId] = useState("");
+  const [reschedDate, setReschedDate] = useState("");
+  const [reschedSlots, setReschedSlots] = useState<any[]>([]);
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
 
   // 3. Billing Form
   const [billPatientId, setBillPatientId] = useState("");
@@ -257,6 +339,50 @@ export default function Dashboard() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Workspace Switcher & Creation States
+  const [isFacilityDropdownOpen, setIsFacilityDropdownOpen] = useState(false);
+  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState("");
+  const [newWorkspaceType, setNewWorkspaceType] = useState<"CLINIC" | "HOSPITAL">("CLINIC");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // New Features States (Queue, Labs, Vitals, Staff Onboarding)
+  const [queueEntries, setQueueEntries] = useState<any[]>([]);
+  const [checkinPatientId, setCheckinPatientId] = useState("");
+  const [checkinReason, setCheckinReason] = useState("");
+  
+  const [labRequests, setLabRequests] = useState<any[]>([]);
+  const [newLabPatientId, setNewLabPatientId] = useState("");
+  const [newLabTestName, setNewLabTestName] = useState("");
+  const [uploadLabRequestId, setUploadLabRequestId] = useState<number | null>(null);
+  const [uploadReportUrl, setUploadReportUrl] = useState("");
+  const [uploadResultSummary, setUploadResultSummary] = useState("");
+  const [isUploadLabOpen, setIsUploadLabOpen] = useState(false);
+  const [isRequestLabOpen, setIsRequestLabOpen] = useState(false);
+
+  const [vitalsHistory, setVitalsHistory] = useState<any[]>([]);
+  const [vitalsAppointments, setVitalsAppointments] = useState<any[]>([]);
+  const [logWeight, setLogWeight] = useState("");
+  const [logBP, setLogBP] = useState("");
+  const [logHR, setLogHR] = useState("");
+  const [logPulse, setLogPulse] = useState("");
+  const [logSpO2, setLogSpO2] = useState("");
+  const [logTemp, setLogTemp] = useState("");
+  const [logEncounterId, setLogEncounterId] = useState("");
+  const [logCustomMetrics, setLogCustomMetrics] = useState<{ key: string; value: string }[]>([]);
+  const [rxLabRequests, setRxLabRequests] = useState<string[]>([]);
+  const [isLogVitalsOpen, setIsLogVitalsOpen] = useState(false);
+  const [vitalsPatientId, setVitalsPatientId] = useState("");
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [invitePhone, setInvitePhone] = useState("");
+  const [inviteRole, setInviteRole] = useState<"DOCTOR" | "PHARMACIST">("DOCTOR");
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteOTP, setInviteOTP] = useState("");
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [ownPatientProfile, setOwnPatientProfile] = useState<any>(null);
+  const [staffList, setStaffList] = useState<any[]>([]);
+
   // Auto-dismiss toast
   useEffect(() => {
     if (toast) {
@@ -274,46 +400,153 @@ export default function Dashboard() {
 
   const checkAuthSession = async () => {
     try {
-      // Check if there is a medplum_token in the URL (from Google OAuth redirect)
-      if (typeof window !== "undefined") {
-        const params = new URLSearchParams(window.location.search);
-        const urlToken = params.get("medplum_token");
-        if (urlToken) {
-          localStorage.setItem("medplum_access_token", urlToken);
-          // Clean up the URL query parameters to keep it clean
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-      }
 
       const data = await fetchAPI("/api/auth/session");
       if (data.status === "Authenticated") {
         setIsAuthenticated(true);
-        setDoctorInfo({
-          name: data.user.name,
-          clinic_name: data.user.clinic_name || data.user.shop_name || "My Clinic"
-        });
+        setDoctorInfo(data.user);
+        if (data.user.active_facility_id) {
+          localStorage.setItem("active_facility_id", data.user.active_facility_id.toString());
+        }
       } else {
         setIsAuthenticated(false);
-        router.push("/signin");
+        router.replace("/signin");
       }
     } catch {
       setIsAuthenticated(false);
-      router.push("/signin");
+      router.replace("/signin");
     }
   };
 
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsFacilityDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // --- Set default tab by role ---
+  useEffect(() => {
+    if (doctorInfo) {
+      if (doctorInfo.role === "USER") {
+        setActiveTab("vitals");
+      } else if (doctorInfo.role === "HOSPITAL_ADMIN") {
+        setActiveTab("staff");
+      } else if (doctorInfo.role === "PHARMACIST") {
+        setActiveTab("billing");
+      } else {
+        setActiveTab("patients");
+      }
+    }
+  }, [doctorInfo]);
+
+  // --- Auto-assign in Clinic Mode ---
+  useEffect(() => {
+    if (isAuthenticated && doctorInfo && isClinicMode) {
+      if (doctorInfo.role === "DOCTOR") {
+        setApptDoctorId(doctorInfo.id.toString());
+        setConfigDoctorId(doctorInfo.id.toString());
+      } else if (facilityDoctors.length > 0) {
+        setApptDoctorId(facilityDoctors[0].id.toString());
+        setConfigDoctorId(facilityDoctors[0].id.toString());
+      }
+    }
+  }, [isAuthenticated, doctorInfo, isClinicMode, facilityDoctors]);
+
   // --- Load Data Hook ---
   useEffect(() => {
-    if (isAuthenticated) {
-      loadPatients();
-      loadAppointments();
-      loadMedicines();
-      loadAnalytics();
-      loadWhatsAppStatus();
-      loadRecentBills();
-      loadWhatsAppTemplates();
+    if (isAuthenticated && doctorInfo) {
+      const needsSetup = 
+        doctorInfo.role === "DOCTOR" && 
+        !doctorInfo.specialization && 
+        !doctorInfo.location && 
+        !doctorInfo.hospital_name;
+
+      if (needsSetup) {
+        return; // Don't load dashboard data during onboarding/setup
+      }
+
+      if (doctorInfo.role === "USER") {
+        loadOwnPatientProfile();
+        loadAppointments();
+        loadRecentBills();
+      } else {
+        loadPatients();
+        loadFacilityDoctors();
+        loadAppointments();
+        loadMedicines();
+        loadPrescriptions();
+        if (doctorInfo.role === "PHARMACIST") {
+          loadPendingPrescriptions();
+        }
+        loadAnalytics();
+        loadWhatsAppStatus();
+        loadRecentBills();
+        loadWhatsAppTemplates();
+        loadQueue();
+        loadStaff();
+      }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, doctorInfo]);
+
+  // Reactively load slots/availability/reschedules when tabs change
+  useEffect(() => {
+    if (activeTab === "reschedule-queue" && doctorInfo?.role === "HOSPITAL_ADMIN") {
+      loadRescheduleQueue();
+    }
+    if (activeTab === "availability" && doctorInfo) {
+      if (doctorInfo.role === "DOCTOR") {
+        setConfigDoctorId(doctorInfo.id.toString());
+        loadDoctorAvailability(doctorInfo.id.toString());
+      } else {
+        setConfigDoctorId("");
+      }
+    }
+  }, [activeTab, doctorInfo]);
+
+  // SSE Queue Stream Connection
+  useEffect(() => {
+    let ev: EventSource | null = null;
+    let targetDoctorId: number | null = null;
+
+    if (doctorInfo) {
+      if (doctorInfo.role === "USER" && ownPatientProfile?.patient?.doctor_id) {
+        targetDoctorId = ownPatientProfile.patient.doctor_id;
+      } else if (doctorInfo.role !== "USER") {
+        targetDoctorId = doctorInfo.id;
+      }
+    }
+
+    if (isAuthenticated && targetDoctorId) {
+      const url = `${API_URL}/api/queue/stream?doctor_id=${targetDoctorId}`;
+      ev = new EventSource(url, { withCredentials: true });
+      
+      ev.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.event === "queue_update" || data.event === "update") {
+            if (doctorInfo?.role === "USER") {
+              loadOwnPatientProfile();
+            } else {
+              loadQueue(targetDoctorId);
+            }
+          }
+        } catch (err) {
+          // Ignore
+        }
+      };
+    }
+
+    return () => {
+      if (ev) {
+        ev.close();
+      }
+    };
+  }, [isAuthenticated, doctorInfo, ownPatientProfile?.patient?.doctor_id]);
 
   // Refresh QR
   useEffect(() => {
@@ -346,6 +579,66 @@ export default function Dashboard() {
   }, [viewState]);
 
   // --- API Loaders ---
+  const loadQueue = async (docId?: number) => {
+    try {
+      let targetId = docId || doctorInfo?.id;
+      if (doctorInfo?.role === "USER") {
+        targetId = docId || (checkinDoctorId ? parseInt(checkinDoctorId) : 0) || ownPatientProfile?.patient?.doctor_id;
+      }
+      if (!targetId) return;
+      const data = await fetchAPI(`/api/queue?doctor_id=${targetId}`);
+      setQueueEntries(data || []);
+    } catch (e) {
+      console.error("Failed to load queue", e);
+    }
+  };
+
+  const loadVitals = async (ptId: number) => {
+    try {
+      const data = await fetchAPI(`/api/vitals?patient_id=${ptId}`);
+      setVitalsHistory(data || []);
+    } catch (e) {
+      console.error("Failed to load vitals", e);
+    }
+  };
+
+  const loadVitalsPatientAppointments = async (ptId: number) => {
+    try {
+      const data = await fetchAPI(`/api/patients/detail?id=${ptId}`);
+      if (data && data.appointments) {
+        setVitalsAppointments(data.appointments);
+      } else {
+        setVitalsAppointments([]);
+      }
+    } catch (e) {
+      console.error("Failed to load patient appointments for vitals", e);
+      setVitalsAppointments([]);
+    }
+  };
+
+  const loadLabRequests = async (ptId: number) => {
+    try {
+      const data = await fetchAPI(`/api/labs?patient_id=${ptId}`);
+      setLabRequests(data || []);
+    } catch (e) {
+      console.error("Failed to load lab requests", e);
+    }
+  };
+
+  const loadOwnPatientProfile = async () => {
+    try {
+      const data = await fetchAPI("/api/patients/detail");
+      setOwnPatientProfile(data);
+      if (data?.patient?.id) {
+        loadVitals(data.patient.id);
+        loadLabRequests(data.patient.id);
+        loadQueue(data.patient.doctor_id);
+      }
+    } catch (e) {
+      console.error("Failed to load patient profile", e);
+    }
+  };
+
   const loadPatients = async () => {
     try {
       const data = await fetchAPI("/api/patients");
@@ -355,12 +648,107 @@ export default function Dashboard() {
     }
   };
 
+  const loadFacilityDoctors = async () => {
+    try {
+      const data = await fetchAPI("/api/facility/doctors");
+      setFacilityDoctors(data || []);
+    } catch (e) {
+      console.error("Failed to load facility doctors", e);
+    }
+  };
+
+  const loadPrescriptions = async () => {
+    try {
+      const data = await fetchAPI("/api/prescriptions");
+      setPrescriptions(data || []);
+    } catch (e) {
+      console.error("Failed to load prescriptions", e);
+    }
+  };
+
+  const loadPendingPrescriptions = async () => {
+    try {
+      const data = await fetchAPI("/api/pharmacy/queue");
+      setPendingPrescriptions(data || []);
+    } catch (e) {
+      console.error("Failed to load pharmacy queue", e);
+    }
+  };
+
   const loadAppointments = async () => {
     try {
       const data = await fetchAPI("/api/appointments");
       setAppointments(data || []);
     } catch (e) {
       console.error("Failed to load appointments", e);
+    }
+  };
+
+  const loadRescheduleQueue = async () => {
+    try {
+      const data = await fetchAPI("/api/reschedule-queue");
+      setRescheduleQueue(data || []);
+    } catch (e) {
+      console.error("Failed to load reschedule queue", e);
+    }
+  };
+
+  const loadDoctorAvailability = async (docId: string) => {
+    if (!docId) return;
+    try {
+      const data = await fetchAPI(`/api/doctors/availability?doctor_id=${docId}`);
+      if (data && data.length > 0) {
+        const newAvail = Array.from({ length: 7 }, (_, i) => {
+          const matched = data.find((d: any) => d.day_of_week === i);
+          return matched ? {
+            day_of_week: i,
+            start_time: matched.start_time.substring(0, 5),
+            end_time: matched.end_time.substring(0, 5),
+            slot_duration_minutes: matched.slot_duration_minutes,
+            max_patients_per_slot: matched.max_patients_per_slot,
+            is_active: matched.is_active
+          } : {
+            day_of_week: i,
+            start_time: "09:00",
+            end_time: "17:00",
+            slot_duration_minutes: 60,
+            max_patients_per_slot: 1,
+            is_active: false
+          };
+        });
+        setConfigWeeklyAvail(newAvail);
+      } else {
+        setConfigWeeklyAvail(Array.from({ length: 7 }, (_, i) => ({
+          day_of_week: i,
+          start_time: "09:00",
+          end_time: "17:00",
+          slot_duration_minutes: 60,
+          max_patients_per_slot: 1,
+          is_active: false
+        })));
+      }
+    } catch (e) {
+      console.error("Failed to load availability", e);
+    }
+  };
+
+  const fetchAvailableSlots = async (docId: string, date: string) => {
+    if (!docId || !date) return;
+    try {
+      const data = await fetchAPI(`/api/slots?doctor_id=${docId}&date=${date}`);
+      setAvailableSlots(data || []);
+    } catch (e) {
+      console.error("Failed to load slots", e);
+    }
+  };
+
+  const fetchRescheduleSlots = async (docId: string, date: string) => {
+    if (!docId || !date) return;
+    try {
+      const data = await fetchAPI(`/api/slots?doctor_id=${docId}&date=${date}`);
+      setReschedSlots(data || []);
+    } catch (e) {
+      console.error("Failed to load reschedule slots", e);
     }
   };
 
@@ -379,6 +767,15 @@ export default function Dashboard() {
       setAnalytics(data);
     } catch (e) {
       console.error("Failed to load analytics", e);
+    }
+  };
+
+  const loadStaff = async () => {
+    try {
+      const data = await fetchAPI("/api/facilities/staff");
+      setStaffList(data || []);
+    } catch (e) {
+      console.error("Failed to load staff list", e);
     }
   };
 
@@ -491,14 +888,56 @@ export default function Dashboard() {
           phone: "",
         }),
       });
-      setDoctorInfo({
+      setDoctorInfo(prev => prev ? {
+        ...prev,
         name: editDoctorName.trim(),
         clinic_name: editClinicName.trim() || "My Clinic",
-      });
+      } : null);
       setIsEditingProfile(false);
       setToast({ message: "Profile updated successfully", type: "success" });
     } catch {
       setToast({ message: "Failed to update profile", type: "error" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSwitchFacility = async (facilityId: number) => {
+    try {
+      localStorage.setItem("active_facility_id", facilityId.toString());
+      setToast({ message: "Switching workspace...", type: "success" });
+      await checkAuthSession();
+    } catch (e) {
+      console.error("Failed to switch facility", e);
+      setToast({ message: "Failed to switch workspace", type: "error" });
+    }
+  };
+
+  const handleCreateWorkspace = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWorkspaceName.trim()) {
+      setToast({ message: "Workspace name is required", type: "error" });
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await fetchAPI("/api/facilities", {
+        method: "POST",
+        body: JSON.stringify({
+          name: newWorkspaceName.trim(),
+          type: newWorkspaceType,
+        }),
+      });
+      setToast({ message: "Workspace created successfully!", type: "success" });
+      setNewWorkspaceName("");
+      setIsCreateWorkspaceOpen(false);
+      if (response && response.id) {
+        localStorage.setItem("active_facility_id", response.id.toString());
+      }
+      await checkAuthSession();
+    } catch (err: any) {
+      console.error("Failed to create workspace", err);
+      setToast({ message: err.message || "Failed to create workspace", type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -549,12 +988,101 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      localStorage.removeItem("medplum_access_token");
       await fetchAPI("/api/auth/logout");
       setIsAuthenticated(false);
-      router.push("/");
+      router.replace("/");
     } catch (e) {
       console.error("Logout failed", e);
+    }
+  };
+
+  const handleDispensePrescription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeRxToDispense || dispenseItems.length === 0) return;
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      await fetchAPI("/api/pharmacy/dispense", {
+        method: "POST",
+        body: JSON.stringify({
+          prescription_id: activeRxToDispense.id,
+          items: dispenseItems.map(item => ({
+            prescription_item_id: item.prescription_item_id,
+            medicine_id: item.medicine_id,
+            tablets_given: parseInt(item.tablets_given) || 0,
+            cost_per_tablet: parseFloat(item.cost_per_tablet) || 0,
+            is_nil: item.is_nil,
+            nil_reason: item.nil_reason
+          }))
+        })
+      });
+      setToast({ message: "Medication dispensed and bill generated!", type: "success" });
+      setIsDispenseModalOpen(false);
+      setActiveRxToDispense(null);
+      setDispenseItems([]);
+      loadPendingPrescriptions();
+      loadRecentBills();
+    } catch (e: any) {
+      setToast({ message: e.message || "Failed to dispense medication", type: "error" });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddPrescription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeLabRequests = rxLabRequests.filter(l => l.trim() !== "");
+    const activeMedItems = rxItems.filter(item => item.medicine_name.trim() !== "");
+    if (!rxPatientId || (activeMedItems.length === 0 && activeLabRequests.length === 0)) {
+      setToast({ message: "Please add at least one medicine or one lab request", type: "error" });
+      return;
+    }
+
+    // Check for duplicate test names
+    const seenLabs = new Set<string>();
+    for (const test of activeLabRequests) {
+      const normalized = test.trim().toLowerCase();
+      if (seenLabs.has(normalized)) {
+        setToast({
+          message: `Duplicate lab request name "${test}" detected! Please use descriptive, distinct names (e.g., "X-Ray Chest" and "X-Ray Spine") as identical names will be dropped.`,
+          type: "error"
+        });
+        return;
+      }
+      seenLabs.add(normalized);
+    }
+
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      await fetchAPI("/api/prescriptions", {
+        method: "POST",
+        body: JSON.stringify({
+          patient_id: parseInt(rxPatientId),
+          diagnosis: rxDiagnosis,
+          notes: rxNotes,
+          items: activeMedItems.map(item => ({
+            ...item,
+            quantity: parseInt(item.quantity) || 0,
+            medicine_id: item.medicine_id ? parseInt(item.medicine_id) : null
+          })),
+          lab_requests: activeLabRequests
+        })
+      });
+      setToast({ message: "Prescription written successfully", type: "success" });
+      setRxPatientId("");
+      setRxDiagnosis("");
+      setRxNotes("");
+      setRxItems([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
+      setRxLabRequests([]);
+      setIsAddRxOpen(false);
+      loadPrescriptions();
+    } catch {
+      setToast({ message: "Failed to write prescription", type: "error" });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -573,7 +1101,8 @@ export default function Dashboard() {
           phone: newPtPhone,
           gender: newPtGender,
           age: parseInt(newPtAge) || 0,
-          medical_history: newPtHistory
+          medical_history: newPtHistory,
+          doctor_ids: selectedDoctorIds
         })
       });
       setToast({ message: "Patient registered successfully", type: "success" });
@@ -581,6 +1110,7 @@ export default function Dashboard() {
       setNewPtPhone("");
       setNewPtAge("");
       setNewPtHistory("");
+      setSelectedDoctorIds([]);
       setIsAddPatientOpen(false);
       loadPatients();
     } catch {
@@ -592,7 +1122,14 @@ export default function Dashboard() {
 
   const handleAddAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apptPatientId || !apptDate) return;
+    if (!apptSlotId) {
+      setToast({ message: "Please select an available slot", type: "error" });
+      return;
+    }
+    if (doctorInfo?.role !== "USER" && !apptPatientId) {
+      setToast({ message: "Please select a patient", type: "error" });
+      return;
+    }
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -600,20 +1137,23 @@ export default function Dashboard() {
       await fetchAPI("/api/appointments", {
         method: "POST",
         body: JSON.stringify({
-          patient_id: parseInt(apptPatientId),
-          appointment_date: apptDate,
+          patient_id: apptPatientId ? parseInt(apptPatientId) : 0,
+          slot_id: parseInt(apptSlotId),
           reason: apptReason
         })
       });
-      setToast({ message: "Appointment booked successfully", type: "success" });
+      setToast({ message: "Appointment booked successfully!", type: "success" });
       setApptPatientId("");
+      setApptDoctorId("");
+      setApptSlotId("");
       setApptDate("");
       setApptReason("");
+      setAvailableSlots([]);
       setIsAddAppointmentOpen(false);
       loadAppointments();
       loadAnalytics();
-    } catch {
-      setToast({ message: "Failed to book appointment", type: "error" });
+    } catch (err: any) {
+      setToast({ message: err.message || "Failed to book appointment", type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -1128,6 +1668,16 @@ export default function Dashboard() {
     );
   }
 
+  const needsRoleSetup = doctorInfo && 
+    doctorInfo.role === "DOCTOR" && 
+    !doctorInfo.specialization && 
+    !doctorInfo.location && 
+    !doctorInfo.hospital_name;
+
+  if (needsRoleSetup) {
+    return <RoleSelectionScreen user={doctorInfo} onCompleted={checkAuthSession} />;
+  }
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)] font-sans antialiased">
       {/* 1. Header Toolbar */}
@@ -1177,9 +1727,65 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center space-x-2.5">
+              <div className="flex items-center space-x-2.5" ref={dropdownRef}>
                 <div>
-                  <h1 className="text-lg font-black tracking-tight">{doctorInfo?.clinic_name || "ClinicFlow"}</h1>
+                  {doctorInfo?.facilities && doctorInfo.facilities.length > 0 ? (
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsFacilityDropdownOpen(!isFacilityDropdownOpen)}
+                        className="flex items-center space-x-1 cursor-pointer select-none text-left focus:outline-none"
+                      >
+                        <h1 className="text-lg font-black tracking-tight flex items-center hover:opacity-80 text-zinc-950 dark:text-zinc-50">
+                          {doctorInfo?.clinic_name || "ClinicFlow"}
+                          <ChevronDown className={cn("w-4 h-4 ml-1 text-slate-400 transition-transform duration-200", isFacilityDropdownOpen && "rotate-180")} />
+                        </h1>
+                      </button>
+                      
+                      {isFacilityDropdownOpen && (
+                        <div className="absolute left-0 mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 py-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                          <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800/50 mb-1">
+                            Switch Workspace
+                          </div>
+                          <div className="max-h-60 overflow-y-auto">
+                            {doctorInfo.facilities.map((fac) => (
+                              <button
+                                key={fac.id}
+                                onClick={async () => {
+                                  setIsFacilityDropdownOpen(false);
+                                  await handleSwitchFacility(fac.id);
+                                }}
+                                className={cn(
+                                  "w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
+                                  fac.id === doctorInfo.active_facility_id
+                                    ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
+                                    : "text-slate-700 dark:text-slate-300"
+                                )}
+                              >
+                                <span className="truncate mr-2">{fac.name}</span>
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500">
+                                  {fac.type}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="border-t border-slate-100 dark:border-slate-800/50 mt-1 pt-1">
+                            <button
+                              onClick={() => {
+                                setIsFacilityDropdownOpen(false);
+                                setIsCreateWorkspaceOpen(true);
+                              }}
+                              className="w-full text-left px-3.5 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 flex items-center space-x-1.5 transition cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Create Workspace</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <h1 className="text-lg font-black tracking-tight">{doctorInfo?.clinic_name || "ClinicFlow"}</h1>
+                  )}
                   <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
                     Doctor: {doctorInfo?.name}
                   </p>
@@ -1220,39 +1826,124 @@ export default function Dashboard() {
       {/* 2. Navigation Tabs */}
       <nav className="border-b border-[var(--border)] bg-[var(--nav-bg)] py-1.5 transition-all">
         <div className="max-w-7xl mx-auto px-4 flex items-center space-x-1 overflow-x-auto">
-          {[
-            { id: "patients", label: "Patients", icon: Users },
-            { id: "appointments", label: "Appointments", icon: Calendar },
-            { id: "billing", label: "Billing & Prescriptions", icon: FileText },
-            { id: "medicines", label: "Pharmacy Stock", icon: BriefcaseMedical },
-            { id: "analytics", label: "Analytics Dashboard", icon: Activity },
-            { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id as any);
-                  setViewState({ type: "list" });
-                }}
-                className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition duration-200 cursor-pointer whitespace-nowrap ${
-                  isActive
-                    ? "bg-indigo-600 text-white shadow-md"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+          {(() => {
+            const role = doctorInfo?.role || "DOCTOR";
+            const allTabs = [];
+            if (role === "USER") {
+              allTabs.push(
+                { id: "appointments", label: "My Appointments", icon: Calendar },
+                { id: "vitals", label: "Health Vitals", icon: Activity },
+                { id: "labs", label: "Lab Reports", icon: BriefcaseMedical },
+                { id: "billing", label: "Billing & Invoices", icon: FileText },
+                { id: "queue", label: "Queue Status", icon: Clock }
+              );
+            } else if (role === "PHARMACIST") {
+              allTabs.push(
+                { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
+                { id: "medicines", label: "Medicines Inventory", icon: Plus },
+                { id: "billing", label: "Bills & Invoices", icon: FileText },
+                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+              );
+            } else if (role === "HOSPITAL_ADMIN") {
+              allTabs.push(
+                { id: "staff", label: "Staff Directory", icon: Users },
+                { id: "patients", label: "Patient Directory", icon: Users },
+                { id: "appointments", label: "Appointment Slots", icon: Calendar },
+                { id: "availability", label: "Availability Settings", icon: Settings },
+                { id: "queue", label: "Active Hospital Queue", icon: Clock },
+                { id: "billing", label: "Organization Ledger", icon: FileText },
+                { id: "medicines", label: "Pharmacy Stock", icon: Plus },
+                { id: "analytics", label: "Facility Analytics", icon: Activity },
+                { id: "reschedule-queue", label: "Reschedule Queue", icon: AlertTriangle },
+                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+              );
+            } else {
+              // Default to DOCTOR
+              allTabs.push(
+                { id: "patients", label: "Patient Directory", icon: Users },
+                { id: "prescriptions", label: "Prescriptions", icon: FileText },
+                { id: "appointments", label: "Appointment Slots", icon: Calendar },
+                { id: "queue", label: "Patient Queue", icon: Clock },
+                { id: "vitals", label: "Patient Vitals", icon: Activity },
+                { id: "availability", label: "Slot Settings", icon: Settings },
+                { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
+              );
+            }
+            return allTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveTab(tab.id as any);
+                    setViewState({ type: "list" });
+                  }}
+                  className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition duration-200 cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? "bg-indigo-600 text-white shadow-md"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            });
+          })()}
         </div>
       </nav>
 
       {/* 3. Main Dashboard Panels */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Workspace Creation Panel */}
+        <FloatingPanelRoot isOpen={isCreateWorkspaceOpen} onOpenChange={setIsCreateWorkspaceOpen}>
+          <FloatingPanelContent className="w-80 sm:w-96 text-left">
+            <FloatingPanelBody>
+              <form onSubmit={handleCreateWorkspace} className="space-y-4 text-xs text-[var(--foreground)]">
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400">Workspace / Facility Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. City Hospital, Metro Clinic"
+                    value={newWorkspaceName}
+                    onChange={(e) => setNewWorkspaceName(e.target.value)}
+                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-black dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-400">Facility Type</label>
+                  <select
+                    value={newWorkspaceType}
+                    onChange={(e) => setNewWorkspaceType(e.target.value as "CLINIC" | "HOSPITAL")}
+                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer text-black dark:text-white"
+                  >
+                    <option value="CLINIC">Private Clinic</option>
+                    <option value="HOSPITAL">Hospital / Diagnostic Center</option>
+                  </select>
+                </div>
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreateWorkspaceOpen(false)}
+                    className="px-4 py-2 border border-[var(--border)] rounded-2xl text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 transition disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmitting ? "Creating..." : "Create Workspace"}
+                  </button>
+                </div>
+              </form>
+            </FloatingPanelBody>
+          </FloatingPanelContent>
+        </FloatingPanelRoot>
+
         {toast && (
           <div
             className={`fixed bottom-4 right-4 z-50 flex items-center space-x-2 px-4 py-3 rounded-2xl shadow-xl border ${
@@ -1281,6 +1972,1004 @@ export default function Dashboard() {
           <div>
             {/* TABS INNER PAGES */}
 
+            {/* TABS INNER PAGES */}
+
+            {activeTab === "staff" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-black">Staff Onboarding & Directory</h2>
+                  <FloatingPanelRoot isOpen={isInviteOpen} onOpenChange={setIsInviteOpen}>
+                    <FloatingPanelTrigger
+                      title="Invite Staff Member"
+                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                    >
+                      <Plus className="w-4 h-4 mr-1.5" />
+                      <span>Invite Staff</span>
+                    </FloatingPanelTrigger>
+                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                      <FloatingPanelBody>
+                        <form onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!inviteEmail) return;
+                          setIsSubmitting(true);
+                          try {
+                            const res = await fetchAPI("/api/admin/invite", {
+                              method: "POST",
+                              body: JSON.stringify({ email: inviteEmail, phone: invitePhone, role: inviteRole, access_levels: [] })
+                            });
+                            setInviteLink(`${window.location.origin}/onboard?token=${res.token}`);
+                            if (res.otp) {
+                               setInviteOTP(res.otp);
+                             } else {
+                               setInviteOTP("");
+                             }
+                            setToast({ message: "Staff invite code generated!", type: "success" });
+                            setInviteEmail("");
+                            setInvitePhone("");
+                          } catch (err: any) {
+                            setToast({ message: err.message || "Failed to invite staff", type: "error" });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }} className="space-y-4 text-xs text-[var(--foreground)]">
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Staff Email Address</label>
+                            <input
+                              type="email"
+                              required
+                              placeholder="e.g. doctor@hospital.com"
+                              value={inviteEmail}
+                              onChange={(e) => setInviteEmail(e.target.value)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Staff WhatsApp / Phone (Optional)</label>
+                            <input
+                              type="tel"
+                              placeholder="e.g. +919876543210"
+                              value={invitePhone}
+                              onChange={(e) => setInvitePhone(e.target.value)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Select Role</label>
+                            <select
+                              value={inviteRole}
+                              onChange={(e) => setInviteRole(e.target.value as any)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                              <option value="DOCTOR">DOCTOR</option>
+                              <option value="PHARMACIST">PHARMACIST</option>
+                            </select>
+                          </div>
+
+                          <div className="flex space-x-2 pt-2 text-xs">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Generate Invite Link"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      </FloatingPanelBody>
+                    </FloatingPanelContent>
+                  </FloatingPanelRoot>
+                </div>
+
+                {inviteLink && (
+                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-3xl p-6 space-y-3">
+                    <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Generated Invitation Link</h3>
+                    <p className="text-[10px] text-slate-400">Copy and share this onboarding link with the staff member. They will need to verify with the OTP sent to their email.</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={inviteLink}
+                        className="flex-grow px-3 py-2 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-mono text-slate-400 outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(inviteLink);
+                          setToast({ message: "Invite link copied to clipboard!", type: "success" });
+                        }}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    {inviteOTP && (
+                       <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl space-y-1">
+                         <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-wider block">Local Development OTP</span>
+                         <p className="text-[10px] text-slate-400">Use this temporary OTP to verify the invitation during testing: <strong className="text-yellow-400 font-mono text-xs select-all">{inviteOTP}</strong></p>
+                       </div>
+                     )}
+                  </div>
+                )}
+
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Active Staff Members</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                          <th className="px-6 py-4">Name</th>
+                          <th className="px-6 py-4">Email</th>
+                          <th className="px-6 py-4">Contact</th>
+                          <th className="px-6 py-4">Specialization</th>
+                          <th className="px-6 py-4">Location</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {staffList.length > 0 ? (
+                          staffList.map((member) => (
+                            <tr key={member.id} className="border-b border-[var(--border)]">
+                              <td className="px-6 py-4 font-semibold">{member.name}</td>
+                              <td className="px-6 py-4 text-slate-500">{member.email}</td>
+                              <td className="px-6 py-4 text-slate-500">{member.phone || "-"}</td>
+                              <td className="px-6 py-4 text-indigo-500 font-bold uppercase">
+                                {member.role === "HOSPITAL_ADMIN" ? "Hospital Admin" : member.role}
+                                {member.specialization ? ` (${member.specialization})` : ""}
+                              </td>
+                              <td className="px-6 py-4 text-slate-400">{member.location || "-"}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr className="border-b border-[var(--border)]">
+                            <td className="px-6 py-4 font-semibold">{doctorInfo?.name}</td>
+                            <td className="px-6 py-4 text-slate-500">{doctorInfo?.email}</td>
+                            <td className="px-6 py-4 text-slate-500">{doctorInfo?.phone || "-"}</td>
+                            <td className="px-6 py-4 text-indigo-500 font-bold uppercase">{doctorInfo?.role}</td>
+                            <td className="px-6 py-4 text-slate-400">{doctorInfo?.location || "-"}</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "queue" && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <h2 className="text-xl font-black">Clinic Queue Board</h2>
+                    <p className="text-xs text-slate-400">Track and manage checked-in patients in real-time.</p>
+                  </div>
+                  <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
+                    <FloatingPanelTrigger
+                      title={doctorInfo?.role === "USER" ? "Check In to Queue" : "Check In Patient"}
+                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                    >
+                      <Plus className="w-4 h-4 mr-1.5" />
+                      <span>{doctorInfo?.role === "USER" ? "Check In to Queue" : "Check In Patient"}</span>
+                    </FloatingPanelTrigger>
+                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                      <FloatingPanelBody>
+                        <form onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (doctorInfo?.role !== "USER" && !checkinPatientId) {
+                            setToast({ message: "Please select a patient", type: "error" });
+                            return;
+                          }
+                          if (doctorInfo?.role !== "DOCTOR" && !checkinDoctorId) {
+                            setToast({ message: "Please select a doctor", type: "error" });
+                            return;
+                          }
+                          setIsSubmitting(true);
+                          try {
+                            await fetchAPI("/api/queue/checkin", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                patient_id: doctorInfo?.role === "USER" ? 0 : parseInt(checkinPatientId),
+                                doctor_id: doctorInfo?.role === "DOCTOR" ? 0 : parseInt(checkinDoctorId),
+                                reason: checkinReason
+                              })
+                            });
+                            setToast({ message: "Checked in successfully!", type: "success" });
+                            setCheckinPatientId("");
+                            setCheckinReason("");
+                            setIsAddPatientOpen(false);
+                            loadQueue();
+                          } catch (err: any) {
+                            setToast({ message: err.message || "Check-in failed", type: "error" });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }} className="space-y-4 text-xs text-[var(--foreground)]">
+                          {doctorInfo?.role !== "USER" && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Checked-In Patient</label>
+                              <select
+                                required
+                                value={checkinPatientId}
+                                onChange={(e) => setCheckinPatientId(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Patient --</option>
+                                {patients.map((pt) => (
+                                  <option key={pt.id} value={pt.id}>
+                                    {pt.name} ({pt.phone})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {doctorInfo?.role !== "DOCTOR" && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
+                              <select
+                                required
+                                value={checkinDoctorId}
+                                onChange={(e) => setCheckinDoctorId(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Doctor --</option>
+                                {facilityDoctors.map((doc) => (
+                                  <option key={doc.id} value={doc.id}>
+                                    Dr. {doc.name} ({doc.specialization || "General"})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Consultation Reason / Check-in Notes</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Fever, Follow-up"
+                              value={checkinReason}
+                              onChange={(e) => setCheckinReason(e.target.value)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+
+                          <div className="flex space-x-2 pt-2 text-xs">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Check In"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      </FloatingPanelBody>
+                    </FloatingPanelContent>
+                  </FloatingPanelRoot>
+                </div>
+
+                {/* Queue Table */}
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                          <th className="px-6 py-4">Position</th>
+                          <th className="px-6 py-4">Patient Name</th>
+                          <th className="px-6 py-4">Check-in Time</th>
+                          <th className="px-6 py-4">Est. Wait Time</th>
+                          <th className="px-6 py-4">Status</th>
+                          {doctorInfo?.role !== "USER" && <th className="px-6 py-4 text-right">Actions</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {queueEntries.length > 0 ? (
+                          queueEntries.map((entry, idx) => {
+                            const isUserOwn = doctorInfo?.role === "USER" && entry.patient_phone === doctorInfo.phone;
+                            return (
+                              <tr
+                                key={entry.id}
+                                className={cn(
+                                  "border-b border-[var(--border)] hover:bg-table-row-hover transition",
+                                  isUserOwn ? "bg-indigo-500/5 font-semibold" : ""
+                                )}
+                              >
+                                <td className="px-6 py-4 text-sm font-black">{idx + 1}</td>
+                                <td className="px-6 py-4 text-sm">
+                                  {entry.patient_name} {isUserOwn && <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500">{new Date(entry.check_in_time).toLocaleTimeString()}</td>
+                                <td className="px-6 py-4 text-indigo-500 font-bold">{entry.status === "IN_CONSULTATION" ? "In Consult" : `${entry.estimated_wait_minutes} mins`}</td>
+                                <td className="px-6 py-4">
+                                  <span className={cn(
+                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                    entry.status === "IN_CONSULTATION" ? "bg-amber-500/10 text-amber-500" : "bg-indigo-500/10 text-indigo-500"
+                                  )}>
+                                    {entry.status}
+                                  </span>
+                                </td>
+                                {doctorInfo?.role !== "USER" && (
+                                  <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                                    {entry.status === "WAITING" && (
+                                      <button
+                                        onClick={async () => {
+                                          await fetchAPI("/api/queue/status", {
+                                            method: "PUT",
+                                            body: JSON.stringify({ entry_id: entry.id, status: "IN_CONSULTATION" })
+                                          });
+                                          loadQueue();
+                                        }}
+                                        className="px-3 py-1.5 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
+                                      >
+                                        Call Patient
+                                      </button>
+                                    )}
+                                    {entry.status === "IN_CONSULTATION" && (
+                                      <button
+                                        onClick={async () => {
+                                          await fetchAPI("/api/queue/status", {
+                                            method: "PUT",
+                                            body: JSON.stringify({ entry_id: entry.id, status: "COMPLETED" })
+                                          });
+                                          loadQueue();
+                                        }}
+                                        className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
+                                      >
+                                        Complete Consult
+                                      </button>
+                                    )}
+                                    {/* Reordering Controls */}
+                                    {entry.status === "WAITING" && (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          disabled={idx === 0 || queueEntries[idx - 1].status !== "WAITING"}
+                                          onClick={async () => {
+                                            const updated = [...queueEntries];
+                                            const temp = updated[idx].queue_order;
+                                            updated[idx].queue_order = updated[idx - 1].queue_order;
+                                            updated[idx - 1].queue_order = temp;
+                                            await fetchAPI("/api/queue/reorder", {
+                                              method: "PUT",
+                                              body: JSON.stringify({
+                                                orders: [
+                                                  { id: updated[idx].id, queue_order: updated[idx].queue_order },
+                                                  { id: updated[idx - 1].id, queue_order: updated[idx - 1].queue_order }
+                                                ]
+                                              })
+                                            });
+                                            loadQueue();
+                                          }}
+                                          className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
+                                        >
+                                          <ChevronUp className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          disabled={idx === queueEntries.length - 1 || queueEntries[idx + 1].status !== "WAITING"}
+                                          onClick={async () => {
+                                            const updated = [...queueEntries];
+                                            const temp = updated[idx].queue_order;
+                                            updated[idx].queue_order = updated[idx + 1].queue_order;
+                                            updated[idx + 1].queue_order = temp;
+                                            await fetchAPI("/api/queue/reorder", {
+                                              method: "PUT",
+                                              body: JSON.stringify({
+                                                orders: [
+                                                  { id: updated[idx].id, queue_order: updated[idx].queue_order },
+                                                  { id: updated[idx + 1].id, queue_order: updated[idx + 1].queue_order }
+                                                ]
+                                              })
+                                            });
+                                            loadQueue();
+                                          }}
+                                          className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
+                                        >
+                                          <ChevronDown className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={doctorInfo?.role === "USER" ? 5 : 6} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                              No patients currently checked in today.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "vitals" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-black">Health Vitals & Trends</h2>
+                    <p className="text-xs text-slate-400">Track metrics including heart rate, BP, and weight over time.</p>
+                  </div>
+                  <FloatingPanelRoot isOpen={isLogVitalsOpen} onOpenChange={setIsLogVitalsOpen}>
+                    <FloatingPanelTrigger
+                      title="Log New Vitals"
+                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                    >
+                      <Plus className="w-4 h-4 mr-1.5" />
+                      <span>Log Vitals</span>
+                    </FloatingPanelTrigger>
+                    <FloatingPanelContent className="w-80 sm:w-96 text-left max-h-[85vh] overflow-y-auto">
+                      <FloatingPanelBody>
+                        <form onSubmit={async (e) => {
+                          e.preventDefault();
+                          const ptId = doctorInfo?.role === "USER" ? ownPatientProfile?.patient?.id : parseInt(vitalsPatientId);
+                          if (!ptId) {
+                            setToast({ message: "Patient selection required", type: "error" });
+                            return;
+                          }
+                          setIsSubmitting(true);
+                          
+                          const customMetricsObj: Record<string, string> = {};
+                          logCustomMetrics.forEach(item => {
+                            if (item.key.trim() && item.value.trim()) {
+                              customMetricsObj[item.key.trim()] = item.value.trim();
+                            }
+                          });
+
+                          try {
+                            const res = await fetchAPI("/api/vitals", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                patient_id: ptId,
+                                weight_kg: logWeight ? parseFloat(logWeight) : null,
+                                blood_pressure: logBP || null,
+                                heart_rate: logHR ? parseInt(logHR) : (logPulse ? parseInt(logPulse) : 0),
+                                pulse: logPulse ? parseInt(logPulse) : null,
+                                spo2: logSpO2 ? parseInt(logSpO2) : null,
+                                temperature: logTemp ? parseFloat(logTemp) : null,
+                                encounter_id: logEncounterId ? parseInt(logEncounterId) : null,
+                                custom_metrics: Object.keys(customMetricsObj).length > 0 ? customMetricsObj : null
+                              })
+                            });
+                            setToast({
+                              message: res.alert_triggered 
+                                ? "Vitals logged! ⚠️ ALERT: Out of range metrics detected."
+                                : "Vitals logged successfully!",
+                              type: res.alert_triggered ? "error" : "success"
+                            });
+                            setLogWeight("");
+                            setLogBP("");
+                            setLogHR("");
+                            setLogPulse("");
+                            setLogSpO2("");
+                            setLogTemp("");
+                            setLogEncounterId("");
+                            setLogCustomMetrics([]);
+                            setIsLogVitalsOpen(false);
+                            if (doctorInfo?.role === "USER") {
+                              loadOwnPatientProfile();
+                            } else {
+                              loadVitals(ptId);
+                            }
+                          } catch (err: any) {
+                            setToast({ message: err.message || "Failed to log vitals", type: "error" });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }} className="space-y-4 text-xs text-[var(--foreground)]">
+                          {doctorInfo?.role !== "USER" && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
+                              <select
+                                required
+                                value={vitalsPatientId}
+                                onChange={(e) => {
+                                  setVitalsPatientId(e.target.value);
+                                  if (e.target.value) {
+                                    const ptId = parseInt(e.target.value);
+                                    loadVitals(ptId);
+                                    loadVitalsPatientAppointments(ptId);
+                                  } else {
+                                    setVitalsAppointments([]);
+                                  }
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Patient --</option>
+                                {patients.map((pt) => (
+                                  <option key={pt.id} value={pt.id}>
+                                    {pt.name} ({pt.phone})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-3 gap-3">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Weight (kg)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                placeholder="72.5"
+                                value={logWeight}
+                                onChange={(e) => setLogWeight(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Blood Pressure</label>
+                              <input
+                                type="text"
+                                placeholder="120/80"
+                                value={logBP}
+                                onChange={(e) => setLogBP(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Heart Rate (bpm)</label>
+                              <input
+                                type="number"
+                                placeholder="72"
+                                value={logHR}
+                                onChange={(e) => setLogHR(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3 mt-3">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Pulse (bpm)</label>
+                              <input
+                                type="number"
+                                placeholder="72"
+                                value={logPulse}
+                                onChange={(e) => setLogPulse(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">SpO2 (%)</label>
+                              <input
+                                type="number"
+                                placeholder="98"
+                                value={logSpO2}
+                                onChange={(e) => setLogSpO2(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Temp (°C)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                placeholder="36.8"
+                                value={logTemp}
+                                onChange={(e) => setLogTemp(e.target.value)}
+                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+                          </div>
+
+                          {vitalsAppointments.length > 0 && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Link to Appointment / Visit</label>
+                              <select
+                                value={logEncounterId}
+                                onChange={(e) => setLogEncounterId(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Do Not Link / Standalone --</option>
+                                {vitalsAppointments.map((appt) => (
+                                  <option key={appt.id} value={appt.id}>
+                                    Visit on {new Date(appt.appointment_date).toLocaleDateString()} - {appt.reason || "General Checkup"}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Custom Metrics Key-Value Builder */}
+                          <div className="border-t border-[var(--border)] pt-3 mt-2">
+                            <div className="flex justify-between items-center mb-1.5">
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Custom Clinical Metrics</label>
+                              <button
+                                type="button"
+                                onClick={() => setLogCustomMetrics([...logCustomMetrics, { key: "", value: "" }])}
+                                className="text-xs text-indigo-500 font-bold hover:underline"
+                              >
+                                + Add Metric
+                              </button>
+                            </div>
+                            {logCustomMetrics.map((item, idx) => (
+                              <div key={idx} className="flex items-center space-x-2 mt-1">
+                                <input
+                                  type="text"
+                                  placeholder="Metric Name (e.g. Sugar)"
+                                  value={item.key}
+                                  onChange={(e) => {
+                                    const updated = [...logCustomMetrics];
+                                    updated[idx].key = e.target.value;
+                                    setLogCustomMetrics(updated);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Value (e.g. 110mg/dL)"
+                                  value={item.value}
+                                  onChange={(e) => {
+                                    const updated = [...logCustomMetrics];
+                                    updated[idx].value = e.target.value;
+                                    setLogCustomMetrics(updated);
+                                  }}
+                                  className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setLogCustomMetrics(logCustomMetrics.filter((_, i) => i !== idx))}
+                                  className="text-red-500 hover:text-red-700 font-bold text-xs"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="flex space-x-2 pt-2 text-xs">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Record Metrics"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      </FloatingPanelBody>
+                    </FloatingPanelContent>
+                  </FloatingPanelRoot>
+                </div>
+
+                {vitalsHistory.length > 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* SVG Trend Chart for Heart Rate */}
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-black text-slate-200">Heart Rate (bpm) Trend</h3>
+                      <div className="h-64 flex items-center justify-center">
+                        {renderLineChart(vitalsHistory.map(v => ({
+                          label: new Date(v.recorded_at).toLocaleDateString(),
+                          value: v.pulse || v.heart_rate || 70
+                        })))}
+                      </div>
+                    </div>
+
+                    {/* SVG Trend Chart for Weight */}
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-black text-slate-200">Weight History (kg)</h3>
+                      <div className="h-64 flex items-center justify-center">
+                        {renderHistogram(vitalsHistory.map(v => ({
+                          label: new Date(v.recorded_at).toLocaleDateString(),
+                          value: parseFloat(v.weight_kg) || 0.0
+                        })))}
+                      </div>
+                    </div>
+
+                    {/* Vitals Log Table */}
+                    <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">Logs History</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                              <th className="px-4 py-3">Recorded At</th>
+                              <th className="px-4 py-3">Weight</th>
+                              <th className="px-4 py-3">Blood Pressure</th>
+                              <th className="px-4 py-3">Pulse / HR</th>
+                              <th className="px-4 py-3">SpO2</th>
+                              <th className="px-4 py-3">Temp</th>
+                              <th className="px-4 py-3">Custom Metrics</th>
+                              <th className="px-4 py-3 text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {vitalsHistory.map((v) => {
+                              const bpAlert = v.blood_pressure ? checkBPRange(v.blood_pressure)[0] : false;
+                              const hrAlert = v.heart_rate ? checkHRRange(v.heart_rate)[0] : false;
+                              const pulseAlert = v.pulse ? checkHRRange(v.pulse)[0] : false;
+                              const spo2Alert = v.spo2 ? v.spo2 < 95 : false;
+                              const tempAlert = v.temperature ? (v.temperature > 37.8 || v.temperature < 35.5) : false;
+                              
+                              const hasAlert = bpAlert || hrAlert || pulseAlert || spo2Alert || tempAlert;
+                              return (
+                                <tr key={v.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
+                                  <td className="px-4 py-3 text-slate-400 font-medium">{new Date(v.recorded_at).toLocaleString()}</td>
+                                  <td className="px-4 py-3 font-semibold">{v.weight_kg ? `${v.weight_kg} kg` : "-"}</td>
+                                  <td className="px-4 py-3">
+                                    <span className={cn(bpAlert && "text-red-500 font-bold")}>
+                                      {v.blood_pressure || "-"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={cn((hrAlert || pulseAlert) && "text-red-500 font-bold")}>
+                                      {v.pulse ? `${v.pulse} bpm` : (v.heart_rate ? `${v.heart_rate} bpm` : "-")}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={cn(spo2Alert && "text-red-500 font-bold")}>
+                                      {v.spo2 ? `${v.spo2}%` : "-"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className={cn(tempAlert && "text-red-500 font-bold")}>
+                                      {v.temperature ? `${v.temperature}°C` : "-"}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    {v.custom_metrics && Object.keys(v.custom_metrics).length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {Object.entries(v.custom_metrics).map(([key, val]: any) => (
+                                          <span key={key} className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium">
+                                            {key}: {val}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      "-"
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span className={cn(
+                                      "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                      hasAlert ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                                    )}>
+                                      {hasAlert ? "⚠️ Out of Range" : "✓ Safe Range"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-slate-400 font-semibold bg-[var(--card)] border border-[var(--border)] rounded-3xl">
+                    No vitals logged yet. Click 'Log Vitals' to add record.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "labs" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-black">Laboratory Services</h2>
+                    <p className="text-xs text-slate-400">Order diagnostics tests and retrieve uploaded clinical lab reports.</p>
+                  </div>
+                  {doctorInfo?.role !== "USER" && (
+                    <FloatingPanelRoot isOpen={isRequestLabOpen} onOpenChange={setIsRequestLabOpen}>
+                      <FloatingPanelTrigger
+                        title="Order Diagnostics Lab Test"
+                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Order Lab Test</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                        <FloatingPanelBody>
+                          <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!newLabPatientId || !newLabTestName) return;
+                            setIsSubmitting(true);
+                            try {
+                              await fetchAPI("/api/labs/request", {
+                                method: "POST",
+                                body: JSON.stringify({ patient_id: parseInt(newLabPatientId), test_name: newLabTestName })
+                              });
+                              setToast({ message: "Lab test ordered successfully!", type: "success" });
+                              setNewLabPatientId("");
+                              setNewLabTestName("");
+                              setIsRequestLabOpen(false);
+                              loadLabRequests(parseInt(newLabPatientId));
+                            } catch (err: any) {
+                              setToast({ message: err.message || "Failed to order lab test", type: "error" });
+                            } finally {
+                              setIsSubmitting(false);
+                            }
+                          }} className="space-y-4 text-xs text-[var(--foreground)]">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
+                              <select
+                                required
+                                value={newLabPatientId}
+                                onChange={(e) => {
+                                  setNewLabPatientId(e.target.value);
+                                  if (e.target.value) loadLabRequests(parseInt(e.target.value));
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Patient --</option>
+                                {patients.map((pt) => (
+                                  <option key={pt.id} value={pt.id}>
+                                    {pt.name} ({pt.phone})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Diagnostics Test Name</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. Complete Blood Count (CBC)"
+                                value={newLabTestName}
+                                onChange={(e) => setNewLabTestName(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Order Test"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  )}
+                </div>
+
+                {/* Lab Upload Dialog Box */}
+                {isUploadLabOpen && (
+                  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full text-left space-y-4">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                        <h3 className="text-sm font-bold text-slate-200">Upload Diagnostics Report</h3>
+                        <button onClick={() => setIsUploadLabOpen(false)} className="text-slate-400 hover:text-white">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <form onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!uploadLabRequestId || !uploadReportUrl) return;
+                        setIsSubmitting(true);
+                        try {
+                          await fetchAPI("/api/labs/upload", {
+                            method: "POST",
+                            body: JSON.stringify({
+                              lab_request_id: uploadLabRequestId,
+                              report_url: uploadReportUrl,
+                              result_summary: uploadResultSummary
+                            })
+                          });
+                          setToast({ message: "Lab report uploaded successfully!", type: "success" });
+                          setUploadReportUrl("");
+                          setUploadResultSummary("");
+                          setUploadLabRequestId(null);
+                          setIsUploadLabOpen(false);
+                          const ptId = doctorInfo?.role === "USER" ? ownPatientProfile?.patient?.id : parseInt(newLabPatientId);
+                          if (ptId) loadLabRequests(ptId);
+                        } catch (err: any) {
+                          setToast({ message: err.message || "Failed to upload report", type: "error" });
+                        } finally {
+                          setIsSubmitting(false);
+                        }
+                      }} className="space-y-4 text-xs text-[var(--foreground)]">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">Report Document URL</label>
+                          <input
+                            type="url"
+                            required
+                            placeholder="https://..."
+                            value={uploadReportUrl}
+                            onChange={(e) => setUploadReportUrl(e.target.value)}
+                            className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">Result Summary Remarks</label>
+                          <textarea
+                            placeholder="Enter test findings and parameters summary..."
+                            value={uploadResultSummary}
+                            onChange={(e) => setUploadResultSummary(e.target.value)}
+                            rows={3}
+                            className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white resize-none"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition cursor-pointer"
+                        >
+                          Complete and Close Request
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {doctorInfo?.role !== "USER" && !newLabPatientId && (
+                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs rounded-2xl">
+                    Please select a patient under <b>Health Vitals</b> or select patient search to fetch lab request history.
+                  </div>
+                )}
+
+                {(labRequests.length > 0 || (doctorInfo?.role !== "USER" && newLabPatientId)) && (
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                            <th className="px-6 py-4">Ordered Date</th>
+                            <th className="px-6 py-4">Doctor</th>
+                            <th className="px-6 py-4">Test Name</th>
+                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4">Findings / Summary</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {labRequests.length > 0 ? (
+                            labRequests.map((lr) => (
+                              <tr key={lr.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
+                                <td className="px-6 py-4 font-semibold text-slate-500">{new Date(lr.requested_date).toLocaleDateString()}</td>
+                                <td className="px-6 py-4 text-slate-400">Dr. {lr.doctor_name}</td>
+                                <td className="px-6 py-4 font-bold text-slate-600 dark:text-slate-200">{lr.test_name}</td>
+                                <td className="px-6 py-4">
+                                  <span className={cn(
+                                    "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                    lr.status === "COMPLETED" ? "bg-emerald-500/10 text-emerald-500" : "bg-indigo-500/10 text-indigo-500"
+                                  )}>
+                                    {lr.status}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{lr.result_summary || "-"}</td>
+                                <td className="px-6 py-4 text-right">
+                                  {lr.status === "REQUESTED" && doctorInfo?.role !== "USER" && (
+                                    <button
+                                      onClick={() => {
+                                        setUploadLabRequestId(lr.id);
+                                        setIsUploadLabOpen(true);
+                                      }}
+                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-md transition cursor-pointer"
+                                    >
+                                      Upload Report
+                                    </button>
+                                  )}
+                                  {lr.status === "COMPLETED" && lr.report_url && (
+                                    <a
+                                      href={lr.report_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition"
+                                    >
+                                      View Document
+                                    </a>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                                No lab orders logged for this patient.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* TAB: PATIENTS */}
             {activeTab === "patients" && (
               <div className="space-y-6">
@@ -1295,86 +2984,116 @@ export default function Dashboard() {
                       className="w-full pl-9 pr-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-all"
                     />
                   </div>
-                  <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
-                    <FloatingPanelTrigger
-                      title="Register New Patient"
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Register Patient</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={handleAddPatient} className="space-y-3.5 text-xs text-[var(--foreground)]">
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Full Name</label>
-                            <input
-                              type="text"
-                              required
-                              value={newPtName}
-                              onChange={(e) => setNewPtName(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="e.g. +919999999999"
-                              value={newPtPhone}
-                              onChange={(e) => setNewPtPhone(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
+                  {(doctorInfo?.role === "DOCTOR" || doctorInfo?.role === "HOSPITAL_ADMIN") && (
+                    <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
+                      <FloatingPanelTrigger
+                        title="Register New Patient"
+                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Register Patient</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                        <FloatingPanelBody>
+                          <form onSubmit={handleAddPatient} className="space-y-3.5 text-xs text-[var(--foreground)]">
                             <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Age</label>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Full Name</label>
                               <input
-                                type="number"
-                                value={newPtAge}
-                                onChange={(e) => setNewPtAge(e.target.value)}
+                                type="text"
+                                required
+                                value={newPtName}
+                                onChange={(e) => setNewPtName(e.target.value)}
                                 className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                               />
                             </div>
+
                             <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Gender</label>
-                              <select
-                                value={newPtGender}
-                                onChange={(e) => setNewPtGender(e.target.value)}
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. +919999999999"
+                                value={newPtPhone}
+                                onChange={(e) => setNewPtPhone(e.target.value)}
                                 className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option>Male</option>
-                                <option>Female</option>
-                                <option>Other</option>
-                              </select>
+                              />
                             </div>
-                          </div>
 
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Medical History Summary</label>
-                            <textarea
-                              placeholder="Allergies, chronic illness, major surgeries..."
-                              value={newPtHistory}
-                              onChange={(e) => setNewPtHistory(e.target.value)}
-                              rows={3}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                            />
-                          </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">Age</label>
+                                <input
+                                  type="number"
+                                  value={newPtAge}
+                                  onChange={(e) => setNewPtAge(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">Gender</label>
+                                <select
+                                  value={newPtGender}
+                                  onChange={(e) => setNewPtGender(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option>Male</option>
+                                  <option>Female</option>
+                                  <option>Other</option>
+                                </select>
+                              </div>
+                            </div>
 
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Register"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Medical History Summary</label>
+                              <textarea
+                                placeholder="Allergies, chronic illness, major surgeries..."
+                                value={newPtHistory}
+                                onChange={(e) => setNewPtHistory(e.target.value)}
+                                rows={3}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                              />
+                            </div>
+
+                            {!isClinicMode && (
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">Assign Doctors</label>
+                                <select
+                                  multiple
+                                  value={selectedDoctorIds.map(String)}
+                                  onChange={(e) => {
+                                    const options = e.target.options;
+                                    const values: number[] = [];
+                                    for (let i = 0; i < options.length; i++) {
+                                      if (options[i].selected) {
+                                        values.push(parseInt(options[i].value));
+                                      }
+                                    }
+                                    setSelectedDoctorIds(values);
+                                  }}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-20"
+                                >
+                                  {facilityDoctors.map((doc) => (
+                                    <option key={doc.id} value={doc.id}>
+                                      {doc.name} ({doc.specialization || "General"})
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="text-[9px] text-slate-400 mt-1 block">Hold Ctrl (Cmd on Mac) to select multiple doctors.</span>
+                              </div>
+                            )}
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Register"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  )}
                 </div>
 
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
@@ -1420,6 +3139,330 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* TAB: PRESCRIPTIONS */}
+            {activeTab === "prescriptions" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-black">Prescriptions Directory</h2>
+                  {doctorInfo?.role === "DOCTOR" && (
+                    <FloatingPanelRoot isOpen={isAddRxOpen} onOpenChange={setIsAddRxOpen}>
+                      <FloatingPanelTrigger
+                        title="New Prescription"
+                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Write Prescription</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-96 sm:w-[500px] text-left max-h-[85vh] overflow-y-auto">
+                        <FloatingPanelBody>
+                          <form onSubmit={handleAddPrescription} className="space-y-4 text-xs text-[var(--foreground)]">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
+                              <select
+                                required
+                                value={rxPatientId}
+                                onChange={(e) => setRxPatientId(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Patient --</option>
+                                {patients.map((pt) => (
+                                  <option key={pt.id} value={pt.id}>
+                                    {pt.name} ({pt.phone})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Diagnosis</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. Acute bronchitis, Hypertension"
+                                value={rxDiagnosis}
+                                onChange={(e) => setRxDiagnosis(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Clinical Notes / Advice</label>
+                              <textarea
+                                placeholder="Bed rest, drink plenty of warm water..."
+                                value={rxNotes}
+                                onChange={(e) => setRxNotes(e.target.value)}
+                                rows={2}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">Medicines & Dosage</label>
+                                <button
+                                  type="button"
+                                  onClick={() => setRxItems([...rxItems, { medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }])}
+                                  className="text-xs text-indigo-500 font-bold hover:underline"
+                                >
+                                  + Add Item
+                                </button>
+                              </div>
+                              
+                              <div className="space-y-3">
+                                {rxItems.map((item, idx) => (
+                                  <div key={idx} className="border border-[var(--border)] p-3 rounded-2xl bg-[var(--card)] space-y-2 relative">
+                                    {rxItems.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setRxItems(rxItems.filter((_, i) => i !== idx))}
+                                        className="absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold"
+                                      >
+                                        Remove
+                                      </button>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Medicine Name</label>
+                                        <input
+                                          type="text"
+                                          required
+                                          placeholder="e.g. Paracetamol"
+                                          value={item.medicine_name}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].medicine_name = e.target.value;
+                                            // Check if matches an existing medicine for auto-linking
+                                            const matched = medicines.find(m => m.name.toLowerCase() === e.target.value.toLowerCase());
+                                            if (matched) {
+                                              updated[idx].medicine_id = matched.id;
+                                            } else {
+                                              updated[idx].medicine_id = null;
+                                            }
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Dosage</label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g. 500mg"
+                                          value={item.dosage}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].dosage = e.target.value;
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Frequency</label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g. 1-0-1"
+                                          value={item.frequency}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].frequency = e.target.value;
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Duration</label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g. 5 Days"
+                                          value={item.duration}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].duration = e.target.value;
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Total Qty</label>
+                                        <input
+                                          type="number"
+                                          required
+                                          min={1}
+                                          value={item.quantity}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].quantity = parseInt(e.target.value) || 0;
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-[9px] text-slate-400 uppercase font-bold">Instructions</label>
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. After meals"
+                                        value={item.instructions}
+                                        onChange={(e) => {
+                                          const updated = [...rxItems];
+                                          updated[idx].instructions = e.target.value;
+                                          setRxItems(updated);
+                                        }}
+                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                      />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Lab Requests Section */}
+                            <div className="border-t border-[var(--border)] pt-4 mt-2">
+                              <div className="flex justify-between items-center mb-2">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">Diagnostic / Lab Tests</label>
+                                <button
+                                  type="button"
+                                  onClick={() => setRxLabRequests([...rxLabRequests, ""])}
+                                  className="text-xs text-indigo-500 font-bold hover:underline"
+                                >
+                                  + Add Lab Test
+                                </button>
+                              </div>
+                              {rxLabRequests.length > 0 && (
+                                <div className="p-3 border border-[var(--border)] rounded-2xl bg-[var(--card)] space-y-3">
+                                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2.5 rounded-xl mb-1 flex items-start gap-1.5 leading-relaxed">
+                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+                                    <span>CLINICAL BEST PRACTICE: Enter distinct, descriptive names (e.g. "X-Ray Chest" and "X-Ray Spine") instead of duplicate generic names. Identical names within a prescription will be automatically skipped by the system.</span>
+                                  </div>
+                                  {rxLabRequests.map((test, lIdx) => {
+                                    const isDuplicate = rxLabRequests.filter((t, i) => i !== lIdx && t.trim() !== "" && t.trim().toLowerCase() === test.trim().toLowerCase()).length > 0;
+                                    const genericNames = ["x-ray", "xray", "ultrasound", "mri", "ct scan", "blood test", "biopsy", "scan", "test"];
+                                    const isGeneric = genericNames.includes(test.trim().toLowerCase());
+                                    return (
+                                      <div key={lIdx} className="flex items-center space-x-2">
+                                        <div className="flex-grow">
+                                          <input
+                                            type="text"
+                                            required
+                                            placeholder="e.g. CBC, X-Ray Chest, Lipid Profile"
+                                            value={test}
+                                            onChange={(e) => {
+                                              const updated = [...rxLabRequests];
+                                              updated[lIdx] = e.target.value;
+                                              setRxLabRequests(updated);
+                                            }}
+                                            className={cn(
+                                              "w-full px-3 py-1.5 border rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none",
+                                              isDuplicate ? "border-red-500 focus:ring-red-500" : "border-[var(--border)]"
+                                            )}
+                                          />
+                                          {isDuplicate && (
+                                            <span className="text-[9px] text-red-500 font-bold mt-0.5 block">Duplicate name: Use specific names to differentiate!</span>
+                                          )}
+                                          {isGeneric && !isDuplicate && (
+                                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5 block">💡 Clinical Hint: Make this more specific (e.g. "X-Ray Chest", "Ultrasound Abdomen") to avoid duplicate clashes.</span>
+                                          )}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setRxLabRequests(rxLabRequests.filter((_, i) => i !== lIdx))}
+                                          className="text-red-500 hover:text-red-700 font-bold text-xs p-1"
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Submit Prescription"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  )}
+                </div>
+
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                          <th className="px-6 py-4">Prescription ID</th>
+                          <th className="px-6 py-4">Patient Name</th>
+                          <th className="px-6 py-4">Diagnosis</th>
+                          <th className="px-6 py-4">Written By</th>
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {prescriptions.length > 0 ? (
+                          prescriptions.map((rx) => (
+                            <tr key={rx.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
+                              <td className="px-6 py-4 font-semibold text-indigo-500">Rx #{rx.id}</td>
+                              <td className="px-6 py-4 font-bold text-sm">{rx.patient_name}</td>
+                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
+                                <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
+                                {rx.lab_requests && rx.lab_requests.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1.5">
+                                    {rx.lab_requests.map((test: string, idx: number) => (
+                                      <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
+                                        🔬 {test}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400">Dr. {rx.doctor_name}</td>
+                              <td className="px-6 py-4 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
+                              <td className="px-6 py-4 text-right">
+                                <span
+                                  className={`inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                    rx.status === "dispensed"
+                                      ? "bg-emerald-500/10 text-emerald-500"
+                                      : rx.status === "partially_dispensed"
+                                      ? "bg-blue-500/10 text-blue-500"
+                                      : rx.status === "cancelled"
+                                      ? "bg-red-500/10 text-red-500"
+                                      : "bg-amber-500/10 text-amber-500"
+                                  }`}
+                                >
+                                  {rx.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                              No prescriptions written yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* TAB: APPOINTMENTS */}
             {activeTab === "appointments" && (
               <div className="space-y-6">
@@ -1436,33 +3479,102 @@ export default function Dashboard() {
                     <FloatingPanelContent className="w-80 sm:w-96 text-left">
                       <FloatingPanelBody>
                         <form onSubmit={handleAddAppointment} className="space-y-4 text-xs text-[var(--foreground)]">
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                            <select
-                              required
-                              value={apptPatientId}
-                              onChange={(e) => setApptPatientId(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                              <option value="">-- Choose Patient --</option>
-                              {patients.map((pt) => (
-                                <option key={pt.id} value={pt.id}>
-                                  {pt.name} ({pt.phone})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                          {doctorInfo?.role !== "USER" && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
+                              <select
+                                required
+                                value={apptPatientId}
+                                onChange={(e) => setApptPatientId(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Patient --</option>
+                                {patients.map((pt) => (
+                                  <option key={pt.id} value={pt.id}>
+                                    {pt.name} ({pt.phone})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
+                          {!isClinicMode && doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
+                              <select
+                                required
+                                value={apptDoctorId}
+                                onChange={(e) => {
+                                  setApptDoctorId(e.target.value);
+                                  setApptSlotId("");
+                                  setAvailableSlots([]);
+                                  if (apptDate) {
+                                    fetchAvailableSlots(e.target.value, apptDate);
+                                  }
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="">-- Choose Doctor --</option>
+                                {facilityDoctors.map((doc) => (
+                                  <option key={doc.id} value={doc.id}>
+                                    Dr. {doc.name} ({doc.specialization || "General"})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
 
                           <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Schedule Date & Time</label>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Schedule Date</label>
                             <input
-                              type="datetime-local"
+                              type="date"
                               required
                               value={apptDate}
-                              onChange={(e) => setApptDate(e.target.value)}
+                              onChange={(e) => {
+                                setApptDate(e.target.value);
+                                setApptSlotId("");
+                                if (apptDoctorId) {
+                                  fetchAvailableSlots(apptDoctorId, e.target.value);
+                                }
+                              }}
                               className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
                           </div>
+
+                          {apptDoctorId && apptDate && (
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Available Slot</label>
+                              {availableSlots.length > 0 ? (
+                                <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
+                                  {availableSlots.map((slot) => {
+                                    const isSelected = apptSlotId === slot.id.toString();
+                                    const isFull = slot.booked_count >= slot.max_patients || slot.status !== "available";
+                                    return (
+                                      <button
+                                        key={slot.id}
+                                        type="button"
+                                        disabled={isFull && !isSelected}
+                                        onClick={() => setApptSlotId(slot.id.toString())}
+                                        className={cn(
+                                          "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+                                          isSelected
+                                            ? "bg-indigo-600 border-indigo-600 text-white"
+                                            : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]"
+                                        )}
+                                      >
+                                        <span className="block">{slot.start_time.substring(0, 5)} - {slot.end_time.substring(0, 5)}</span>
+                                        <span className="block text-[8px] opacity-60">
+                                          {isFull ? "Full" : `${slot.booked_count}/${slot.max_patients} Booked`}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-red-500 italic mt-1">No slots generated for selected doctor/date.</p>
+                              )}
+                            </div>
+                          )}
 
                           <div>
                             <label className="text-[10px] font-bold uppercase text-slate-400">Consultation Reason / Notes</label>
@@ -1494,6 +3606,7 @@ export default function Dashboard() {
                       <thead>
                         <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
                           <th className="px-6 py-4">Slot Date & Time</th>
+                          <th className="px-6 py-4">Doctor</th>
                           <th className="px-6 py-4">Patient Name</th>
                           <th className="px-6 py-4">Reason / Notes</th>
                           <th className="px-6 py-4">Status</th>
@@ -1505,7 +3618,10 @@ export default function Dashboard() {
                           appointments.map((ap) => (
                             <tr key={ap.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
                               <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
-                                {new Date(ap.appointment_date).toLocaleString()}
+                                {new Date(ap.appointment_date).toLocaleDateString()} {ap.slot_time ? `(${ap.slot_time})` : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
+                              </td>
+                              <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
+                                Dr. {ap.doctor_name}
                               </td>
                               <td className="px-6 py-4 font-normal text-sm">{ap.patient_name}</td>
                               <td className="px-6 py-4 text-slate-400">{ap.reason || "General Consult"}</td>
@@ -1530,7 +3646,7 @@ export default function Dashboard() {
                                 </span>
                               </td>
                               <td className="px-6 py-4 text-right">
-                                {ap.status !== "CANCELLED" && (
+                                {ap.status !== "CANCELLED" && doctorInfo?.role !== "USER" && (
                                   <button
                                     onClick={() => toggleAppointmentStatus(ap.id, ap.status)}
                                     className={`px-3 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
@@ -1542,12 +3658,20 @@ export default function Dashboard() {
                                     {ap.status === "COMPLETED" ? "Mark Pending" : "Mark Completed"}
                                   </button>
                                 )}
+                                {ap.status === "PENDING" && doctorInfo?.role === "USER" && (
+                                  <button
+                                    onClick={() => toggleAppointmentStatus(ap.id, "CANCELLED")}
+                                    className="px-3 py-1 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+                                  >
+                                    Cancel Booking
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
                               No appointments booked. Click 'Book Appointment' to schedule one.
                             </td>
                           </tr>
@@ -1556,6 +3680,209 @@ export default function Dashboard() {
                     </table>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* TAB: PHARMACY DISPENSING */}
+            {activeTab === "pharmacy" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <h2 className="text-xl font-black">Pharmacy Dispensing Queue</h2>
+                  <button 
+                    onClick={loadPendingPrescriptions}
+                    className="px-4 py-2 border border-[var(--border)] rounded-2xl text-xs hover:bg-[var(--card-hover)] transition cursor-pointer"
+                  >
+                    Refresh Queue
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {pendingPrescriptions.length > 0 ? (
+                    pendingPrescriptions.map((rx) => (
+                      <div key={rx.id} className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black uppercase text-indigo-500">Rx #{rx.id}</span>
+                            <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">{rx.status}</span>
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{rx.patient_name}</h3>
+                            <p className="text-[10px] text-slate-400">Dr. {rx.doctor_name}</p>
+                          </div>
+                          <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
+                            <span className="text-[9px] font-black uppercase text-slate-400 block">Prescribed Meds:</span>
+                            {rx.items && rx.items.map((it: any) => (
+                              <div key={it.id} className="text-xs flex justify-between text-slate-500 dark:text-slate-400">
+                                <span>{it.medicine_name} ({it.dosage})</span>
+                                <span className="font-semibold">x{it.quantity}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setActiveRxToDispense(rx);
+                            const itemsToDispense = rx.items.map((item: any) => {
+                              const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
+                              return {
+                                prescription_item_id: item.id,
+                                medicine_name: item.medicine_name,
+                                medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
+                                prescribed_qty: item.quantity,
+                                dosage: item.dosage,
+                                tablets_given: item.quantity,
+                                cost_per_tablet: matchedMed ? matchedMed.price : 0,
+                                is_nil: false,
+                                nil_reason: "",
+                                line_total: matchedMed ? item.quantity * matchedMed.price : 0
+                              };
+                            });
+                            setDispenseItems(itemsToDispense);
+                            setIsDispenseModalOpen(true);
+                          }}
+                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
+                        >
+                          Dispense Medication
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="col-span-full bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-slate-400 font-semibold">
+                      No prescriptions in the pending dispensing queue.
+                    </div>
+                  )}
+                </div>
+
+                {/* DISPENSING WORKFLOW MODAL */}
+                <FloatingPanelRoot isOpen={isDispenseModalOpen} onOpenChange={setIsDispenseModalOpen}>
+                  <FloatingPanelContent className="w-[95vw] sm:w-[600px] text-left max-h-[90vh] overflow-y-auto">
+                    <FloatingPanelBody>
+                      {activeRxToDispense && (
+                        <form onSubmit={handleDispensePrescription} className="space-y-5 text-xs text-[var(--foreground)]">
+                          <div>
+                            <h3 className="text-sm font-black">Dispense Rx #{activeRxToDispense.id}</h3>
+                            <p className="text-[10px] text-slate-400 uppercase mt-0.5">Patient: {activeRxToDispense.patient_name} | Diagnosis: {activeRxToDispense.diagnosis}</p>
+                          </div>
+
+                          <div className="overflow-x-auto border border-[var(--border)] rounded-2xl bg-[var(--card)]">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 font-bold uppercase text-[9px]">
+                                  <th className="px-3 py-2.5">Medication</th>
+                                  <th className="px-3 py-2.5">Prescribed</th>
+                                  <th className="px-3 py-2.5">Dispense Qty</th>
+                                  <th className="px-3 py-2.5">Price / Tab</th>
+                                  <th className="px-3 py-2.5">Total</th>
+                                  <th className="px-3 py-2.5 text-center">NIL</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {dispenseItems.map((item, idx) => (
+                                  <tr key={idx} className={`border-b border-[var(--border)] ${item.is_nil ? "bg-red-500/5 text-slate-400" : ""}`}>
+                                    <td className="px-3 py-3 font-semibold">
+                                      {item.is_nil ? "NIL — " : ""}{item.medicine_name} ({item.dosage})
+                                      {item.is_nil && (
+                                        <input
+                                          type="text"
+                                          required
+                                          placeholder="Enter NIL reason (e.g. Out of Stock)"
+                                          value={item.nil_reason}
+                                          onChange={(e) => {
+                                            const updated = [...dispenseItems];
+                                            updated[idx].nil_reason = e.target.value;
+                                            setDispenseItems(updated);
+                                          }}
+                                          className="w-full mt-1 px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
+                                        />
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-3 font-bold text-center">{item.prescribed_qty}</td>
+                                    <td className="px-3 py-3">
+                                      <input
+                                        type="number"
+                                        required
+                                        min={0}
+                                        disabled={item.is_nil}
+                                        value={item.tablets_given}
+                                        onChange={(e) => {
+                                          const val = parseInt(e.target.value) || 0;
+                                          const updated = [...dispenseItems];
+                                          updated[idx].tablets_given = val;
+                                          updated[idx].line_total = val * item.cost_per_tablet;
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="w-16 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center text-xs focus:ring-1 focus:ring-indigo-500 outline-none disabled:opacity-50"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-3">
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        required
+                                        min={0}
+                                        disabled={item.is_nil}
+                                        value={item.cost_per_tablet}
+                                        onChange={(e) => {
+                                          const val = parseFloat(e.target.value) || 0;
+                                          const updated = [...dispenseItems];
+                                          updated[idx].cost_per_tablet = val;
+                                          updated[idx].line_total = item.tablets_given * val;
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="w-16 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center text-xs focus:ring-1 focus:ring-indigo-500 outline-none disabled:opacity-50"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-3 font-bold">
+                                      ₹{item.is_nil ? "0.00" : item.line_total.toFixed(2)}
+                                    </td>
+                                    <td className="px-3 py-3 text-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={item.is_nil}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          const updated = [...dispenseItems];
+                                          updated[idx].is_nil = checked;
+                                          if (checked) {
+                                            updated[idx].tablets_given = 0;
+                                            updated[idx].line_total = 0;
+                                            updated[idx].nil_reason = "Out of Stock";
+                                          } else {
+                                            updated[idx].tablets_given = item.prescribed_qty;
+                                            updated[idx].line_total = item.prescribed_qty * item.cost_per_tablet;
+                                            updated[idx].nil_reason = "";
+                                          }
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="w-4 h-4 cursor-pointer text-indigo-600 focus:ring-indigo-500 rounded border-slate-300"
+                                      />
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          <div className="flex justify-between items-center border-t border-[var(--border)] pt-4 text-sm">
+                            <span className="font-bold">Total Bill Amount:</span>
+                            <span className="text-lg font-black text-indigo-600">
+                              ₹{dispenseItems.reduce((acc, it) => acc + (it.is_nil ? 0 : it.line_total), 0).toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex space-x-2 pt-2 text-xs">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Dispense & Bill"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      )}
+                    </FloatingPanelBody>
+                  </FloatingPanelContent>
+                </FloatingPanelRoot>
               </div>
             )}
 
@@ -2495,6 +4822,487 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
+
+            {/* TAB: SLOT SETTINGS */}
+            {activeTab === "availability" && (
+              <div className="space-y-6">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-xl font-black">Availability & Slot Settings</h2>
+                    <p className="text-xs text-slate-400">Configure weekly operational hours and generate discrete appointment slots.</p>
+                  </div>
+                </div>
+
+                {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm space-y-2">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor to Configure</label>
+                    <select
+                      value={configDoctorId}
+                      onChange={(e) => {
+                        setConfigDoctorId(e.target.value);
+                        loadDoctorAvailability(e.target.value);
+                        setSlotPreviews([]);
+                      }}
+                      className="w-full sm:w-72 mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                    >
+                      <option value="">-- Choose Doctor --</option>
+                      {facilityDoctors.map((doc) => (
+                        <option key={doc.id} value={doc.id}>
+                          Dr. {doc.name} ({doc.specialization || "General"})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {(configDoctorId || doctorInfo?.role === "DOCTOR") && (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Weekly Schedule Planner */}
+                    <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-black">Weekly Availability Template</h3>
+                      <div className="space-y-3">
+                        {configWeeklyAvail.map((day, idx) => {
+                          const daysName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                          return (
+                            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-[var(--border)] rounded-2xl bg-[var(--nav-bg)] gap-2">
+                              <div className="flex items-center space-x-3 w-32">
+                                <input
+                                  type="checkbox"
+                                  checked={day.is_active}
+                                  onChange={(e) => {
+                                    const updated = [...configWeeklyAvail];
+                                    updated[idx].is_active = e.target.checked;
+                                    setConfigWeeklyAvail(updated);
+                                  }}
+                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                                />
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{daysName[idx]}</span>
+                              </div>
+
+                              {day.is_active ? (
+                                <div className="flex flex-1 flex-wrap items-center gap-3 text-xs justify-start sm:justify-end">
+                                  <div className="flex items-center space-x-1">
+                                    <span className="text-slate-400">Start:</span>
+                                    <input
+                                      type="time"
+                                      value={day.start_time}
+                                      onChange={(e) => {
+                                        const updated = [...configWeeklyAvail];
+                                        updated[idx].start_time = e.target.value;
+                                        setConfigWeeklyAvail(updated);
+                                      }}
+                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                    />
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    <span className="text-slate-400">End:</span>
+                                    <input
+                                      type="time"
+                                      value={day.end_time}
+                                      onChange={(e) => {
+                                        const updated = [...configWeeklyAvail];
+                                        updated[idx].end_time = e.target.value;
+                                        setConfigWeeklyAvail(updated);
+                                      }}
+                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                    />
+                                  </div>
+                                  <div className="flex items-center space-x-1">
+                                    <span className="text-slate-400">Max Qty:</span>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={day.max_patients_per_slot}
+                                      onChange={(e) => {
+                                        const updated = [...configWeeklyAvail];
+                                        updated[idx].max_patients_per_slot = parseInt(e.target.value) || 1;
+                                        setConfigWeeklyAvail(updated);
+                                      }}
+                                      className="w-12 px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 italic">Closed / Unavailable</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={async () => {
+                          setIsSubmitting(true);
+                          try {
+                            const activeDays = configWeeklyAvail.filter(d => d.is_active);
+                            await fetchAPI("/api/doctors/availability", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
+                                availabilities: activeDays
+                              })
+                            });
+                            setToast({ message: "Weekly availability template saved!", type: "success" });
+                          } catch (err: any) {
+                            setToast({ message: err.message || "Failed to save availability", type: "error" });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }}
+                        disabled={isSubmitting}
+                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer"
+                      >
+                        Save Availability Template
+                      </button>
+                    </div>
+
+                    {/* Discrete Slots Generator */}
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit">
+                      <h3 className="text-sm font-black">Generate Discrete Slots</h3>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Roll out slots in bulk for a date range based on your weekly template. Overlapping slots are automatically skipped.
+                      </p>
+
+                      <div className="space-y-3 text-xs">
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">Start Date</label>
+                          <input
+                            type="date"
+                            value={generateStartDate}
+                            onChange={(e) => setGenerateStartDate(e.target.value)}
+                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">End Date</label>
+                          <input
+                            type="date"
+                            value={generateEndDate}
+                            onChange={(e) => setGenerateEndDate(e.target.value)}
+                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!generateStartDate || !generateEndDate) {
+                              setToast({ message: "Select start and end dates", type: "error" });
+                              return;
+                            }
+                            setIsSubmitting(true);
+                            try {
+                              const data = await fetchAPI("/api/slots/generate", {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
+                                  start_date: generateStartDate,
+                                  end_date: generateEndDate
+                                })
+                              });
+                              setSlotPreviews(data || []);
+                              if (!data || data.length === 0) {
+                                setToast({ message: "No slots to generate on these dates", type: "error" });
+                              }
+                            } catch (err: any) {
+                              setToast({ message: err.message || "Failed to generate previews", type: "error" });
+                            } finally {
+                              setIsSubmitting(false);
+                            }
+                          }}
+                          className="w-full py-2.5 border border-indigo-500/20 text-indigo-500 hover:bg-indigo-500/10 rounded-2xl font-bold transition cursor-pointer text-center"
+                        >
+                          Preview Slots List
+                        </button>
+                      </div>
+
+                      {slotPreviews.length > 0 && (
+                        <div className="space-y-3 pt-3 border-t border-[var(--border)] animate-fade-in">
+                          <span className="text-[10px] font-black uppercase text-slate-400 block">
+                            Preview Generated ({slotPreviews.length} slots)
+                          </span>
+                          <div className="max-h-40 overflow-y-auto space-y-1.5 border border-[var(--border)] rounded-2xl p-2 bg-[var(--nav-bg)] text-[10px]">
+                            {slotPreviews.map((p, idx) => (
+                              <div key={idx} className="flex justify-between text-slate-500">
+                                <span className="font-bold">{p.slot_date}</span>
+                                <span>{p.start_time} - {p.end_time}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <button
+                            onClick={async () => {
+                              setIsSubmitting(true);
+                              try {
+                                await fetchAPI("/api/slots/confirm", {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
+                                    slots: slotPreviews
+                                  })
+                                });
+                                setToast({ message: "Discrete slots generated successfully!", type: "success" });
+                                setSlotPreviews([]);
+                              } catch (err: any) {
+                                setToast({ message: err.message || "Failed to confirm slots", type: "error" });
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
+                          >
+                            Generate & Save Slots
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: RESCHEDULE QUEUE */}
+            {activeTab === "reschedule-queue" && (
+              <div className="space-y-6 animate-fade-in">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Mark Unavailability form */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit lg:col-span-1">
+                    <h3 className="text-sm font-black">Register Unavailability</h3>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Marking a doctor unavailable cancels all slots and automatically moves bookings into the reschedule queue. WhatsApp notifications are dispatched instantly.
+                    </p>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!unavailDoctorId || !unavailDate) return;
+                        setIsSubmitting(true);
+                        try {
+                          await fetchAPI("/api/doctors/unavailable", {
+                            method: "POST",
+                            body: JSON.stringify({
+                              doctor_id: parseInt(unavailDoctorId),
+                              unavailable_date: unavailDate,
+                              reason: unavailReason
+                            })
+                          });
+                          setToast({ message: "Doctor registered unavailable. Alerts queued!", type: "success" });
+                          setUnavailDoctorId("");
+                          setUnavailDate("");
+                          setUnavailReason("");
+                          loadRescheduleQueue();
+                        } catch (err: any) {
+                          setToast({ message: err.message || "Operation failed", type: "error" });
+                        } finally {
+                          setIsSubmitting(false);
+                        }
+                      }}
+                      className="space-y-3 text-xs text-[var(--foreground)]"
+                    >
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
+                        <select
+                          required
+                          value={unavailDoctorId}
+                          onChange={(e) => setUnavailDoctorId(e.target.value)}
+                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                        >
+                          <option value="">-- Choose Doctor --</option>
+                          {facilityDoctors.map((doc) => (
+                            <option key={doc.id} value={doc.id}>
+                              Dr. {doc.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-400">Unavailable Date</label>
+                        <input
+                          type="date"
+                          required
+                          value={unavailDate}
+                          onChange={(e) => setUnavailDate(e.target.value)}
+                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-400">Reason / Notes</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Conference, Medical Leave"
+                          value={unavailReason}
+                          onChange={(e) => setUnavailReason(e.target.value)}
+                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
+                      >
+                        {isSubmitting ? "Processing..." : "Mark Unavailable"}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Reschedule List Table */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 lg:col-span-2">
+                    <h3 className="text-sm font-black">Rescheduling Active Queue</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 font-bold uppercase">
+                            <th className="px-4 py-3">Patient</th>
+                            <th className="px-4 py-3">Doctor Name</th>
+                            <th className="px-4 py-3">Original Date</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rescheduleQueue.length > 0 ? (
+                            rescheduleQueue.map((item) => (
+                              <tr key={item.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
+                                <td className="px-4 py-3">
+                                  <div className="font-bold">{item.patient_name}</div>
+                                  <div className="text-[9px] text-slate-400">{item.patient_phone}</div>
+                                </td>
+                                <td className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-400">Dr. {item.doctor_name}</td>
+                                <td className="px-4 py-3 text-slate-500">
+                                  {item.original_date} {item.original_slot_time ? `(${item.original_slot_time})` : ""}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => {
+                                      setActiveRescheduleItem(item);
+                                      setReschedDate("");
+                                      setReschedNewSlotId("");
+                                      setReschedSlots([]);
+                                      setIsRescheduleModalOpen(true);
+                                    }}
+                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-sm transition cursor-pointer"
+                                  >
+                                    Assign Slot
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-8 text-center text-slate-400 italic">
+                                No appointments currently need rescheduling.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* RESCHEDULING ASSIGN MODAL */}
+                <FloatingPanelRoot isOpen={isRescheduleModalOpen} onOpenChange={setIsRescheduleModalOpen}>
+                  <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                    <FloatingPanelBody>
+                      {activeRescheduleItem && (
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!reschedNewSlotId) return;
+                            setIsSubmitting(true);
+                            try {
+                              await fetchAPI("/api/reschedule-queue", {
+                                method: "PUT",
+                                body: JSON.stringify({
+                                  reschedule_id: activeRescheduleItem.id,
+                                  new_slot_id: parseInt(reschedNewSlotId)
+                                })
+                              });
+                              setToast({ message: "Patient rescheduled successfully!", type: "success" });
+                              setIsRescheduleModalOpen(false);
+                              loadRescheduleQueue();
+                              loadAppointments();
+                            } catch (err: any) {
+                              setToast({ message: err.message || "Rescheduling failed", type: "error" });
+                            } finally {
+                              setIsSubmitting(false);
+                            }
+                          }}
+                          className="space-y-4 text-xs text-[var(--foreground)] animate-fade-in"
+                        >
+                          <div>
+                            <h3 className="text-sm font-black">Reschedule Appointment</h3>
+                            <p className="text-[10px] text-slate-400 mt-0.5">
+                              Patient: {activeRescheduleItem.patient_name} | Doctor: Dr. {activeRescheduleItem.doctor_name}
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Select Date</label>
+                            <input
+                              type="date"
+                              required
+                              value={reschedDate}
+                              onChange={(e) => {
+                                setReschedDate(e.target.value);
+                                setReschedNewSlotId("");
+                                fetchRescheduleSlots(activeRescheduleItem.doctor_id, e.target.value);
+                              }}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+
+                          {reschedDate && (
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Available Slot</label>
+                              {reschedSlots.length > 0 ? (
+                                <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
+                                  {reschedSlots.map((slot) => {
+                                    const isSelected = reschedNewSlotId === slot.id.toString();
+                                    const isFull = slot.booked_count >= slot.max_patients || slot.status !== "available";
+                                    return (
+                                      <button
+                                        key={slot.id}
+                                        type="button"
+                                        disabled={isFull && !isSelected}
+                                        onClick={() => setReschedNewSlotId(slot.id.toString())}
+                                        className={cn(
+                                          "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+                                          isSelected
+                                            ? "bg-indigo-600 border-indigo-600 text-white"
+                                            : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]"
+                                        )}
+                                      >
+                                        <span className="block">{slot.start_time.substring(0, 5)} - {slot.end_time.substring(0, 5)}</span>
+                                        <span className="block text-[8px] opacity-60">
+                                          {isFull ? "Full" : `${slot.booked_count}/${slot.max_patients} Booked`}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-red-500 italic mt-1">No slots available for this date.</p>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex space-x-2 pt-2 text-xs">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Confirm Reschedule"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      )}
+                    </FloatingPanelBody>
+                  </FloatingPanelContent>
+                </FloatingPanelRoot>
+              </div>
+            )}
           </div>
         ) : viewState.type === "patient" ? (
           /* VIEW: PATIENT DETAILS */
@@ -2641,6 +5449,66 @@ export default function Dashboard() {
                             <tr>
                               <td colSpan={6} className="px-4 py-6 text-center text-slate-400 font-semibold">
                                 No billing records on file.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Prescriptions Log */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-black">Prescription History</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                            <th className="px-4 py-3">Rx ID</th>
+                            <th className="px-4 py-3">Diagnosis</th>
+                            <th className="px-4 py-3 font-semibold">Date</th>
+                            <th className="px-4 py-3 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {currentPatientData.prescriptions && currentPatientData.prescriptions.length > 0 ? (
+                            currentPatientData.prescriptions.map((rx) => (
+                              <tr key={rx.id} className="border-b border-[var(--border)]">
+                                <td className="px-4 py-3 font-bold text-indigo-500">#Rx-{rx.id}</td>
+                                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                                  <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
+                                  {rx.lab_requests && rx.lab_requests.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                      {rx.lab_requests.map((test: string, idx: number) => (
+                                        <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
+                                          🔬 {test}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <span
+                                    className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                      rx.status === "dispensed"
+                                        ? "bg-emerald-500/10 text-emerald-500"
+                                        : rx.status === "partially_dispensed"
+                                        ? "bg-blue-500/10 text-blue-500"
+                                        : rx.status === "cancelled"
+                                        ? "bg-red-500/10 text-red-500"
+                                        : "bg-amber-500/10 text-amber-500"
+                                    }`}
+                                  >
+                                    {rx.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-6 text-center text-slate-400 font-semibold">
+                                No prescriptions on record.
                               </td>
                             </tr>
                           )}
@@ -2863,6 +5731,227 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: () => void }) {
+  const [selectedRole, setSelectedRole] = useState<"USER" | "DOCTOR" | "HOSPITAL_ADMIN">("USER");
+  const [name, setName] = useState(user.name || "");
+  const [phone, setPhone] = useState(user.phone || "");
+  const [location, setLocation] = useState("");
+  const [specialization, setSpecialization] = useState("");
+  const [hospitalName, setHospitalName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      await fetchAPI("/api/auth/role-setup", {
+        method: "POST",
+        body: JSON.stringify({
+          role: selectedRole,
+          name,
+          phone,
+          location: selectedRole !== "USER" ? location : "",
+          photo_url: "",
+          specialization: selectedRole === "DOCTOR" ? specialization : "",
+          hospital_name: selectedRole === "HOSPITAL_ADMIN" ? hospitalName : "",
+        }),
+      });
+      onCompleted();
+    } catch (err: any) {
+      setError(err.message || "Failed to complete setup.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#090d16] text-white flex flex-col justify-between py-12 px-4 relative overflow-hidden">
+      {/* Glow Effects */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-purple-500/10 blur-3xl pointer-events-none" />
+
+      <div className="max-w-4xl w-full mx-auto space-y-8 my-auto relative z-10">
+        <div className="text-center space-y-3">
+          <div className="w-14 h-14 rounded-3xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg mx-auto">
+            <Activity className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+            Choose Your Portal Role
+          </h1>
+          <p className="text-sm text-slate-400 max-w-md mx-auto">
+            Welcome to ClinicFlow! Please select your system role to unlock custom workflows and tools.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Roles Selection Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                id: "USER",
+                title: "User / Patient",
+                desc: "Log vitals, check lab reports, view queue positions, and pay bills.",
+                icon: Users,
+                color: "from-blue-500 to-indigo-500",
+              },
+              {
+                id: "DOCTOR",
+                title: "Individual Doctor",
+                desc: "Prescribe medicine, log patient metrics, order lab tests, and track queue.",
+                icon: BriefcaseMedical,
+                color: "from-indigo-500 to-purple-500",
+              },
+              {
+                id: "HOSPITAL_ADMIN",
+                title: "Hospital Admin",
+                desc: "Invite staff, manage organizational billing, and supervise the queues.",
+                icon: Activity,
+                color: "from-purple-500 to-pink-500",
+              },
+            ].map((roleOption) => {
+              const Icon = roleOption.icon;
+              const isSelected = selectedRole === roleOption.id;
+              return (
+                <div
+                  key={roleOption.id}
+                  onClick={() => setSelectedRole(roleOption.id as any)}
+                  className={cn(
+                    "backdrop-blur-xl rounded-3xl p-6 border text-left cursor-pointer transition-all duration-300 relative group overflow-hidden shadow-xl",
+                    isSelected
+                      ? "bg-slate-900/90 border-indigo-500 shadow-indigo-500/10 scale-[1.02]"
+                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/50"
+                  )}
+                >
+                  <div className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-tr shadow-md mb-4",
+                    roleOption.color
+                  )}>
+                    <Icon className="w-6 h-6 text-white" />
+                  </div>
+                  <h3 className="text-lg font-bold text-white mb-2">{roleOption.title}</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">{roleOption.desc}</p>
+                  <div className={cn(
+                    "absolute top-4 right-4 w-4 h-4 rounded-full border flex items-center justify-center transition-colors duration-200",
+                    isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-700"
+                  )}>
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Profile Setup Form Fields */}
+          <div className="backdrop-blur-2xl bg-slate-900/60 border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 max-w-2xl mx-auto">
+            <h2 className="text-lg font-bold border-b border-slate-800 pb-3 text-slate-200">
+              Complete {selectedRole === "USER" ? "Patient" : selectedRole === "DOCTOR" ? "Doctor" : "Hospital Admin"} Profile
+            </h2>
+
+            {error && (
+              <div className="text-xs text-red-400 bg-red-950/40 border border-red-900/60 p-3.5 rounded-2xl">
+                {error}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-left">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase text-slate-400">Phone Contact</label>
+                <input
+                  type="tel"
+                  required
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                />
+              </div>
+
+              {selectedRole === "HOSPITAL_ADMIN" && (
+                <>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Hospital / Facility Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. City General Hospital"
+                      value={hospitalName}
+                      onChange={(e) => setHospitalName(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                    />
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Facility Address</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Street address, City, Country"
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              {selectedRole === "DOCTOR" && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Specialization</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Cardiology, Pediatrics"
+                      value={specialization}
+                      onChange={(e) => setSpecialization(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase text-slate-400">Clinic Room / Location</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Room 302, Block A"
+                      value={location}
+                      onChange={(e) => setLocation(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-slate-800 rounded-xl bg-slate-950 text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-white"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full max-w-2xl mx-auto py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-purple-600 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg transition duration-300 disabled:opacity-50 cursor-pointer flex justify-center items-center"
+            >
+              {loading ? "Saving Profile..." : "Complete Account Setup"}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <footer className="text-center text-[10px] text-slate-600 mt-6">
+        &copy; {new Date().getFullYear()} ClinicFlow. Secure Patient EMR & Ledger.
+      </footer>
     </div>
   );
 }

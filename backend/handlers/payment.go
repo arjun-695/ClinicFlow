@@ -197,7 +197,7 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		       b.description, p.name, p.phone, COALESCE(d.clinic_name, 'Our Clinic')
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
-		LEFT JOIN doctors d ON b.doctor_id = d.id
+		LEFT JOIN users d ON b.doctor_id = d.id
 		WHERE b.id = $1 AND p.doctor_id = $2 
 		FOR UPDATE OF b
 	`

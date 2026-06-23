@@ -9,11 +9,10 @@ export async function fetchAPI(path: string, options: RequestInit = {}) {
     headers.set('Content-Type', 'application/json');
   }
 
-  // Inject Medplum Access Token if present in localStorage
   if (typeof window !== 'undefined') {
-    const medplumToken = localStorage.getItem('medplum_access_token');
-    if (medplumToken) {
-      headers.set('Authorization', `Bearer ${medplumToken}`);
+    const activeFacilityId = localStorage.getItem('active_facility_id');
+    if (activeFacilityId) {
+      headers.set('X-Facility-ID', activeFacilityId);
     }
   }
 

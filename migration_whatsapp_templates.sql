@@ -1,7 +1,7 @@
 -- WhatsApp Message Templates (per-doctor customization)
 CREATE TABLE IF NOT EXISTS whatsapp_templates (
     id SERIAL PRIMARY KEY,
-    doctor_id INT NOT NULL REFERENCES doctors(id) ON DELETE CASCADE,
+    doctor_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     template_key VARCHAR(50) NOT NULL,
     greeting TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',

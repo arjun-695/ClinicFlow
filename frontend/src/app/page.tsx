@@ -29,6 +29,7 @@ import { fetchAPI } from "../utils/api";
 export default function LandingPage() {
   const router = useRouter();
   const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
  
   // Track scroll state in refs to prevent high-frequency React state re-renders
   const scrollRef = useRef({
@@ -74,16 +75,16 @@ export default function LandingPage() {
       try {
         const data = await fetchAPI("/api/auth/session");
         if (data.status === "Authenticated") {
-          router.push("/dashboard");
-        } else {
-          setCheckingAuth(false);
+          setIsAuthenticated(true);
         }
       } catch {
+        // ignore
+      } finally {
         setCheckingAuth(false);
       }
     };
     checkSession();
-  }, [router]);
+  }, []);
 
   // 3. Track scroll progress dynamically inside Ref
   useEffect(() => {
@@ -218,18 +219,29 @@ export default function LandingPage() {
           </div>
 
           <nav className="flex items-center space-x-4">
-            <Link
-              href="/signin"
-              className="px-4.5 py-2 rounded-2xl border border-slate-800/80 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900/50 hover:border-slate-700 transition duration-300 pointer-events-auto"
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/signup"
-              className="px-4.5 py-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-xs font-semibold text-white shadow-md hover:shadow-indigo-500/20 active:scale-[0.98] transition duration-300 pointer-events-auto"
-            >
-              Get Started
-            </Link>
+            {isAuthenticated ? (
+              <Link
+                href="/dashboard"
+                className="px-4.5 py-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-xs font-semibold text-white shadow-md hover:shadow-indigo-500/20 active:scale-[0.98] transition duration-300 pointer-events-auto"
+              >
+                Go to Dashboard
+              </Link>
+            ) : (
+              <>
+                <Link
+                  href="/signin"
+                  className="px-4.5 py-2 rounded-2xl border border-slate-800/80 text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-900/50 hover:border-slate-700 transition duration-300 pointer-events-auto"
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/signup"
+                  className="px-4.5 py-2 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-xs font-semibold text-white shadow-md hover:shadow-indigo-500/20 active:scale-[0.98] transition duration-300 pointer-events-auto"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </nav>
         </header>
 

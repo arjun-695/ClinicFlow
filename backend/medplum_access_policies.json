@@ -1,0 +1,129 @@
+{
+  "user": {
+    "resourceType": "AccessPolicy",
+    "name": "User Access Policy",
+    "resource": [
+      {
+        "resourceType": "Patient",
+        "criteria": "Patient?_id=%patient.id",
+        "readonly": false
+      },
+      {
+        "resourceType": "Appointment",
+        "criteria": "Appointment?patient=%patient",
+        "readonly": false
+      },
+      {
+        "resourceType": "Encounter",
+        "criteria": "Encounter?patient=%patient",
+        "readonly": true
+      },
+      {
+        "resourceType": "MedicationRequest",
+        "criteria": "MedicationRequest?patient=%patient",
+        "readonly": true
+      },
+      {
+        "resourceType": "Observation",
+        "criteria": "Observation?patient=%patient",
+        "readonly": true
+      },
+      {
+        "resourceType": "DiagnosticReport",
+        "criteria": "DiagnosticReport?patient=%patient",
+        "readonly": true
+      }
+    ]
+  },
+  "doctor": {
+    "resourceType": "AccessPolicy",
+    "name": "Doctor Access Policy",
+    "resource": [
+      {
+        "resourceType": "Patient",
+        "readonly": false
+      },
+      {
+        "resourceType": "Appointment",
+        "readonly": false
+      },
+      {
+        "resourceType": "Encounter",
+        "readonly": false
+      },
+      {
+        "resourceType": "MedicationRequest",
+        "readonly": false
+      },
+      {
+        "resourceType": "Observation",
+        "readonly": false
+      },
+      {
+        "resourceType": "DiagnosticReport",
+        "readonly": false
+      },
+      {
+        "resourceType": "Practitioner",
+        "criteria": "Practitioner?_id=%practitioner.id",
+        "readonly": false
+      }
+    ]
+  },
+  "pharmacist": {
+    "resourceType": "AccessPolicy",
+    "name": "Pharmacist Access Policy",
+    "resource": [
+      {
+        "resourceType": "MedicationRequest",
+        "readonly": true
+      },
+      {
+        "resourceType": "Invoice",
+        "readonly": true
+      },
+      {
+        "resourceType": "ChargeItem",
+        "readonly": true
+      }
+    ]
+  },
+  "hospital_admin": {
+    "resourceType": "AccessPolicy",
+    "name": "Hospital Admin Access Policy",
+    "resource": [
+      {
+        "resourceType": "Organization",
+        "readonly": false
+      },
+      {
+        "resourceType": "Practitioner",
+        "readonly": false
+      },
+      {
+        "resourceType": "PractitionerRole",
+        "readonly": false
+      },
+      {
+        "resourceType": "Patient",
+        "readonly": false
+      },
+      {
+        "resourceType": "Appointment",
+        "readonly": false
+      },
+      {
+        "resourceType": "Invoice",
+        "readonly": false
+      },
+      {
+        "resourceType": "ChargeItem",
+        "readonly": false
+      },
+      {
+        "resourceType": "Claim",
+        "readonly": false
+      }
+    ]
+  }
+}

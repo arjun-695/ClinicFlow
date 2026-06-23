@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"backend/services"
 )
@@ -102,7 +103,11 @@ func PairWhatsAppPhone(w http.ResponseWriter, r *http.Request) {
 	code, err := services.PairWithPhoneNumber(input.Phone)
 	if err != nil {
 		log.Printf("PairWhatsAppPhone error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "400") || strings.Contains(errMsg, "bad-request") {
+			errMsg = "WhatsApp rejected the phone number (400 Bad Request). Please ensure you have included your country code (e.g. 919876543210 for India, 12025550199 for US) and that this number is registered on WhatsApp."
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": errMsg})
 		return
 	}
 

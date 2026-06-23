@@ -247,6 +247,25 @@ func PairWithPhoneNumber(phone string) (string, error) {
 		return "", fmt.Errorf("whatsapp is already connected")
 	}
 
+	// Ensure the websocket is connected to the WhatsApp server
+	if !WAClient.IsConnected() {
+		log.Println("[WhatsApp] Client is not connected to the WhatsApp servers. Attempting to connect...")
+		err := WAClient.Connect()
+		if err != nil {
+			return "", fmt.Errorf("whatsapp client not connected and failed to reconnect: %w", err)
+		}
+		// Wait up to 5 seconds for connection to be established
+		for i := 0; i < 10; i++ {
+			if WAClient.IsConnected() {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if !WAClient.IsConnected() {
+			return "", fmt.Errorf("websocket connection to WhatsApp servers is not active. Please check your internet connection")
+		}
+	}
+
 	// Clean up phone number — remove non-digit characters
 	re := regexp.MustCompile(`[^\d]`)
 	cleaned := re.ReplaceAllString(phone, "")
@@ -263,7 +282,7 @@ func PairWithPhoneNumber(phone string) (string, error) {
 		cleaned,
 		true,                         // show push notification
 		whatsmeow.PairClientChrome,   // client type
-		"ClinicFlow (Web)",            // display name (must be "Name (Platform)" format)
+		"Chrome (Windows)",           // display name (must be "Browser (OS)" format)
 	)
 	if err != nil {
 		return "", fmt.Errorf("phone pairing failed: %v", err)

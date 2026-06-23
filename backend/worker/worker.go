@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +71,9 @@ func runNotificationChecks(ctx context.Context) {
 	if err := checkSupplierDues(ctx); err != nil {
 		log.Printf("[Worker] Supplier dues check failed: %v", err)
 	}
+	if err := checkRescheduleQueue(ctx); err != nil {
+		log.Printf("[Worker] Reschedule queue check failed: %v", err)
+	}
 }
 
 func checkCustomerPromises(ctx context.Context) error {
@@ -78,7 +82,7 @@ func checkCustomerPromises(ctx context.Context) error {
 		SELECT b.id, b.description, b.remaining_amount, b.promised_due_date, p.name, p.phone, d.clinic_name, d.id as doctor_id
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
-		JOIN doctors d ON p.doctor_id = d.id
+		JOIN users d ON b.doctor_id = d.id
 		WHERE b.promised_due_date <= CURRENT_DATE 
 		  AND b.status != 'SETTLED'
 		  AND b.notified = FALSE
@@ -164,7 +168,7 @@ func checkSupplierDues(ctx context.Context) error {
 	query := `
 		SELECT sd.id, sd.supplier_name, sd.amount, sd.due_date, d.phone
 		FROM supplier_dues sd
-		JOIN doctors d ON sd.shopkeeper_id = d.id
+		JOIN users d ON sd.shopkeeper_id = d.id
 		WHERE sd.due_date <= CURRENT_DATE + INTERVAL '2 days'
 		  AND sd.notified = FALSE
 	`
@@ -213,6 +217,153 @@ func checkSupplierDues(ctx context.Context) error {
 		if err != nil {
 			log.Printf("[Worker] Failed to update supplier notified status for ID %d: %v", d.ID, err)
 		}
+	}
+
+	return nil
+}
+
+func checkRescheduleQueue(ctx context.Context) error {
+	// 1. Process Unavailability Alerts (status = 'pending' AND notification_sent = false)
+	pendingQuery := `
+		SELECT rq.id, rq.appointment_id, p.name, p.phone, u.name, rq.original_date::text, u.clinic_name, u.id
+		FROM reschedule_queue rq
+		JOIN patients p ON rq.patient_id = p.id
+		JOIN users u ON rq.doctor_id = u.id
+		WHERE rq.status = 'pending' AND rq.notification_sent = FALSE
+	`
+	rows, err := db.Pool.Query(ctx, pendingQuery)
+	if err == nil {
+		type PendingAlert struct {
+			ID            int
+			AppointmentID int
+			PatientName   string
+			PatientPhone  string
+			DoctorName    string
+			OriginalDate  string
+			ClinicName    string
+			DoctorID      int
+		}
+		var alerts []PendingAlert
+		for rows.Next() {
+			var a PendingAlert
+			if errScan := rows.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.ClinicName, &a.DoctorID); errScan == nil {
+				alerts = append(alerts, a)
+			}
+		}
+		rows.Close()
+
+		for _, a := range alerts {
+			clinic := a.ClinicName
+			if clinic == "" {
+				clinic = "ClinicFlow"
+			}
+			var greeting, body, footer string
+			errTemplate := db.Pool.QueryRow(ctx, 
+				"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'doctor_unavailable'",
+				a.DoctorID).Scan(&greeting, &body, &footer)
+			if errTemplate != nil {
+				greeting = "Dear {patient_name},"
+				body = "We regret to inform you that Dr. {doctor_name} is unavailable on {original_date}. Your appointment #APP-{appointment_id} is in our rescheduling queue, and we will update you with new details shortly."
+				footer = "Thank you for your understanding. - {clinic_name}"
+			}
+
+			replacer := strings.NewReplacer(
+				"{patient_name}", a.PatientName,
+				"{doctor_name}", a.DoctorName,
+				"{original_date}", a.OriginalDate,
+				"{appointment_id}", strconv.Itoa(a.AppointmentID),
+				"{clinic_name}", clinic,
+			)
+			msg := greeting + "\n\n" + body + "\n\n" + footer
+			messageText := replacer.Replace(msg)
+
+			errSend := services.SendWhatsApp(a.PatientPhone, messageText)
+			if errSend != nil {
+				log.Printf("[Worker] Failed to send unavailability WhatsApp to %s: %v", a.PatientPhone, errSend)
+				continue
+			}
+
+			_, _ = db.Pool.Exec(ctx, "UPDATE reschedule_queue SET notification_sent = TRUE WHERE id = $1", a.ID)
+		}
+	} else {
+		log.Printf("[Worker] Failed to query pending reschedules: %v", err)
+	}
+
+	// 2. Process Rescheduled Alerts (status = 'rescheduled')
+	reschedQuery := `
+		SELECT rq.id, rq.appointment_id, p.name, p.phone, u.name, rq.original_date::text, 
+		       s.slot_date::text, s.start_time::text, u.clinic_name, u.id
+		FROM reschedule_queue rq
+		JOIN patients p ON rq.patient_id = p.id
+		JOIN users u ON rq.doctor_id = u.id
+		JOIN appointment_slots s ON rq.new_slot_id = s.id
+		WHERE rq.status = 'rescheduled'
+	`
+	rowsResched, errResched := db.Pool.Query(ctx, reschedQuery)
+	if errResched == nil {
+		type ReschedAlert struct {
+			ID            int
+			AppointmentID int
+			PatientName   string
+			PatientPhone  string
+			DoctorName    string
+			OriginalDate  string
+			NewDate       string
+			NewTime       string
+			ClinicName    string
+			DoctorID      int
+		}
+		var alerts []ReschedAlert
+		for rowsResched.Next() {
+			var a ReschedAlert
+			if errScan := rowsResched.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.NewDate, &a.NewTime, &a.ClinicName, &a.DoctorID); errScan == nil {
+				alerts = append(alerts, a)
+			}
+		}
+		rowsResched.Close()
+
+		for _, a := range alerts {
+			clinic := a.ClinicName
+			if clinic == "" {
+				clinic = "ClinicFlow"
+			}
+			var greeting, body, footer string
+			errTemplate := db.Pool.QueryRow(ctx, 
+				"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'appointment_rescheduled'",
+				a.DoctorID).Scan(&greeting, &body, &footer)
+			if errTemplate != nil {
+				greeting = "Dear {patient_name},"
+				body = "Your appointment #APP-{appointment_id} with Dr. {doctor_name} originally on {original_date} has been rescheduled to {new_date} at {new_time}."
+				footer = "Thank you for choosing {clinic_name}."
+			}
+
+			newTime := a.NewTime
+			if len(newTime) > 5 {
+				newTime = newTime[:5]
+			}
+
+			replacer := strings.NewReplacer(
+				"{patient_name}", a.PatientName,
+				"{doctor_name}", a.DoctorName,
+				"{original_date}", a.OriginalDate,
+				"{new_date}", a.NewDate,
+				"{new_time}", newTime,
+				"{appointment_id}", strconv.Itoa(a.AppointmentID),
+				"{clinic_name}", clinic,
+			)
+			msg := greeting + "\n\n" + body + "\n\n" + footer
+			messageText := replacer.Replace(msg)
+
+			errSend := services.SendWhatsApp(a.PatientPhone, messageText)
+			if errSend != nil {
+				log.Printf("[Worker] Failed to send rescheduled WhatsApp to %s: %v", a.PatientPhone, errSend)
+				continue
+			}
+
+			_, _ = db.Pool.Exec(ctx, "UPDATE reschedule_queue SET status = 'notified', notification_sent = TRUE WHERE id = $1", a.ID)
+		}
+	} else {
+		log.Printf("[Worker] Failed to query rescheduled entries: %v", errResched)
 	}
 
 	return nil

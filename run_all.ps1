@@ -26,7 +26,7 @@ Start-Process powershell -ArgumentList "-NoExit", "-Command", "npm run dev" -Wor
 Write-Host "---------------------------------------------" -ForegroundColor Green
 Write-Host "All services have been launched!" -ForegroundColor Green
 Write-Host "- Database: Running on localhost:5432" -ForegroundColor Slate
-Write-Host "- Go REST API: Running on http://localhost:8080" -ForegroundColor Slate
+Write-Host "- Go REST API: Running on http://localhost:8081" -ForegroundColor Slate
 Write-Host "- Next.js UI: Running on http://localhost:3000" -ForegroundColor Slate
 Write-Host "- Medplum API: Running on http://localhost:8103" -ForegroundColor Slate
 Write-Host "Please check the spawned console windows for live logs." -ForegroundColor Green

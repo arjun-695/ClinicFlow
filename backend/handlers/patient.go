@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"backend/db"
+	"github.com/jackc/pgx/v5"
 )
 
 var ptPhoneRegex = regexp.MustCompile(`^\+?[\d\s-]{7,15}$`)
@@ -46,6 +48,15 @@ type AppointmentSummary struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type PrescriptionSummary struct {
+	ID          int      `json:"id"`
+	Diagnosis   string   `json:"diagnosis"`
+	Notes       string   `json:"notes"`
+	Status      string   `json:"status"`
+	CreatedAt   time.Time `json:"created_at"`
+	LabRequests []string `json:"lab_requests,omitempty"`
+}
+
 // CreatePatient handles patient creation
 func CreatePatient(w http.ResponseWriter, r *http.Request) {
 	var input struct {
@@ -54,6 +65,7 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		Gender         string `json:"gender"`
 		Age            int    `json:"age"`
 		MedicalHistory string `json:"medical_history"`
+		DoctorIDs      []int  `json:"doctor_ids"` // Assign to multiple doctors
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -80,27 +92,113 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		input.Gender = "Male"
 	}
 
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	creatorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, creatorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
+	creatorRole, err := getUserRole(r.Context(), creatorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to check creator permissions"})
+		return
+	}
+
+	// Clinic Mode mapping: automatically assign doctor
+	if len(input.DoctorIDs) == 0 {
+		if strings.ToUpper(creatorRole) == "DOCTOR" {
+			input.DoctorIDs = append(input.DoctorIDs, creatorID)
+		} else {
+			// Find all active doctors in the facility
+			rows, err := db.Pool.Query(r.Context(), `
+				SELECT uf.user_id
+				FROM user_facilities uf
+				JOIN users u ON uf.user_id = u.id
+				WHERE uf.facility_id = $1 AND u.role = 'DOCTOR'
+			`, facilityID)
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var docID int
+					if err := rows.Scan(&docID); err == nil {
+						input.DoctorIDs = append(input.DoctorIDs, docID)
+					}
+				}
+			}
+		}
+	} else if strings.ToUpper(creatorRole) == "DOCTOR" {
+		// Ensure creator (who is a doctor) is assigned
+		found := false
+		for _, docID := range input.DoctorIDs {
+			if docID == creatorID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			input.DoctorIDs = append(input.DoctorIDs, creatorID)
+		}
+	}
+
 	input.Name = CapitalizeName(input.Name)
 
-	query := `INSERT INTO patients (doctor_id, name, phone, gender, age, medical_history) 
-	          VALUES ($1, $2, $3, $4, $5, $6) 
+	// Determine primary doctor_id for legacy compatibility (must be NOT NULL in schema)
+	primaryDoctorID := creatorID
+	if len(input.DoctorIDs) > 0 {
+		primaryDoctorID = input.DoctorIDs[0]
+	}
+
+	tx, err := db.Pool.Begin(r.Context())
+	if err != nil {
+		log.Printf("CreatePatient Tx begin error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	query := `INSERT INTO patients (doctor_id, name, phone, gender, age, medical_history, facility_id) 
+	          VALUES ($1, $2, $3, $4, $5, $6, $7) 
 	          RETURNING id, created_at`
 	var id int
 	var createdAt time.Time
-	err := db.Pool.QueryRow(r.Context(), query, doctorID, input.Name, input.Phone, input.Gender, input.Age, input.MedicalHistory).Scan(&id, &createdAt)
+	err = tx.QueryRow(r.Context(), query, primaryDoctorID, input.Name, input.Phone, input.Gender, input.Age, input.MedicalHistory, facilityID).Scan(&id, &createdAt)
 	if err != nil {
 		log.Printf("CreatePatient DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}
 
-	db.InvalidateCache(r.Context(), "patients:list:"+strconv.Itoa(doctorID)+":*")
+	// Insert assignments into patient_doctors junction table
+	for _, docID := range input.DoctorIDs {
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO patient_doctors (patient_id, doctor_id, facility_id, assigned_by)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (patient_id, doctor_id, facility_id) DO NOTHING
+		`, id, docID, facilityID, creatorID)
+		if err != nil {
+			log.Printf("CreatePatient patient_doctors mapping error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create doctor assignments"})
+			return
+		}
+	}
+
+	if err = tx.Commit(r.Context()); err != nil {
+		log.Printf("CreatePatient Tx commit error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save patient records"})
+		return
+	}
+
+	// Invalidate caches
+	db.InvalidateCache(r.Context(), "patients:list:*:"+strconv.Itoa(facilityID)+":*")
+	for _, docID := range input.DoctorIDs {
+		db.InvalidateCache(r.Context(), "patients:list:"+strconv.Itoa(docID)+":"+strconv.Itoa(facilityID)+":*")
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":              id,
@@ -115,9 +213,15 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 
 // ListPatients returns all patients with their total outstanding dues calculated (paginated)
 func ListPatients(w http.ResponseWriter, r *http.Request) {
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
 		return
 	}
 
@@ -141,25 +245,52 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cacheKey := "patients:list:" + strconv.Itoa(doctorID) + ":" + strconv.Itoa(limit) + ":" + strconv.Itoa(offset)
+	cacheKey := "patients:list:" + strconv.Itoa(userID) + ":" + strconv.Itoa(facilityID) + ":" + strconv.Itoa(limit) + ":" + strconv.Itoa(offset)
 	var cachedPatients []Patient
 	if db.GetCache(r.Context(), cacheKey, &cachedPatients) {
 		writeJSON(w, http.StatusOK, cachedPatients)
 		return
 	}
 
-	query := `
-		SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
-		       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
-		       COALESCE(SUM(b.remaining_amount), 0) as total_dues
-		FROM patients p
-		LEFT JOIN bills b ON p.id = b.patient_id
-		WHERE p.doctor_id = $1
-		GROUP BY p.id
-		ORDER BY total_dues DESC, p.name ASC
-		LIMIT $2 OFFSET $3
-	`
-	rows, err := db.Pool.Query(r.Context(), query, doctorID, limit, offset)
+	role, err := getUserRole(r.Context(), userID)
+	if err != nil {
+		log.Printf("ListPatients role fetch error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to check credentials"})
+		return
+	}
+
+	var rows pgx.Rows
+	if strings.ToUpper(role) == "DOCTOR" {
+		// Doctors only see patients assigned to them via patient_doctors
+		query := `
+			SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+			       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
+			       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+			FROM patients p
+			JOIN patient_doctors pd ON p.id = pd.patient_id
+			LEFT JOIN bills b ON p.id = b.patient_id
+			WHERE pd.doctor_id = $1 AND pd.facility_id = $4
+			GROUP BY p.id
+			ORDER BY total_dues DESC, p.name ASC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = db.Pool.Query(r.Context(), query, userID, limit, offset, facilityID)
+	} else {
+		// Admin/Receptionist sees all patients in the facility
+		query := `
+			SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+			       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
+			       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+			FROM patients p
+			LEFT JOIN bills b ON p.id = b.patient_id
+			WHERE p.facility_id = $3
+			GROUP BY p.id
+			ORDER BY total_dues DESC, p.name ASC
+			LIMIT $1 OFFSET $2
+		`
+		rows, err = db.Pool.Query(r.Context(), query, limit, offset, facilityID)
+	}
+
 	if err != nil {
 		log.Printf("ListPatients DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -186,31 +317,70 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 
 // GetPatient returns details of a patient, their billing history, and appointments list
 func GetPatient(w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid patient ID"})
-		return
-	}
-
-	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
 		return
 	}
 
+	var role, phone string
+	err := db.Pool.QueryRow(r.Context(), "SELECT role, phone FROM users WHERE id = $1", userID).Scan(&role, &phone)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
+	var id int
+	if role == "USER" {
+		err = db.Pool.QueryRow(r.Context(), "SELECT id FROM patients WHERE phone = $1 LIMIT 1", phone).Scan(&id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "Patient profile not found for this account"})
+			return
+		}
+	} else {
+		idStr := r.URL.Query().Get("id")
+		id, err = strconv.Atoi(idStr)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid patient ID"})
+			return
+		}
+	}
+
 	ctx := r.Context()
 
-	cacheKey := "patient:detail:" + strconv.Itoa(doctorID) + ":" + strconv.Itoa(id)
+	cacheKey := "patient:detail:" + strconv.Itoa(userID) + ":" + strconv.Itoa(id)
 	var cachedData map[string]interface{}
 	if db.GetCache(ctx, cacheKey, &cachedData) {
 		writeJSON(w, http.StatusOK, cachedData)
 		return
 	}
 
+	// Verify Doctor is assigned to this patient, or Admin belongs to the same facility
+	if strings.ToUpper(role) == "DOCTOR" {
+		var isAssigned bool
+		err = db.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM patient_doctors WHERE patient_id = $1 AND doctor_id = $2 AND facility_id = $3)", id, userID, facilityID).Scan(&isAssigned)
+		if err != nil || !isAssigned {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you are not assigned to this patient"})
+			return
+		}
+	} else if strings.ToUpper(role) == "HOSPITAL_ADMIN" || strings.ToUpper(role) == "PHARMACIST" {
+		var sameFacility bool
+		err = db.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM patients WHERE id = $1 AND facility_id = $2)", id, facilityID).Scan(&sameFacility)
+		if err != nil || !sameFacility {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: patient does not belong to your facility"})
+			return
+		}
+	}
+
 	// Load patient info
 	var p Patient
-	err = db.Pool.QueryRow(ctx, "SELECT id, name, phone, gender, age, medical_history, created_at FROM patients WHERE id = $1 AND doctor_id = $2", id, doctorID).Scan(
+	err = db.Pool.QueryRow(ctx, "SELECT id, name, phone, gender, age, medical_history, created_at FROM patients WHERE id = $1", id).Scan(
 		&p.ID, &p.Name, &p.Phone, &p.Gender, &p.Age, &p.MedicalHistory, &p.CreatedAt,
 	)
 	if err != nil {
@@ -272,10 +442,72 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 		apptsList = append(apptsList, a)
 	}
 
+	// Load prescriptions list
+	queryRxs := `
+		SELECT id, diagnosis, notes, status, created_at
+		FROM prescriptions
+		WHERE patient_id = $1
+		ORDER BY created_at DESC
+	`
+	rowsRxs, err := db.Pool.Query(ctx, queryRxs, id)
+	if err != nil {
+		log.Printf("GetPatient prescriptions query error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+	defer rowsRxs.Close()
+
+	rxsList := []PrescriptionSummary{}
+	for rowsRxs.Next() {
+		var rx PrescriptionSummary
+		err := rowsRxs.Scan(&rx.ID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt)
+		if err != nil {
+			log.Printf("GetPatient prescription scan error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+			return
+		}
+		rxsList = append(rxsList, rx)
+	}
+
+	// Fetch lab requests for these prescriptions
+	if len(rxsList) > 0 {
+		rxIDs := make([]int, len(rxsList))
+		for i, rx := range rxsList {
+			rxIDs[i] = rx.ID
+		}
+		labRows, err := db.Pool.Query(ctx, `
+			SELECT prescription_id, test_name
+			FROM lab_requests
+			WHERE prescription_id = ANY($1)
+			ORDER BY id ASC
+		`, rxIDs)
+		if err == nil {
+			defer labRows.Close()
+			labMap := make(map[int][]string)
+			for labRows.Next() {
+				var rxID int
+				var tn string
+				if err := labRows.Scan(&rxID, &tn); err == nil {
+					labMap[rxID] = append(labMap[rxID], tn)
+				}
+			}
+			for i := range rxsList {
+				if labs, ok := labMap[rxsList[i].ID]; ok {
+					rxsList[i].LabRequests = labs
+				} else {
+					rxsList[i].LabRequests = []string{}
+				}
+			}
+		} else {
+			log.Printf("GetPatient lab requests query error: %v", err)
+		}
+	}
+
 	responseData := map[string]interface{}{
-		"patient":      p,
-		"contracts":    billsList,
-		"appointments": apptsList,
+		"patient":       p,
+		"contracts":     billsList,
+		"appointments":  apptsList,
+		"prescriptions": rxsList,
 	}
 	db.SetCache(ctx, cacheKey, responseData, 10*time.Minute)
 
