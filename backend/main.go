@@ -221,10 +221,10 @@ func main() {
 	// --- Protected Business Endpoints (require auth) ---
 	// Patients / Customers (Aliases)
 	mux.HandleFunc("GET /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
-	mux.HandleFunc("POST /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireAdminOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
+	mux.HandleFunc("POST /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
 	mux.HandleFunc("GET /api/patients/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
 	mux.HandleFunc("GET /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
-	mux.HandleFunc("POST /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireAdminOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
+	mux.HandleFunc("POST /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
 	mux.HandleFunc("GET /api/customers/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
 
 	// Patient-Doctor Assignments
@@ -236,6 +236,7 @@ func main() {
 
 	// Prescriptions
 	mux.HandleFunc("POST /api/prescriptions", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireDoctor(bodySizeLimit(1<<20, handlers.CreatePrescription)))))
+	mux.HandleFunc("POST /api/prescriptions/upload-pdf", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireDoctor(bodySizeLimit(10<<20, handlers.UploadPrescriptionAndBillPDF)))))
 	mux.HandleFunc("GET /api/prescriptions", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPrescriptions)))
 	mux.HandleFunc("GET /api/prescriptions/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPrescription)))
 	mux.HandleFunc("PUT /api/prescriptions", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireDoctor(bodySizeLimit(1<<20, handlers.UpdatePrescription)))))

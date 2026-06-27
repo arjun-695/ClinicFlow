@@ -1,14 +1,19 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"backend/db"
+	"backend/services"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -58,6 +63,8 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 			Instructions string `json:"instructions"`
 		} `json:"items"`
 		LabRequests   []string `json:"lab_requests"`
+		VisitCharges  *float64 `json:"visit_charges,omitempty"`
+		AmountPaid    *float64 `json:"amount_paid,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -147,6 +154,66 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Insert consult bill if visit charges are specified
+	var billIDVal *int
+	if input.VisitCharges != nil && *input.VisitCharges > 0 {
+		var amountPaid float64
+		if input.AmountPaid != nil {
+			amountPaid = *input.AmountPaid
+		}
+		remainingAmount := *input.VisitCharges - amountPaid
+
+		var billStatus string
+		if remainingAmount <= 0 {
+			billStatus = "SETTLED"
+			remainingAmount = 0
+		} else if amountPaid > 0 {
+			billStatus = "PARTIALLY_PAID"
+		} else {
+			billStatus = "PENDING"
+		}
+
+		billQuery := `
+			INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, promised_due_date, created_at, facility_id)
+			VALUES ($1, $2, 'Consultation / Visit Charges', $3, $4, $5, NULL, $6, $7)
+			RETURNING id
+		`
+		var billID int
+		err = tx.QueryRow(r.Context(), billQuery, input.PatientID, doctorID, *input.VisitCharges, remainingAmount, billStatus, createdAt, facilityID).Scan(&billID)
+		if err != nil {
+			log.Printf("CreatePrescription insert bill error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create consultation bill"})
+			return
+		}
+
+		itemQuery := `
+			INSERT INTO bill_items (bill_id, item_name, quantity, unit_price, dosage)
+			VALUES ($1, 'Consultation Fee', 1, $2, '')
+		`
+		_, err = tx.Exec(r.Context(), itemQuery, billID, *input.VisitCharges)
+		if err != nil {
+			log.Printf("CreatePrescription insert bill item error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create consultation bill item"})
+			return
+		}
+
+		// Log upfront payment if amountPaid > 0
+		if amountPaid > 0 {
+			queryPayment := `
+				INSERT INTO payments (bill_id, amount_paid, payment_mode, remarks, payment_date)
+				VALUES ($1, $2, 'CASH', 'Consultation upfront payment', $3)
+			`
+			_, err = tx.Exec(r.Context(), queryPayment, billID, amountPaid, createdAt)
+			if err != nil {
+				log.Printf("CreatePrescription insert payment error: %v", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to record payment"})
+				return
+			}
+		}
+
+		billIDVal = &billID
+	}
+
 	if err = tx.Commit(r.Context()); err != nil {
 		log.Printf("CreatePrescription transaction commit error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Transaction failed"})
@@ -157,10 +224,11 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 	db.InvalidateCache(r.Context(), "patient:detail:*:"+strconv.Itoa(input.PatientID))
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id": rxID,
-		"status": status,
+		"id":         rxID,
+		"status":     status,
 		"created_at": createdAt,
-		"message": "Prescription created successfully",
+		"bill_id":    billIDVal,
+		"message":    "Prescription created successfully",
 	})
 }
 
@@ -541,4 +609,182 @@ func UpdatePrescription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Prescription updated successfully"})
+}
+
+// UploadPrescriptionAndBillPDF uploads prescription and bill PDFs to storage and dispatches them via WhatsApp
+func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseMultipartForm(10 << 20) // 10MB max
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to parse form data"})
+		return
+	}
+
+	rxIDStr := r.FormValue("prescription_id")
+	rxID, err := strconv.Atoi(rxIDStr)
+	if err != nil || rxID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Valid prescription_id is required"})
+		return
+	}
+
+	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch prescription and patient details
+	var pName, pPhone, docName, clinicName, diagnosis, notes string
+	queryRx := `
+		SELECT p.name as patient_name, p.phone as patient_phone, d.name as doctor_name, 
+		       COALESCE(d.clinic_name, '') as clinic_name, rx.diagnosis, rx.notes
+		FROM prescriptions rx
+		JOIN patients p ON rx.patient_id = p.id
+		LEFT JOIN users d ON rx.doctor_id = d.id
+		WHERE rx.id = $1 AND p.doctor_id = $2
+	`
+	err = db.Pool.QueryRow(ctx, queryRx, rxID, doctorID).Scan(&pName, &pPhone, &docName, &clinicName, &diagnosis, &notes)
+	if err != nil {
+		log.Printf("UploadPrescriptionAndBillPDF query error: %v", err)
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Prescription not found or unauthorized"})
+		return
+	}
+
+	// Process prescription PDF if uploaded
+	fileRx, fileHeaderRx, errRx := r.FormFile("prescription")
+	if errRx == nil {
+		defer fileRx.Close()
+		fileBytesRx, errRead := io.ReadAll(fileRx)
+		if errRead == nil {
+			// Send prescription WhatsApp notification asynchronously
+			go func() {
+				tmpl := GetTemplateForDoctor(context.Background(), doctorID, "prescription_notification")
+				msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+				replacer := strings.NewReplacer(
+					"{patient_name}", pName,
+					"{doctor_name}", docName,
+					"{clinic_name}", clinicName,
+					"{diagnosis}", diagnosis,
+					"{notes}", notes,
+				)
+				messageText := replacer.Replace(msgTemplate)
+				errSend := services.SendWhatsAppWithAttachment(pPhone, messageText, fileBytesRx, fileHeaderRx.Filename, "application/pdf")
+				if errSend != nil {
+					log.Printf("WhatsApp prescription dispatch failed for Patient %s (%s): %v", pName, pPhone, errSend)
+				}
+			}()
+		} else {
+			log.Printf("UploadPrescriptionAndBillPDF prescription read error: %v", errRead)
+		}
+	}
+
+	// Process bill PDF if uploaded
+	billIDStr := r.FormValue("bill_id")
+	if billIDStr != "" {
+		billID, errBillID := strconv.Atoi(billIDStr)
+		if errBillID == nil && billID > 0 {
+			fileBill, fileHeaderBill, errBill := r.FormFile("invoice")
+			if errBill == nil {
+				defer fileBill.Close()
+				fileBytesBill, errReadBill := io.ReadAll(fileBill)
+				if errReadBill == nil {
+					// Upload invoice PDF to Supabase storage
+					url, errUpload := services.UploadReceipt(fileBytesBill, fileHeaderBill.Filename, "application/pdf")
+					if errUpload != nil {
+						log.Printf("UploadPrescriptionAndBillPDF bill upload warning: %v", errUpload)
+					} else {
+						_, errDB := db.Pool.Exec(ctx, "UPDATE bills SET invoice_url = $1 WHERE id = $2", url, billID)
+						if errDB != nil {
+							log.Printf("UploadPrescriptionAndBillPDF database update error: %v", errDB)
+						}
+					}
+
+					// Dispatch bill WhatsApp notification asynchronously
+					go func() {
+						var b BillSummary
+						queryBill := `
+							SELECT b.id, b.patient_id, b.description, b.total_amount, b.remaining_amount, b.status, b.created_at, b.notified
+							FROM bills b
+							WHERE b.id = $1
+						`
+						errQueryBill := db.Pool.QueryRow(context.Background(), queryBill, billID).Scan(
+							&b.ID, &b.PatientID, &b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.CreatedAt, &b.Notified,
+						)
+						if errQueryBill != nil {
+							log.Printf("UploadPrescriptionAndBillPDF queryBill error: %v", errQueryBill)
+							return
+						}
+
+						// Load bill items
+						rowsItems, errItems := db.Pool.Query(context.Background(), `
+							SELECT item_name, quantity, unit_price, dosage FROM bill_items WHERE bill_id = $1 ORDER BY id ASC
+						`, billID)
+						itemsList := ""
+						if errItems == nil {
+							defer rowsItems.Close()
+							i := 1
+							for rowsItems.Next() {
+								var item struct {
+									ItemName  string
+									Quantity  int
+									UnitPrice float64
+									Dosage    string
+								}
+								if errScan := rowsItems.Scan(&item.ItemName, &item.Quantity, &item.UnitPrice, &item.Dosage); errScan == nil {
+									dosageStr := ""
+									if item.Dosage != "" {
+										dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
+									}
+									itemsList += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit%s\n", i, item.ItemName, item.Quantity, item.UnitPrice, dosageStr)
+									i++
+								}
+							}
+						}
+
+						tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
+
+						paymentDetails := ""
+						totalPaid := b.TotalAmount - b.RemainingAmount
+						if totalPaid > 0 {
+							var payMode string
+							_ = db.Pool.QueryRow(context.Background(), "SELECT payment_mode FROM payments WHERE bill_id = $1 ORDER BY payment_date DESC LIMIT 1", billID).Scan(&payMode)
+							if payMode == "" {
+								payMode = "CASH"
+							}
+							paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", totalPaid, payMode)
+						}
+
+						appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+						if appURL == "" {
+							appURL = "http://localhost:3000"
+						}
+						billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
+
+						msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+						replacer := strings.NewReplacer(
+							"{patient_name}", pName,
+							"{total_amount}", fmt.Sprintf("%.2f", b.TotalAmount),
+							"{clinic_name}", clinicName,
+							"{payment_details}", paymentDetails,
+							"{remaining_amount}", fmt.Sprintf("%.2f", b.RemainingAmount),
+							"{items_list}", itemsList,
+							"{bill_link}", billLink,
+							"{description}", b.Description,
+						)
+						messageText := replacer.Replace(msgTemplate)
+
+						errSendBill := services.SendWhatsAppWithAttachment(pPhone, messageText, fileBytesBill, fileHeaderBill.Filename, "application/pdf")
+						if errSendBill != nil {
+							log.Printf("WhatsApp bill dispatch failed (UploadPrescriptionAndBillPDF) for Patient %s (%s): %v", pName, pPhone, errSendBill)
+						} else {
+							_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
+						}
+					}()
+				}
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Prescription and Bill documents processed successfully"})
 }

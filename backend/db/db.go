@@ -41,5 +41,14 @@ func InitDB() {
 		log.Fatalf("Database connection check failed: %v\n", err)
 	}
 
+	// Run schema migrations/alterations
+	_, err = Pool.Exec(context.Background(), `
+		ALTER TABLE bills ADD COLUMN IF NOT EXISTS last_reminder_sent_at TIMESTAMPTZ;
+		ALTER TABLE appointments ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT FALSE;
+	`)
+	if err != nil {
+		log.Printf("Warning: Failed to run DB schema upgrades: %v", err)
+	}
+
 	fmt.Println("Successfully connected to the database!")
 }

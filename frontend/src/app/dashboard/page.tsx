@@ -53,11 +53,75 @@ import {
   FloatingPanelSubmitButton,
 } from "../../components/ui/floating-panel";
 
+const COMMON_MEDICINES = [
+  "Paracetamol 500mg",
+  "Paracetamol 650mg",
+  "Ibuprofen 400mg",
+  "Amoxicillin 500mg",
+  "Metformin 500mg",
+  "Metformin 1000mg",
+  "Atorvastatin 10mg",
+  "Atorvastatin 20mg",
+  "Omeprazole 20mg",
+  "Omeprazole 40mg",
+  "Pantoprazole 40mg",
+  "Cetirizine 10mg",
+  "Azithromycin 500mg",
+  "Amoxicillin + Clavulanic Acid 625mg",
+  "Losartan 50mg",
+  "Amlodipine 5mg",
+  "Amlodipine 10mg",
+  "Levocetirizine 5mg",
+  "Montelukast 10mg",
+  "Gabapentin 300mg",
+  "Ranitidine 150mg",
+  "Ciprofloxacin 500mg",
+  "Clopidogrel 75mg",
+  "Doxycycline 100mg",
+  "Sildenafil 50mg",
+  "Escitalopram 10mg",
+  "Alprazolam 0.25mg",
+  "Alprazolam 0.5mg",
+  "Telmisartan 40mg",
+  "Telmisartan 80mg",
+  "Diclofenac 50mg",
+  "Ondansetron 4mg",
+  "Ondansetron 8mg",
+  "Domperidone 10mg",
+  "Loratadine 10mg",
+  "Spironolactone 25mg",
+  "Furosemide 40mg",
+  "Hydrochlorothiazide 12.5mg",
+  "Prednisolone 5mg",
+  "Methylprednisolone 4mg",
+  "Aspirin 75mg",
+  "Aspirin 150mg",
+  "Azithromycin 250mg",
+  "Clarithromycin 500mg",
+  "Metronidazole 400mg",
+  "Albendazole 400mg",
+  "Ofloxacin 200mg",
+  "Ornidazole 500mg",
+  "Vitamin C (Ascorbic Acid) 500mg",
+  "Vitamin D3 60K",
+  "Zinc Sulphate 20mg",
+  "B-Complex",
+  "Limcee",
+  "Becosules",
+  "Multivitamin",
+  "Calcium Carbonate 500mg",
+  "Folic Acid 5mg",
+  "Iron Supplement",
+  "Salbutamol Inhaler",
+  "Budecort Inhaler",
+];
+
 // --- State Types ---
 type ViewState =
   | { type: "list" }
   | { type: "patient"; patientId: number }
-  | { type: "bill"; billId: number };
+  | { type: "bill"; billId: number }
+  | { type: "patient_vitals"; patientId: number };
 
 // --- Interfaces ---
 interface Patient {
@@ -192,7 +256,8 @@ export default function Dashboard() {
     facilities?: { id: number; name: string; type: string; role: string }[];
   } | null>(null);
 
-  const isClinicMode = !doctorInfo || doctorInfo.role === "DOCTOR" || doctorInfo.facilities?.find(f => f.id === doctorInfo.active_facility_id)?.type === "CLINIC";
+  const isClinicMode = !doctorInfo || doctorInfo.facilities?.find(f => f.id === doctorInfo.active_facility_id)?.type !== "HOSPITAL";
+  const isDoctorInHospital = doctorInfo?.role === "DOCTOR" && !isClinicMode;
 
 
   // Tabs & Views
@@ -204,6 +269,21 @@ export default function Dashboard() {
   const [direction, setDirection] = useState(0);
   const [contentRef, contentBounds] = useMeasure();
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const lastFacilityIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (doctorInfo) {
+      const facilityId = doctorInfo.active_facility_id || null;
+      if (lastFacilityIdRef.current !== facilityId) {
+        lastFacilityIdRef.current = facilityId;
+        const isHospital = doctorInfo.facilities?.find(f => f.id === facilityId)?.type === "HOSPITAL";
+        if (isHospital && doctorInfo.role === "DOCTOR") {
+          setActiveTab("queue");
+        }
+      }
+    }
+  }, [doctorInfo]);
 
   // Core Data
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -225,6 +305,7 @@ export default function Dashboard() {
   // 1. Patient Form
   const [newPtName, setNewPtName] = useState("");
   const [newPtPhone, setNewPtPhone] = useState("");
+  const [newPtPhoneCode, setNewPtPhoneCode] = useState("+91");
   const [newPtGender, setNewPtGender] = useState("Male");
   const [newPtAge, setNewPtAge] = useState("");
   const [newPtHistory, setNewPtHistory] = useState("");
@@ -235,6 +316,14 @@ export default function Dashboard() {
   const [rxPatientId, setRxPatientId] = useState("");
   const [rxDiagnosis, setRxDiagnosis] = useState("");
   const [rxNotes, setRxNotes] = useState("");
+  const [rxVisitCharges, setRxVisitCharges] = useState("");
+  const [rxAmountPaid, setRxAmountPaid] = useState("");
+  const [rxWeight, setRxWeight] = useState("");
+  const [rxBP, setRxBP] = useState("");
+  const [rxHR, setRxHR] = useState("");
+  const [rxPulse, setRxPulse] = useState("");
+  const [rxSpO2, setRxSpO2] = useState("");
+  const [rxTemp, setRxTemp] = useState("");
   const [rxItems, setRxItems] = useState<any[]>([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
   const [pendingPrescriptions, setPendingPrescriptions] = useState<any[]>([]);
   const [isDispenseModalOpen, setIsDispenseModalOpen] = useState(false);
@@ -325,6 +414,9 @@ export default function Dashboard() {
   const [waTemplates, setWaTemplates] = useState<Record<string, { greeting: string; body: string; footer: string }>>({
     bill_notification: { greeting: "", body: "", footer: "" },
     overdue_reminder: { greeting: "", body: "", footer: "" },
+    prescription_notification: { greeting: "", body: "", footer: "" },
+    appointment_reminder: { greeting: "", body: "", footer: "" },
+    appointment_confirmation: { greeting: "", body: "", footer: "" },
   });
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [templateSaving, setTemplateSaving] = useState(false);
@@ -334,6 +426,7 @@ export default function Dashboard() {
   const [waQR, setWaQR] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [pairPhone, setPairPhone] = useState("");
+  const [pairPhoneCode, setPairPhoneCode] = useState("+91");
   const [pairCode, setPairCode] = useState("");
   const [isPairing, setIsPairing] = useState(false);
 
@@ -376,18 +469,28 @@ export default function Dashboard() {
   const [logTemp, setLogTemp] = useState("");
   const [logEncounterId, setLogEncounterId] = useState("");
   const [logCustomMetrics, setLogCustomMetrics] = useState<{ key: string; value: string }[]>([]);
-  const [rxLabRequests, setRxLabRequests] = useState<string[]>([]);
+  const [rxLabRequests, setRxLabRequests] = useState<{ name: string; value: string }[]>([]);
   const [isLogVitalsOpen, setIsLogVitalsOpen] = useState(false);
   const [vitalsPatientId, setVitalsPatientId] = useState("");
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
+  const [invitePhoneCode, setInvitePhoneCode] = useState("+91");
   const [inviteRole, setInviteRole] = useState<"DOCTOR" | "PHARMACIST">("DOCTOR");
   const [inviteLink, setInviteLink] = useState("");
   const [inviteOTP, setInviteOTP] = useState("");
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [ownPatientProfile, setOwnPatientProfile] = useState<any>(null);
   const [staffList, setStaffList] = useState<any[]>([]);
+
+  // Automatically set selectedDoctorIds to the logged-in doctor if role is DOCTOR when registering a patient
+  useEffect(() => {
+    if (isAddPatientOpen && doctorInfo?.role === "DOCTOR" && doctorInfo?.id) {
+      setSelectedDoctorIds([doctorInfo.id]);
+    } else {
+      setSelectedDoctorIds([]);
+    }
+  }, [isAddPatientOpen, doctorInfo]);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -424,6 +527,82 @@ export default function Dashboard() {
     }
   };
 
+  // --- URL Search Params History Sync ---
+  const urlSyncRef = useRef("");
+
+  // 1. Read URL params on mount and browser back/forward navigation
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const handleUrlChange = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      const view = params.get("view");
+      const id = params.get("id");
+
+      if (tab) {
+        const validTabs = ["patients", "appointments", "billing", "medicines", "analytics", "whatsapp", "staff", "queue", "vitals", "labs", "reschedule-queue", "availability", "prescriptions", "pharmacy"];
+        if (validTabs.includes(tab)) {
+          setActiveTab(tab as any);
+        }
+      }
+
+      if (view === "patient" && id) {
+        const patientId = parseInt(id);
+        if (!isNaN(patientId)) {
+          setViewState({ type: "patient", patientId });
+          loadPatientDetails(patientId);
+        }
+      } else if (view === "patient_vitals" && id) {
+        const patientId = parseInt(id);
+        if (!isNaN(patientId)) {
+          setViewState({ type: "patient_vitals", patientId });
+          loadVitals(patientId);
+        }
+      } else if (view === "bill" && id) {
+        const billId = parseInt(id);
+        if (!isNaN(billId)) {
+          setViewState({ type: "bill", billId });
+          loadBillDetails(billId);
+        }
+      } else {
+        setViewState({ type: "list" });
+      }
+    };
+
+    handleUrlChange();
+
+    window.addEventListener("popstate", handleUrlChange);
+    return () => {
+      window.removeEventListener("popstate", handleUrlChange);
+    };
+  }, [isAuthenticated]);
+
+  // 2. Write state changes to URL history
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const params = new URLSearchParams();
+    params.set("tab", activeTab);
+
+    if (viewState.type === "patient" && viewState.patientId) {
+      params.set("view", "patient");
+      params.set("id", viewState.patientId.toString());
+    } else if (viewState.type === "patient_vitals" && viewState.patientId) {
+      params.set("view", "patient_vitals");
+      params.set("id", viewState.patientId.toString());
+    } else if (viewState.type === "bill" && viewState.billId) {
+      params.set("view", "bill");
+      params.set("id", viewState.billId.toString());
+    }
+
+    const queryStr = `?${params.toString()}`;
+    if (window.location.search !== queryStr && urlSyncRef.current !== queryStr) {
+      urlSyncRef.current = queryStr;
+      window.history.pushState({ tab: activeTab, viewState }, "", queryStr);
+    }
+  }, [activeTab, viewState, isAuthenticated]);
+
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -437,6 +616,7 @@ export default function Dashboard() {
 
   // --- Set default tab by role ---
   useEffect(() => {
+    if (!isAuthenticated) return;
     if (doctorInfo) {
       if (doctorInfo.role === "USER") {
         setActiveTab("vitals");
@@ -448,7 +628,7 @@ export default function Dashboard() {
         setActiveTab("patients");
       }
     }
-  }, [doctorInfo]);
+  }, [doctorInfo, isAuthenticated]);
 
   // --- Auto-assign in Clinic Mode ---
   useEffect(() => {
@@ -501,6 +681,7 @@ export default function Dashboard() {
 
   // Reactively load slots/availability/reschedules when tabs change
   useEffect(() => {
+    if (!isAuthenticated) return;
     if (activeTab === "reschedule-queue" && doctorInfo?.role === "HOSPITAL_ADMIN") {
       loadRescheduleQueue();
     }
@@ -512,7 +693,7 @@ export default function Dashboard() {
         setConfigDoctorId("");
       }
     }
-  }, [activeTab, doctorInfo]);
+  }, [activeTab, doctorInfo, isAuthenticated]);
 
   // SSE Queue Stream Connection
   useEffect(() => {
@@ -577,12 +758,13 @@ export default function Dashboard() {
 
   // Keep details updated
   useEffect(() => {
+    if (!isAuthenticated) return;
     if (viewState.type === "patient") {
       loadPatientDetails(viewState.patientId);
     } else if (viewState.type === "bill") {
       loadBillDetails(viewState.billId);
     }
-  }, [viewState]);
+  }, [viewState, isAuthenticated]);
 
   // --- API Loaders ---
   const loadQueue = async (docId?: number) => {
@@ -647,7 +829,8 @@ export default function Dashboard() {
 
   const loadPatients = async () => {
     try {
-      const data = await fetchAPI("/api/patients");
+      const url = isDoctorInHospital ? "/api/patients?treated_only=true" : "/api/patients";
+      const data = await fetchAPI(url);
       setPatients(data || []);
     } catch (e) {
       console.error("Failed to load patients", e);
@@ -801,7 +984,8 @@ export default function Dashboard() {
       setCurrentPatientData({
         patient: data.patient,
         contracts: data.contracts || [],
-        appointments: data.appointments || []
+        appointments: data.appointments || [],
+        prescriptions: data.prescriptions || []
       });
     } catch {
       setToast({ message: "Failed to load patient profile", type: "error" });
@@ -964,6 +1148,21 @@ export default function Dashboard() {
           body: data.overdue_reminder?.body || "",
           footer: data.overdue_reminder?.footer || "",
         },
+        prescription_notification: {
+          greeting: data.prescription_notification?.greeting || "",
+          body: data.prescription_notification?.body || "",
+          footer: data.prescription_notification?.footer || "",
+        },
+        appointment_reminder: {
+          greeting: data.appointment_reminder?.greeting || "",
+          body: data.appointment_reminder?.body || "",
+          footer: data.appointment_reminder?.footer || "",
+        },
+        appointment_confirmation: {
+          greeting: data.appointment_confirmation?.greeting || "",
+          body: data.appointment_confirmation?.body || "",
+          footer: data.appointment_confirmation?.footer || "",
+        },
       });
     } catch (e) {
       console.error("Failed to load templates", e);
@@ -1029,6 +1228,11 @@ export default function Dashboard() {
       setDispenseItems([]);
       loadPendingPrescriptions();
       loadRecentBills();
+      loadPrescriptions();
+      loadPatients();
+      if (currentPatientData) {
+        loadPatientDetails(currentPatientData.patient.id);
+      }
     } catch (e: any) {
       setToast({ message: e.message || "Failed to dispense medication", type: "error" });
     } finally {
@@ -1038,7 +1242,9 @@ export default function Dashboard() {
 
   const handleAddPrescription = async (e: React.FormEvent) => {
     e.preventDefault();
-    const activeLabRequests = rxLabRequests.filter(l => l.trim() !== "");
+    const activeLabRequests = rxLabRequests
+      .filter(l => l.name.trim() !== "")
+      .map(l => l.value.trim() !== "" ? `${l.name.trim()}: ${l.value.trim()}` : l.name.trim());
     const activeMedItems = rxItems.filter(item => item.medicine_name.trim() !== "");
     if (!rxPatientId || (activeMedItems.length === 0 && activeLabRequests.length === 0)) {
       setToast({ message: "Please add at least one medicine or one lab request", type: "error" });
@@ -1047,11 +1253,12 @@ export default function Dashboard() {
 
     // Check for duplicate test names
     const seenLabs = new Set<string>();
-    for (const test of activeLabRequests) {
-      const normalized = test.trim().toLowerCase();
+    for (const test of rxLabRequests) {
+      if (test.name.trim() === "") continue;
+      const normalized = test.name.trim().toLowerCase();
       if (seenLabs.has(normalized)) {
         setToast({
-          message: `Duplicate lab request name "${test}" detected! Please use descriptive, distinct names (e.g., "X-Ray Chest" and "X-Ray Spine") as identical names will be dropped.`,
+          message: `Duplicate lab request name "${test.name}" detected! Please use descriptive, distinct names (e.g., "X-Ray Chest" and "X-Ray Spine") as identical names will be dropped.`,
           type: "error"
         });
         return;
@@ -1063,7 +1270,7 @@ export default function Dashboard() {
     setIsSubmitting(true);
 
     try {
-      await fetchAPI("/api/prescriptions", {
+      const res = await fetchAPI("/api/prescriptions", {
         method: "POST",
         body: JSON.stringify({
           patient_id: parseInt(rxPatientId),
@@ -1074,17 +1281,117 @@ export default function Dashboard() {
             quantity: parseInt(item.quantity) || 0,
             medicine_id: item.medicine_id ? parseInt(item.medicine_id) : null
           })),
-          lab_requests: activeLabRequests
+          lab_requests: activeLabRequests,
+          visit_charges: isClinicMode && rxVisitCharges ? parseFloat(rxVisitCharges) : 0,
+          amount_paid: isClinicMode && rxAmountPaid ? parseFloat(rxAmountPaid) : 0
         })
       });
+
+      if (isClinicMode) {
+        try {
+          const patient = patients.find(p => p.id.toString() === rxPatientId);
+          const patientName = patient ? patient.name : "Patient";
+          const patientPhone = patient ? patient.phone : "";
+
+          const rxDetail = {
+            id: res.id,
+            patient_name: patientName,
+            patient_phone: patientPhone,
+            diagnosis: rxDiagnosis,
+            notes: rxNotes,
+            items: activeMedItems,
+            lab_requests: activeLabRequests,
+            created_at: new Date().toISOString()
+          };
+          const rxDoc = buildPrescriptionPDF(rxDetail);
+          const rxBlob = rxDoc.output("blob");
+
+          const uploadForm = new FormData();
+          uploadForm.append("prescription_id", res.id.toString());
+          uploadForm.append("prescription", rxBlob, `Prescription_${patientName.replace(/\s+/g, "_")}_${res.id}.pdf`);
+
+          if (res.bill_id && rxVisitCharges) {
+            const billDetail = {
+              bill: {
+                id: res.bill_id,
+                patient_id: parseInt(rxPatientId),
+                patient_name: patientName,
+                patient_phone: patientPhone,
+                doctor_id: doctorInfo?.id || 0,
+                clinic_name: doctorInfo?.clinic_name || "ClinicFlow",
+                description: "Consultation / Visit Charges",
+                total_amount: parseFloat(rxVisitCharges),
+                remaining_amount: parseFloat(rxVisitCharges) - (rxAmountPaid ? parseFloat(rxAmountPaid) : 0),
+                status: ((parseFloat(rxVisitCharges) - (rxAmountPaid ? parseFloat(rxAmountPaid) : 0)) === 0 ? "SETTLED" : (rxAmountPaid ? "PARTIALLY_PAID" : "PENDING")) as "PENDING" | "PARTIALLY_PAID" | "SETTLED",
+                promised_due_date: null,
+                invoice_url: null,
+                notified: false,
+                created_at: new Date().toISOString()
+              },
+              items: [
+                { item_name: "Consultation Fee", quantity: 1, unit_price: parseFloat(rxVisitCharges), dosage: "" }
+              ],
+              payments: rxAmountPaid && parseFloat(rxAmountPaid) > 0 ? [
+                { id: 0, contract_id: res.bill_id, amount_paid: parseFloat(rxAmountPaid), payment_mode: "CASH", remarks: "Paid on visit", payment_date: new Date().toISOString() }
+              ] : []
+            };
+            const billDoc = buildInvoicePDF(billDetail);
+            const billBlob = billDoc.output("blob");
+            uploadForm.append("bill_id", res.bill_id.toString());
+            uploadForm.append("invoice", billBlob, `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`);
+          }
+
+          await fetchAPI("/api/prescriptions/upload-pdf", {
+            method: "POST",
+            body: uploadForm
+          });
+        } catch (uploadErr) {
+          console.error("Failed to generate/upload prescription/bill PDF documents:", uploadErr);
+        }
+      }
+
+      // Automatically log vitals if any vitals field was filled
+      const savedPatientId = parseInt(rxPatientId);
+      const hasVitals = rxWeight || rxBP || rxHR || rxPulse || rxSpO2 || rxTemp;
+      if (hasVitals) {
+        try {
+          await fetchAPI("/api/vitals", {
+            method: "POST",
+            body: JSON.stringify({
+              patient_id: savedPatientId,
+              weight_kg: rxWeight ? parseFloat(rxWeight) : null,
+              blood_pressure: rxBP || null,
+              heart_rate: rxHR ? parseInt(rxHR) : (rxPulse ? parseInt(rxPulse) : 0),
+              pulse: rxPulse ? parseInt(rxPulse) : null,
+              spo2: rxSpO2 ? parseInt(rxSpO2) : null,
+              temperature: rxTemp ? parseFloat(rxTemp) : null
+            })
+          });
+        } catch (vitalsErr) {
+          console.error("Failed to log vitals from prescription:", vitalsErr);
+        }
+      }
+
       setToast({ message: "Prescription written successfully", type: "success" });
       setRxPatientId("");
       setRxDiagnosis("");
       setRxNotes("");
+      setRxVisitCharges("");
+      setRxAmountPaid("");
+      setRxWeight("");
+      setRxBP("");
+      setRxHR("");
+      setRxPulse("");
+      setRxSpO2("");
+      setRxTemp("");
       setRxItems([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
       setRxLabRequests([]);
       setIsAddRxOpen(false);
       loadPrescriptions();
+      loadPatients();
+      if (currentPatientData && currentPatientData.patient.id === savedPatientId) {
+        loadPatientDetails(savedPatientId);
+      }
     } catch {
       setToast({ message: "Failed to write prescription", type: "error" });
     } finally {
@@ -1095,7 +1402,9 @@ export default function Dashboard() {
   // --- Handlers ---
   const handleAddPatient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPtName || !newPtPhone) return;
+    const cleanPhoneNum = newPtPhone.replace(/[\s+-]/g, "");
+    const combinedPhone = `${newPtPhoneCode}${cleanPhoneNum}`;
+    if (!newPtName || !cleanPhoneNum) return;
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -1104,7 +1413,7 @@ export default function Dashboard() {
         method: "POST",
         body: JSON.stringify({
           name: newPtName,
-          phone: newPtPhone,
+          phone: combinedPhone,
           gender: newPtGender,
           age: parseInt(newPtAge) || 0,
           medical_history: newPtHistory,
@@ -1114,13 +1423,14 @@ export default function Dashboard() {
       setToast({ message: "Patient registered successfully", type: "success" });
       setNewPtName("");
       setNewPtPhone("");
+      setNewPtPhoneCode("+91");
       setNewPtAge("");
       setNewPtHistory("");
       setSelectedDoctorIds([]);
       setIsAddPatientOpen(false);
       loadPatients();
-    } catch {
-      setToast({ message: "Failed to register patient", type: "error" });
+    } catch (e: any) {
+      setToast({ message: e.message || "Failed to register patient", type: "error" });
     } finally {
       setIsSubmitting(false);
     }
@@ -1381,13 +1691,15 @@ export default function Dashboard() {
 
   const handleWhatsAppPairing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pairPhone) return;
+    const cleanPhoneNum = pairPhone.replace(/[\s+-]/g, "");
+    const combinedPhone = `${pairPhoneCode}${cleanPhoneNum}`;
+    if (!cleanPhoneNum) return;
     setIsPairing(true);
 
     try {
       const data = await fetchAPI("/api/whatsapp/pair-phone", {
         method: "POST",
-        body: JSON.stringify({ phone: pairPhone })
+        body: JSON.stringify({ phone: combinedPhone })
       });
       setPairCode(data.pairing_code);
       setToast({ message: "Pairing code generated! Link it on WhatsApp.", type: "success" });
@@ -1396,6 +1708,104 @@ export default function Dashboard() {
     } finally {
       setIsPairing(false);
     }
+  };
+
+  const buildPrescriptionPDF = (rx: any): jsPDF => {
+    const doc = new jsPDF();
+
+    // Header
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(99, 102, 241);
+    doc.text(doctorInfo?.clinic_name || "ClinicFlow Prescription", 20, 25);
+
+    // Metadata
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Prescription ID: #Rx-${rx.id}`, 20, 32);
+    doc.text(`Date: ${new Date(rx.created_at).toLocaleDateString()}`, 20, 37);
+    doc.text(`Doctor: Dr. ${rx.doctor_name || doctorInfo?.name}`, 20, 42);
+
+    doc.line(20, 47, 190, 47);
+
+    // Patient info
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text("PATIENT INFORMATION:", 20, 56);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Name: ${rx.patient_name}`, 20, 62);
+    if (rx.patient_phone) {
+      doc.text(`Phone: ${rx.patient_phone}`, 20, 67);
+    }
+
+    // Diagnosis
+    doc.setFont("helvetica", "bold");
+    doc.text("Diagnosis:", 20, 75);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.diagnosis || "N/A", 45, 75);
+
+    let y = 85;
+
+    // Medicines Table
+    if (rx.items && rx.items.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Prescribed Medicine", 20, y);
+      doc.text("Dosage", 90, y);
+      doc.text("Freq", 120, y);
+      doc.text("Dur", 145, y);
+      doc.text("Qty", 175, y);
+
+      doc.line(20, y + 2, 190, y + 2);
+      y += 10;
+
+      doc.setFont("helvetica", "normal");
+      rx.items.forEach((item: any) => {
+        doc.text(item.medicine_name, 20, y);
+        doc.text(item.dosage || "-", 90, y);
+        doc.text(item.frequency || "-", 120, y);
+        doc.text(item.duration || "-", 145, y);
+        doc.text(item.quantity ? item.quantity.toString() : "1", 175, y);
+        y += 8;
+      });
+      y += 5;
+    }
+
+    // Diagnostic/Lab requests
+    if (rx.lab_requests && rx.lab_requests.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Recommended Lab/Diagnostic Tests:", 20, y);
+      y += 8;
+      doc.setFont("helvetica", "normal");
+      rx.lab_requests.forEach((test: string) => {
+        doc.text(`• ${test}`, 25, y);
+        y += 8;
+      });
+      y += 5;
+    }
+
+    // Clinical Notes/Advice
+    if (rx.notes) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Clinical Notes / Advice:", 20, y);
+      y += 8;
+      doc.setFont("helvetica", "normal");
+      const lines = doc.splitTextToSize(rx.notes, 170);
+      lines.forEach((line: string) => {
+        doc.text(line, 20, y);
+        y += 6;
+      });
+    }
+
+    // Footer
+    y += 15;
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184);
+    doc.text("Get well soon. Maintain regular follow-ups as recommended.", 20, y);
+
+    return doc;
   };
 
   const buildInvoicePDF = (detail: BillDetail): jsPDF => {
@@ -1838,7 +2248,6 @@ export default function Dashboard() {
             if (role === "USER") {
               allTabs.push(
                 { id: "appointments", label: "My Appointments", icon: Calendar },
-                { id: "vitals", label: "Health Vitals", icon: Activity },
                 { id: "labs", label: "Lab Reports", icon: BriefcaseMedical },
                 { id: "billing", label: "Billing & Invoices", icon: FileText },
                 { id: "queue", label: "Queue Status", icon: Clock }
@@ -1866,11 +2275,10 @@ export default function Dashboard() {
             } else {
               // Default to DOCTOR
               allTabs.push(
-                { id: "patients", label: "Patient Directory", icon: Users },
+                { id: "patients", label: isClinicMode ? "Patient Directory" : "Treated Patients", icon: Users },
                 { id: "prescriptions", label: "Prescriptions", icon: FileText },
                 { id: "appointments", label: "Appointment Slots", icon: Calendar },
                 { id: "queue", label: "Patient Queue", icon: Clock },
-                { id: "vitals", label: "Patient Vitals", icon: Activity },
                 { id: "availability", label: "Slot Settings", icon: Settings },
                 { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
               );
@@ -2045,11 +2453,13 @@ export default function Dashboard() {
                         <form onSubmit={async (e) => {
                           e.preventDefault();
                           if (!inviteEmail) return;
+                          const cleanPhoneNum = invitePhone.replace(/[\s+-]/g, "");
+                          const combinedPhone = cleanPhoneNum ? `${invitePhoneCode}${cleanPhoneNum}` : "";
                           setIsSubmitting(true);
                           try {
                             const res = await fetchAPI("/api/admin/invite", {
                               method: "POST",
-                              body: JSON.stringify({ email: inviteEmail, phone: invitePhone, role: inviteRole, access_levels: [] })
+                              body: JSON.stringify({ email: inviteEmail, phone: combinedPhone, role: inviteRole, access_levels: [] })
                             });
                             setInviteLink(`${window.location.origin}/onboard?token=${res.token}`);
                             if (res.otp) {
@@ -2060,6 +2470,7 @@ export default function Dashboard() {
                             setToast({ message: "Staff invite code generated!", type: "success" });
                             setInviteEmail("");
                             setInvitePhone("");
+                            setInvitePhoneCode("+91");
                           } catch (err: any) {
                             setToast({ message: err.message || "Failed to invite staff", type: "error" });
                           } finally {
@@ -2080,13 +2491,38 @@ export default function Dashboard() {
 
                           <div>
                             <label className="text-[10px] font-bold uppercase text-slate-400">Staff WhatsApp / Phone (Optional)</label>
-                            <input
-                              type="tel"
-                              placeholder="e.g. +919876543210"
-                              value={invitePhone}
-                              onChange={(e) => setInvitePhone(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
+                            <div className="flex gap-2 mt-1">
+                              <div className="w-24 flex-shrink-0">
+                                <select
+                                  value={invitePhoneCode}
+                                  onChange={(e) => setInvitePhoneCode(e.target.value)}
+                                  className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                >
+                                  <option value="+91">🇮🇳 +91</option>
+                                  <option value="+1">🇺🇸 +1</option>
+                                  <option value="+44">🇬🇧 +44</option>
+                                  <option value="+971">🇦🇪 +971</option>
+                                  <option value="+61">🇦🇺 +61</option>
+                                  <option value="+65">🇸🇬 +65</option>
+                                  <option value="+86">🇨🇳 +86</option>
+                                  <option value="+81">🇯🇵 +81</option>
+                                  <option value="+49">🇩🇪 +49</option>
+                                  <option value="+33">🇫🇷 +33</option>
+                                  <option value="+7">🇷🇺 +7</option>
+                                  <option value="+92">🇵🇰 +92</option>
+                                  <option value="+880">🇧🇩 +880</option>
+                                  <option value="+977">🇳🇵 +977</option>
+                                  <option value="+94">🇱🇰 +94</option>
+                                </select>
+                              </div>
+                              <input
+                                type="tel"
+                                placeholder="e.g. 9876543210"
+                                value={invitePhone}
+                                onChange={(e) => setInvitePhone(e.target.value)}
+                                className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
+                              />
+                            </div>
                           </div>
 
                           <div>
@@ -3163,7 +3599,7 @@ export default function Dashboard() {
                       className="w-full pl-9 pr-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-all"
                     />
                   </div>
-                  {(doctorInfo?.role === "DOCTOR" || doctorInfo?.role === "HOSPITAL_ADMIN") && (
+                  {((doctorInfo?.role === "DOCTOR" && isClinicMode) || doctorInfo?.role === "HOSPITAL_ADMIN") && (
                     <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
                       <FloatingPanelTrigger
                         title="Register New Patient"
@@ -3188,14 +3624,39 @@ export default function Dashboard() {
 
                             <div>
                               <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
-                              <input
-                                type="text"
-                                required
-                                placeholder="e.g. +919999999999"
-                                value={newPtPhone}
-                                onChange={(e) => setNewPtPhone(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
+                              <div className="flex gap-2 mt-1">
+                                <div className="w-24 flex-shrink-0">
+                                  <select
+                                    value={newPtPhoneCode}
+                                    onChange={(e) => setNewPtPhoneCode(e.target.value)}
+                                    className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                  >
+                                    <option value="+91">🇮🇳 +91</option>
+                                    <option value="+1">🇺🇸 +1</option>
+                                    <option value="+44">🇬🇧 +44</option>
+                                    <option value="+971">🇦🇪 +971</option>
+                                    <option value="+61">🇦🇺 +61</option>
+                                    <option value="+65">🇸🇬 +65</option>
+                                    <option value="+86">🇨🇳 +86</option>
+                                    <option value="+81">🇯🇵 +81</option>
+                                    <option value="+49">🇩🇪 +49</option>
+                                    <option value="+33">🇫🇷 +33</option>
+                                    <option value="+7">🇷🇺 +7</option>
+                                    <option value="+92">🇵🇰 +92</option>
+                                    <option value="+880">🇧🇩 +880</option>
+                                    <option value="+977">🇳🇵 +977</option>
+                                    <option value="+94">🇱🇰 +94</option>
+                                  </select>
+                                </div>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="e.g. 9999999999"
+                                  value={newPtPhone}
+                                  onChange={(e) => setNewPtPhone(e.target.value)}
+                                  className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
+                                />
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -3233,33 +3694,25 @@ export default function Dashboard() {
                               />
                             </div>
 
-                            {!isClinicMode && (
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Assign Doctors</label>
-                                <select
-                                  multiple
-                                  value={selectedDoctorIds.map(String)}
-                                  onChange={(e) => {
-                                    const options = e.target.options;
-                                    const values: number[] = [];
-                                    for (let i = 0; i < options.length; i++) {
-                                      if (options[i].selected) {
-                                        values.push(parseInt(options[i].value));
-                                      }
-                                    }
-                                    setSelectedDoctorIds(values);
-                                  }}
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-20"
-                                >
-                                  {facilityDoctors.map((doc) => (
-                                    <option key={doc.id} value={doc.id}>
-                                      {doc.name} ({doc.specialization || "General"})
-                                    </option>
-                                  ))}
-                                </select>
-                                <span className="text-[9px] text-slate-400 mt-1 block">Hold Ctrl (Cmd on Mac) to select multiple doctors.</span>
-                              </div>
-                            )}
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Refer to Doctor</label>
+                              <select
+                                value={selectedDoctorIds[0] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setSelectedDoctorIds(val ? [parseInt(val)] : []);
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                required={doctorInfo?.role === "HOSPITAL_ADMIN"}
+                              >
+                                <option value="">Select Doctor</option>
+                                {facilityDoctors.map((doc) => (
+                                  <option key={doc.id} value={doc.id}>
+                                    Dr. {doc.name} ({doc.specialization || "General"})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
 
                             <div className="flex space-x-2 pt-2 text-xs">
                               <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
@@ -3302,7 +3755,7 @@ export default function Dashboard() {
                       ))
                     ) : (
                       <div className="p-8 text-center text-slate-400 font-semibold">
-                        No patients found. Click 'Register Patient' to add one.
+                        {isDoctorInHospital ? "No treated patients found." : "No patients found. Click 'Register Patient' to add one."}
                       </div>
                     )}
                   </div>
@@ -3339,7 +3792,7 @@ export default function Dashboard() {
                         ) : (
                           <tr>
                             <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              No patients found. Click 'Register Patient' to add one.
+                              {isDoctorInHospital ? "No treated patients found." : "No patients found. Click 'Register Patient' to add one."}
                             </td>
                           </tr>
                         )}
@@ -3394,7 +3847,40 @@ export default function Dashboard() {
                                 onChange={(e) => setRxDiagnosis(e.target.value)}
                                 className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                               />
-                            </div>
+                             </div>
+
+                            {isClinicMode && doctorInfo?.role === "DOCTOR" && (
+                              <div className="grid grid-cols-2 gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl">
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">Total Charges (₹)</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    placeholder="e.g. 500"
+                                    value={rxVisitCharges}
+                                    onChange={(e) => setRxVisitCharges(e.target.value)}
+                                    className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (₹)</label>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    placeholder="e.g. 300"
+                                    value={rxAmountPaid}
+                                    onChange={(e) => setRxAmountPaid(e.target.value)}
+                                    className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div className="col-span-2 flex justify-between items-center text-[10px] font-bold text-slate-500 mt-1">
+                                  <span>Calculated Due Balance:</span>
+                                  <span className="text-xs text-indigo-500">
+                                    ₹{Math.max(0, (parseFloat(rxVisitCharges) || 0) - (parseFloat(rxAmountPaid) || 0)).toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
 
                             <div>
                               <label className="text-[10px] font-bold uppercase text-slate-400">Clinical Notes / Advice</label>
@@ -3420,6 +3906,14 @@ export default function Dashboard() {
                               </div>
                               
                               <div className="space-y-3">
+                                <datalist id="medicine-suggestions">
+                                  {Array.from(new Set([
+                                    ...medicines.map(m => m.name),
+                                    ...COMMON_MEDICINES
+                                  ])).map((medName, mIdx) => (
+                                    <option value={medName} key={mIdx} />
+                                  ))}
+                                </datalist>
                                 {rxItems.map((item, idx) => (
                                   <div key={idx} className="border border-[var(--border)] p-3 rounded-2xl bg-[var(--card)] space-y-2 relative">
                                     {rxItems.length > 1 && (
@@ -3437,6 +3931,7 @@ export default function Dashboard() {
                                         <input
                                           type="text"
                                           required
+                                          list="medicine-suggestions"
                                           placeholder="e.g. Paracetamol"
                                           value={item.medicine_name}
                                           onChange={(e) => {
@@ -3541,7 +4036,7 @@ export default function Dashboard() {
                                 <label className="text-[10px] font-bold uppercase text-slate-400">Diagnostic / Lab Tests</label>
                                 <button
                                   type="button"
-                                  onClick={() => setRxLabRequests([...rxLabRequests, ""])}
+                                  onClick={() => setRxLabRequests([...rxLabRequests, { name: "", value: "" }])}
                                   className="text-xs text-indigo-500 font-bold hover:underline"
                                 >
                                   + Add Lab Test
@@ -3554,33 +4049,48 @@ export default function Dashboard() {
                                     <span>CLINICAL BEST PRACTICE: Enter distinct, descriptive names (e.g. "X-Ray Chest" and "X-Ray Spine") instead of duplicate generic names. Identical names within a prescription will be automatically skipped by the system.</span>
                                   </div>
                                   {rxLabRequests.map((test, lIdx) => {
-                                    const isDuplicate = rxLabRequests.filter((t, i) => i !== lIdx && t.trim() !== "" && t.trim().toLowerCase() === test.trim().toLowerCase()).length > 0;
+                                    const isDuplicate = rxLabRequests.filter((t, i) => i !== lIdx && t.name.trim() !== "" && t.name.trim().toLowerCase() === test.name.trim().toLowerCase()).length > 0;
                                     const genericNames = ["x-ray", "xray", "ultrasound", "mri", "ct scan", "blood test", "biopsy", "scan", "test"];
-                                    const isGeneric = genericNames.includes(test.trim().toLowerCase());
+                                    const isGeneric = genericNames.includes(test.name.trim().toLowerCase());
                                     return (
                                       <div key={lIdx} className="flex items-center space-x-2">
-                                        <div className="flex-grow">
-                                          <input
-                                            type="text"
-                                            required
-                                            placeholder="e.g. CBC, X-Ray Chest, Lipid Profile"
-                                            value={test}
-                                            onChange={(e) => {
-                                              const updated = [...rxLabRequests];
-                                              updated[lIdx] = e.target.value;
-                                              setRxLabRequests(updated);
-                                            }}
-                                            className={cn(
-                                              "w-full px-3 py-1.5 border rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none",
-                                              isDuplicate ? "border-red-500 focus:ring-red-500" : "border-[var(--border)]"
+                                        <div className="flex-grow flex gap-2">
+                                          <div className="flex-grow">
+                                            <input
+                                              type="text"
+                                              required
+                                              placeholder="e.g. CBC, Lipid Profile, Sugar level"
+                                              value={test.name}
+                                              onChange={(e) => {
+                                                const updated = [...rxLabRequests];
+                                                updated[lIdx] = { ...updated[lIdx], name: e.target.value };
+                                                setRxLabRequests(updated);
+                                              }}
+                                              className={cn(
+                                                "w-full px-3 py-1.5 border rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none",
+                                                isDuplicate ? "border-red-500 focus:ring-red-500" : "border-[var(--border)]"
+                                              )}
+                                            />
+                                            {isDuplicate && (
+                                              <span className="text-[9px] text-red-500 font-bold mt-0.5 block">Duplicate name: Use specific names to differentiate!</span>
                                             )}
-                                          />
-                                          {isDuplicate && (
-                                            <span className="text-[9px] text-red-500 font-bold mt-0.5 block">Duplicate name: Use specific names to differentiate!</span>
-                                          )}
-                                          {isGeneric && !isDuplicate && (
-                                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5 block">💡 Clinical Hint: Make this more specific (e.g. "X-Ray Chest", "Ultrasound Abdomen") to avoid duplicate clashes.</span>
-                                          )}
+                                            {isGeneric && !isDuplicate && (
+                                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5 block">💡 Clinical Hint: Make this more specific to avoid duplicate clashes.</span>
+                                            )}
+                                          </div>
+                                          <div className="w-28">
+                                            <input
+                                              type="text"
+                                              placeholder="Result / Value"
+                                              value={test.value}
+                                              onChange={(e) => {
+                                                const updated = [...rxLabRequests];
+                                                updated[lIdx] = { ...updated[lIdx], value: e.target.value };
+                                                setRxLabRequests(updated);
+                                              }}
+                                              className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                            />
+                                          </div>
                                         </div>
                                         <button
                                           type="button"
@@ -3594,6 +4104,75 @@ export default function Dashboard() {
                                   })}
                                 </div>
                               )}
+                            </div>
+
+                            {/* Patient Vitals Section */}
+                            <div className="border-t border-[var(--border)] pt-4 mt-2">
+                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-2">Patient Vitals (Optional)</label>
+                              <div className="grid grid-cols-3 gap-3 border border-[var(--border)] p-3.5 rounded-2xl bg-[var(--card)]">
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Weight (kg)</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    placeholder="e.g. 72.5"
+                                    value={rxWeight}
+                                    onChange={(e) => setRxWeight(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Blood Pressure</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 120/80"
+                                    value={rxBP}
+                                    onChange={(e) => setRxBP(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Heart Rate (bpm)</label>
+                                  <input
+                                    type="number"
+                                    placeholder="e.g. 75"
+                                    value={rxHR}
+                                    onChange={(e) => setRxHR(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Pulse (bpm)</label>
+                                  <input
+                                    type="number"
+                                    placeholder="e.g. 75"
+                                    value={rxPulse}
+                                    onChange={(e) => setRxPulse(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">SpO2 (%)</label>
+                                  <input
+                                    type="number"
+                                    placeholder="e.g. 98"
+                                    value={rxSpO2}
+                                    onChange={(e) => setRxSpO2(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Temp (°F)</label>
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    placeholder="e.g. 98.6"
+                                    value={rxTemp}
+                                    onChange={(e) => setRxTemp(e.target.value)}
+                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                              </div>
                             </div>
 
                             <div className="flex space-x-2 pt-2 text-xs">
@@ -4958,13 +5537,38 @@ export default function Dashboard() {
                     <form onSubmit={handleWhatsAppPairing} className="space-y-3">
                       <div>
                         <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. +919999999999"
-                          value={pairPhone}
-                          onChange={(e) => setPairPhone(e.target.value)}
-                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none text-xs"
-                        />
+                        <div className="flex gap-2 mt-1">
+                          <div className="w-24 flex-shrink-0">
+                            <select
+                              value={pairPhoneCode}
+                              onChange={(e) => setPairPhoneCode(e.target.value)}
+                              className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                            >
+                              <option value="+91">🇮🇳 +91</option>
+                              <option value="+1">🇺🇸 +1</option>
+                              <option value="+44">🇬🇧 +44</option>
+                              <option value="+971">🇦🇪 +971</option>
+                              <option value="+61">🇦🇺 +61</option>
+                              <option value="+65">🇸🇬 +65</option>
+                              <option value="+86">🇨🇳 +86</option>
+                              <option value="+81">🇯🇵 +81</option>
+                              <option value="+49">🇩🇪 +49</option>
+                              <option value="+33">🇫🇷 +33</option>
+                              <option value="+7">🇷🇺 +7</option>
+                              <option value="+92">🇵🇰 +92</option>
+                              <option value="+880">🇧🇩 +880</option>
+                              <option value="+977">🇳🇵 +977</option>
+                              <option value="+94">🇱🇰 +94</option>
+                            </select>
+                          </div>
+                          <input
+                            type="text"
+                            placeholder="e.g. 9999999999"
+                            value={pairPhone}
+                            onChange={(e) => setPairPhone(e.target.value)}
+                            className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none text-xs h-[34px]"
+                          />
+                        </div>
                       </div>
                       <button
                         type="submit"
@@ -5001,13 +5605,23 @@ export default function Dashboard() {
                     Customize your automated WhatsApp messages. Use the chips as placeholders.
                   </p>
 
-                  {(["bill_notification", "overdue_reminder"] as const).map((key) => {
+                  {(["bill_notification", "overdue_reminder", "prescription_notification", "appointment_reminder", "appointment_confirmation"] as const).map((key) => {
                     const isEditing = editingTemplate === key;
                     const tmpl = waTemplates[key];
-                    const label = key === "bill_notification" ? "Bill Notification Template" : "Overdue Reminder Template";
-                    const chips = key === "bill_notification" 
-                      ? ["{patient_name}", "{total_amount}", "{remaining_amount}", "{clinic_name}", "{items_list}", "{bill_link}", "{payment_details}", "{description}"]
-                      : ["{patient_name}", "{remaining_amount}", "{clinic_name}", "{bill_link}", "{description}"];
+                    const label = 
+                      key === "bill_notification" ? "Bill Notification Template" :
+                      key === "overdue_reminder" ? "Overdue Reminder Template" :
+                      key === "prescription_notification" ? "Prescription Notification Template" :
+                      key === "appointment_reminder" ? "Appointment Reminder Template" :
+                      "Appointment Confirmation Template";
+                    const chips = 
+                      key === "bill_notification" 
+                        ? ["{patient_name}", "{total_amount}", "{remaining_amount}", "{clinic_name}", "{items_list}", "{bill_link}", "{payment_details}", "{description}"]
+                        : key === "overdue_reminder"
+                        ? ["{patient_name}", "{remaining_amount}", "{clinic_name}", "{bill_link}", "{description}"]
+                        : key === "prescription_notification"
+                        ? ["{patient_name}", "{doctor_name}", "{clinic_name}", "{diagnosis}", "{notes}"]
+                        : ["{patient_name}", "{doctor_name}", "{clinic_name}", "{appointment_time}", "{reason}"];
 
                     return (
                       <div key={key} className="border border-[var(--border)] rounded-2xl p-4 bg-[var(--nav-bg)] space-y-3">
@@ -5630,16 +6244,31 @@ export default function Dashboard() {
         ) : viewState.type === "patient" ? (
           /* VIEW: PATIENT DETAILS */
           <div className="space-y-6 animate-fade-in">
-            <button
-              onClick={() => {
-                setViewState({ type: "list" });
-                loadPatients();
-              }}
-              className="flex items-center space-x-1.5 text-xs font-bold text-indigo-500 hover:text-indigo-600 transition cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Back to Directory</span>
-            </button>
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => {
+                  setViewState({ type: "list" });
+                  loadPatients();
+                }}
+                className="flex items-center space-x-1.5 text-xs font-bold text-indigo-500 hover:text-indigo-600 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Directory</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (currentPatientData) {
+                    setViewState({ type: "patient_vitals", patientId: currentPatientData.patient.id });
+                    loadVitals(currentPatientData.patient.id);
+                  }
+                }}
+                className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+              >
+                <Activity className="w-4 h-4" />
+                <span>Vitals</span>
+              </button>
+            </div>
 
             {currentPatientData ? (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -5845,7 +6474,7 @@ export default function Dashboard() {
               <div className="text-xs text-slate-400 animate-pulse">Loading profile data...</div>
             )}
           </div>
-        ) : (
+        ) : viewState.type === "bill" ? (
           /* VIEW: BILL DETAILS */
           <div className="space-y-6 animate-fade-in">
             <button
@@ -6052,6 +6681,143 @@ export default function Dashboard() {
               <div className="text-xs text-slate-400 animate-pulse">Loading billing details...</div>
             )}
           </div>
+        ) : (
+          /* VIEW: PATIENT VITALS HISTORY */
+          <div className="space-y-6 animate-fade-in">
+            <button
+              onClick={() => {
+                if (viewState.patientId) {
+                  setViewState({ type: "patient", patientId: viewState.patientId });
+                  loadPatientDetails(viewState.patientId);
+                } else {
+                  setViewState({ type: "list" });
+                }
+              }}
+              className="flex items-center space-x-1.5 text-xs font-bold text-indigo-500 hover:text-indigo-600 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Patient Profile</span>
+            </button>
+
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-black">Health Vitals & Trends</h2>
+                <p className="text-xs text-slate-400">Track heart rate, blood pressure, weight, temperature, and SpO2 metrics over time.</p>
+              </div>
+            </div>
+
+            {vitalsHistory.length > 0 ? (
+              <div className="space-y-6">
+                {/* Vitals Charts Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* SVG Trend Chart for Heart Rate */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-black text-slate-200">Heart Rate (bpm) Trend</h3>
+                    <div className="h-64 flex items-center justify-center">
+                      {renderLineChart(vitalsHistory.map(v => ({
+                        label: new Date(v.recorded_at).toLocaleDateString(),
+                        value: v.pulse || v.heart_rate || 70
+                      })))}
+                    </div>
+                  </div>
+
+                  {/* SVG Trend Chart for Weight */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-black text-slate-200">Weight History (kg)</h3>
+                    <div className="h-64 flex items-center justify-center">
+                      {renderHistogram(vitalsHistory.map(v => ({
+                        label: new Date(v.recorded_at).toLocaleDateString(),
+                        value: v.weight_kg || 0
+                      })))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vitals Log Table */}
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">Logs History</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                          <th className="px-4 py-3">Recorded At</th>
+                          <th className="px-4 py-3">Weight</th>
+                          <th className="px-4 py-3">Blood Pressure</th>
+                          <th className="px-4 py-3">Pulse / HR</th>
+                          <th className="px-4 py-3">SpO2</th>
+                          <th className="px-4 py-3">Temp</th>
+                          <th className="px-4 py-3">Custom Metrics</th>
+                          <th className="px-4 py-3 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vitalsHistory.map((v) => {
+                          const bpAlert = v.blood_pressure ? checkBPRange(v.blood_pressure)[0] : false;
+                          const hrAlert = v.heart_rate ? checkHRRange(v.heart_rate)[0] : false;
+                          const pulseAlert = v.pulse ? checkHRRange(v.pulse)[0] : false;
+                          const spo2Alert = v.spo2 ? v.spo2 < 95 : false;
+                          const tempAlert = v.temperature ? (v.temperature > 37.8 || v.temperature < 35.5) : false;
+                          
+                          const hasAlert = bpAlert || hrAlert || pulseAlert || spo2Alert || tempAlert;
+                          return (
+                            <tr key={v.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
+                              <td className="px-4 py-3 text-slate-400 font-medium">{new Date(v.recorded_at).toLocaleString()}</td>
+                              <td className="px-4 py-3 font-semibold">{v.weight_kg ? `${v.weight_kg} kg` : "-"}</td>
+                              <td className="px-4 py-3">
+                                <span className={cn(bpAlert && "text-red-500 font-bold")}>
+                                  {v.blood_pressure || "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={cn((hrAlert || pulseAlert) && "text-red-500 font-bold")}>
+                                  {v.pulse ? `${v.pulse} bpm` : (v.heart_rate ? `${v.heart_rate} bpm` : "-")}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={cn(spo2Alert && "text-red-500 font-bold")}>
+                                  {v.spo2 ? `${v.spo2}%` : "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={cn(tempAlert && "text-red-500 font-bold")}>
+                                  {v.temperature ? `${v.temperature}°C` : "-"}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {v.custom_metrics && Object.keys(v.custom_metrics).length > 0 ? (
+                                  <div className="flex flex-wrap gap-1">
+                                    {Object.entries(v.custom_metrics).map(([key, val]: any) => (
+                                      <span key={key} className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium">
+                                        {key}: {val}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span className={cn(
+                                  "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                  hasAlert ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                                )}>
+                                  {hasAlert ? "⚠️ Out of Range" : "✓ Safe Range"}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-400 py-10 text-center font-bold">
+                No vitals logged yet. Vitals can be recorded when writing prescriptions.
+              </div>
+            )}
+          </div>
         )}
       </main>
 
@@ -6062,7 +6828,6 @@ export default function Dashboard() {
           if (role === "USER") {
             return [
               { id: "appointments", label: "Slots", icon: Calendar },
-              { id: "vitals", label: "Vitals", icon: Activity },
               { id: "labs", label: "Labs", icon: BriefcaseMedical },
               { id: "billing", label: "Billing", icon: FileText },
               { id: "queue", label: "Queue", icon: Clock }
@@ -6085,7 +6850,7 @@ export default function Dashboard() {
           } else {
             // Default to DOCTOR
             return [
-              { id: "patients", label: "Patients", icon: Users },
+              { id: "patients", label: isClinicMode ? "Patients" : "Treated", icon: Users },
               { id: "prescriptions", label: "Rx", icon: FileText },
               { id: "appointments", label: "Slots", icon: Calendar },
               { id: "queue", label: "Queue", icon: Clock },
@@ -6113,11 +6878,10 @@ export default function Dashboard() {
             );
           } else if (role === "DOCTOR") {
             allTabs.push(
-              { id: "patients", label: "Patient Directory", icon: Users },
+              { id: "patients", label: isClinicMode ? "Patient Directory" : "Treated Patients", icon: Users },
               { id: "prescriptions", label: "Prescriptions", icon: FileText },
               { id: "appointments", label: "Appointment Slots", icon: Calendar },
               { id: "queue", label: "Patient Queue", icon: Clock },
-              { id: "vitals", label: "Patient Vitals", icon: Activity },
               { id: "availability", label: "Slot Settings", icon: Settings },
               { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
             );

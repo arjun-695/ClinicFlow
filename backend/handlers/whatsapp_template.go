@@ -28,11 +28,29 @@ var defaultTemplates = map[string]WhatsAppTemplate{
 		Body:        "Your medical bill of *₹{total_amount}* has been generated at *{clinic_name}*.\n{payment_details}Outstanding Balance: *₹{remaining_amount}*\n\n*Details / Prescribed Items:*\n{items_list}",
 		Footer:      "View your complete transaction receipt here:\n{bill_link}",
 	},
+	"prescription_notification": {
+		TemplateKey: "prescription_notification",
+		Greeting:    "Dear {patient_name},",
+		Body:        "Dr. {doctor_name} has generated your medical prescription at *{clinic_name}*.\n\n*Diagnosis:* {diagnosis}\n*Advice / Notes:* {notes}",
+		Footer:      "Please find your digital prescription PDF attached to this message.",
+	},
 	"overdue_reminder": {
 		TemplateKey: "overdue_reminder",
 		Greeting:    "Dear {patient_name},",
 		Body:        "This is a friendly reminder from {clinic_name} that an outstanding balance of ₹{remaining_amount} is due for your bill ({description}).",
 		Footer:      "You can view your details and receipt here: {bill_link}",
+	},
+	"appointment_reminder": {
+		TemplateKey: "appointment_reminder",
+		Greeting:    "Dear {patient_name},",
+		Body:        "This is a reminder that you have an upcoming appointment with Dr. {doctor_name} at *{clinic_name}*.\n\n*Time:* {appointment_time}\n*Reason:* {reason}",
+		Footer:      "Please arrive 10 minutes early. If you need to reschedule, please contact the clinic.",
+	},
+	"appointment_confirmation": {
+		TemplateKey: "appointment_confirmation",
+		Greeting:    "Dear {patient_name},",
+		Body:        "Your appointment with Dr. {doctor_name} at *{clinic_name}* has been successfully scheduled.\n\n*Time:* {appointment_time}\n*Reason:* {reason}",
+		Footer:      "Thank you for choosing us! If you need to reschedule or cancel, please contact the clinic.",
 	},
 }
 
@@ -96,8 +114,15 @@ func UpdateWhatsAppTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.TemplateKey != "bill_notification" && input.TemplateKey != "overdue_reminder" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Template key must be 'bill_notification' or 'overdue_reminder'"})
+	validKeys := map[string]bool{
+		"bill_notification":         true,
+		"prescription_notification": true,
+		"overdue_reminder":          true,
+		"appointment_reminder":      true,
+		"appointment_confirmation":  true,
+	}
+	if !validKeys[input.TemplateKey] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid template key"})
 		return
 	}
 

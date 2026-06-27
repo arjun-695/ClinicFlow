@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"backend/db"
+	"backend/services"
 )
 
 type Appointment struct {
@@ -161,6 +163,35 @@ func CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to confirm booking"})
 		return
 	}
+
+	// Dispatch WhatsApp confirmation message (asynchronously to avoid blocking response)
+	var patientName, patientPhone, doctorName, clinicName string
+	db.Pool.QueryRow(r.Context(), "SELECT name, phone FROM patients WHERE id = $1", patientID).Scan(&patientName, &patientPhone)
+	db.Pool.QueryRow(r.Context(), "SELECT name FROM users WHERE id = $1", doctorID).Scan(&doctorName)
+	db.Pool.QueryRow(r.Context(), "SELECT name FROM facilities WHERE id = $1", facilityID).Scan(&clinicName)
+	if clinicName == "" {
+		clinicName = "Our Clinic"
+	}
+
+	go func(phone, patName, docName, clName, apptTimeStr, reasonStr string, docID int) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		tmpl := GetTemplateForDoctor(ctx, docID, "appointment_confirmation")
+		msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+		replacer := strings.NewReplacer(
+			"{patient_name}", patName,
+			"{doctor_name}", docName,
+			"{clinic_name}", clName,
+			"{appointment_time}", apptTimeStr,
+			"{reason}", reasonStr,
+		)
+		messageText := replacer.Replace(msgTemplate)
+
+		if err := services.SendWhatsApp(phone, messageText); err != nil {
+			log.Printf("Failed to send appointment confirmation WhatsApp to %s (%s): %v", patName, phone, err)
+		}
+	}(patientPhone, patientName, doctorName, clinicName, parsedDateTime.Format("Mon, Jan 2 at 3:04 PM"), input.Reason, doctorID)
 
 	// Invalidate caches
 	db.InvalidateCache(r.Context(), "appointments:list:*")

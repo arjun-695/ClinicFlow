@@ -95,12 +95,17 @@ func RequireAdminOrReceptionist(next http.HandlerFunc) http.HandlerFunc {
 	return RoleMiddleware("HOSPITAL_ADMIN", "RECEPTIONIST")(next)
 }
 
+// RequireMedicalStaffOrReceptionist restricts endpoint access to DOCTOR, HOSPITAL_ADMIN, and RECEPTIONIST
+func RequireMedicalStaffOrReceptionist(next http.HandlerFunc) http.HandlerFunc {
+	return RoleMiddleware("DOCTOR", "HOSPITAL_ADMIN", "RECEPTIONIST")(next)
+}
+
 // RequireMedicalStaff restricts endpoint access to DOCTOR and HOSPITAL_ADMIN
 func RequireMedicalStaff(next http.HandlerFunc) http.HandlerFunc {
 	return RoleMiddleware("DOCTOR", "HOSPITAL_ADMIN")(next)
 }
 
-// RequirePharmacistOrAdmin restricts endpoint access to PHARMACIST and HOSPITAL_ADMIN
+// RequirePharmacistOrAdmin restricts endpoint access to PHARMACIST, HOSPITAL_ADMIN, and DOCTOR
 func RequirePharmacistOrAdmin(next http.HandlerFunc) http.HandlerFunc {
-	return RoleMiddleware("PHARMACIST", "HOSPITAL_ADMIN")(next)
+	return RoleMiddleware("PHARMACIST", "HOSPITAL_ADMIN", "DOCTOR")(next)
 }

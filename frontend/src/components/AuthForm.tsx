@@ -19,6 +19,7 @@ export default function AuthForm({ variant }: Props) {
   const [name, setName] = useState("");
   const [shopName, setShopName] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneCode, setPhoneCode] = useState("+91");
   
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,7 +40,7 @@ export default function AuthForm({ variant }: Props) {
 
   const handleGoogleLogin = () => {
     // Redirect to the Go backend Google Login redirect initiator
-    window.location.href = `${API_URL}/api/auth/google/login`;
+    window.location.replace(`${API_URL}/api/auth/google/login`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,7 +62,8 @@ export default function AuthForm({ variant }: Props) {
     if (variant === "signup") {
       const cleanName = name.trim();
       const cleanShop = shopName.trim();
-      const cleanPhone = phone.trim();
+      const cleanPhoneNum = phone.replace(/[\s+-]/g, "");
+      const cleanPhone = cleanPhoneNum ? `${phoneCode}${cleanPhoneNum}` : "";
 
       if (!cleanName) {
         setError("Your name is required.");
@@ -187,14 +189,39 @@ export default function AuthForm({ variant }: Props) {
 
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-300">WhatsApp / Phone Number</label>
-                  <input
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full px-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition outline-none text-sm"
-                    placeholder="e.g. 919876543210 (with country code)"
-                  />
+                  <div className="flex gap-2">
+                    <div className="w-24 flex-shrink-0">
+                      <select
+                        value={phoneCode}
+                        onChange={(e) => setPhoneCode(e.target.value)}
+                        className="w-full px-3 py-3 rounded-2xl bg-slate-955/80 border border-slate-800 text-slate-100 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition outline-none text-xs cursor-pointer h-[46px]"
+                      >
+                        <option value="+91">🇮🇳 +91</option>
+                        <option value="+1">🇺🇸 +1</option>
+                        <option value="+44">🇬🇧 +44</option>
+                        <option value="+971">🇦🇪 +971</option>
+                        <option value="+61">🇦🇺 +61</option>
+                        <option value="+65">🇸🇬 +65</option>
+                        <option value="+86">🇨🇳 +86</option>
+                        <option value="+81">🇯🇵 +81</option>
+                        <option value="+49">🇩🇪 +49</option>
+                        <option value="+33">🇫🇷 +33</option>
+                        <option value="+7">🇷🇺 +7</option>
+                        <option value="+92">🇵🇰 +92</option>
+                        <option value="+880">🇧🇩 +880</option>
+                        <option value="+977">🇳🇵 +977</option>
+                        <option value="+94">🇱🇰 +94</option>
+                      </select>
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="flex-grow px-4 py-3 rounded-2xl bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition outline-none text-sm h-[46px]"
+                      placeholder="e.g. 9876543210"
+                    />
+                  </div>
                 </div>
               </>
             )}

@@ -74,6 +74,12 @@ func runNotificationChecks(ctx context.Context) {
 	if err := checkRescheduleQueue(ctx); err != nil {
 		log.Printf("[Worker] Reschedule queue check failed: %v", err)
 	}
+	if err := checkRecurringPaymentReminders(ctx); err != nil {
+		log.Printf("[Worker] Recurring payment reminders check failed: %v", err)
+	}
+	if err := checkAppointmentReminders(ctx); err != nil {
+		log.Printf("[Worker] Appointment reminders check failed: %v", err)
+	}
 }
 
 func checkCustomerPromises(ctx context.Context) error {
@@ -364,6 +370,180 @@ func checkRescheduleQueue(ctx context.Context) error {
 		}
 	} else {
 		log.Printf("[Worker] Failed to query rescheduled entries: %v", errResched)
+	}
+
+	return nil
+}
+
+// checkRecurringPaymentReminders queries unpaid bills and sends reminders every 15 days
+func checkRecurringPaymentReminders(ctx context.Context) error {
+	query := `
+		SELECT b.id, b.description, b.remaining_amount, p.name, p.phone, d.clinic_name, d.id as doctor_id
+		FROM bills b
+		JOIN patients p ON b.patient_id = p.id
+		JOIN users d ON b.doctor_id = d.id
+		WHERE b.status != 'SETTLED'
+		  AND b.remaining_amount > 0
+		  AND COALESCE(b.last_reminder_sent_at, b.created_at) <= NOW() - INTERVAL '15 days'
+	`
+	rows, err := db.Pool.Query(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to query payment reminders: %v", err)
+	}
+	defer rows.Close()
+
+	type Reminder struct {
+		ID          int
+		Description string
+		Amount      float64
+		CustName    string
+		CustPhone   string
+		ClinicName  string
+		DoctorID    int
+	}
+
+	var reminders []Reminder
+	for rows.Next() {
+		var r Reminder
+		err := rows.Scan(&r.ID, &r.Description, &r.Amount, &r.CustName, &r.CustPhone, &r.ClinicName, &r.DoctorID)
+		if err != nil {
+			log.Printf("[Worker] Error scanning reminder row: %v", err)
+			continue
+		}
+		reminders = append(reminders, r)
+	}
+
+	appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+	if appURL == "" {
+		appURL = "http://localhost:3000"
+	}
+
+	for _, r := range reminders {
+		clinicName := r.ClinicName
+		if clinicName == "" {
+			clinicName = "Our Clinic"
+		}
+
+		// Try to load custom template
+		var greeting, body, footer string
+		err := db.Pool.QueryRow(ctx, 
+			"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'overdue_reminder'",
+			r.DoctorID).Scan(&greeting, &body, &footer)
+		if err != nil {
+			// Use defaults
+			greeting = "Dear {patient_name},"
+			body = "This is a friendly reminder from {clinic_name} that an outstanding balance of ₹{remaining_amount} is due for your bill ({description})."
+			footer = "You can view your details and receipt here: {bill_link}"
+		}
+
+		msgTemplate := greeting + "\n\n" + body + "\n\n" + footer
+		replacer := strings.NewReplacer(
+			"{patient_name}", r.CustName,
+			"{clinic_name}", clinicName,
+			"{remaining_amount}", fmt.Sprintf("%.2f", r.Amount),
+			"{description}", r.Description,
+			"{bill_link}", fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, r.ID),
+		)
+		messageText := replacer.Replace(msgTemplate)
+
+		err = services.SendWhatsApp(r.CustPhone, messageText)
+		if err != nil {
+			log.Printf("[Worker] Failed to send payment reminder WhatsApp to patient %s (%s): %v", r.CustName, r.CustPhone, err)
+			continue
+		}
+
+		_, err = db.Pool.Exec(ctx, "UPDATE bills SET last_reminder_sent_at = NOW() WHERE id = $1", r.ID)
+		if err != nil {
+			log.Printf("[Worker] Failed to update last_reminder_sent_at for ID %d: %v", r.ID, err)
+		}
+	}
+
+	return nil
+}
+
+// checkAppointmentReminders checks for upcoming appointments and sends WhatsApp reminders
+func checkAppointmentReminders(ctx context.Context) error {
+	query := `
+		SELECT a.id, a.appointment_date, a.reason, p.name as patient_name, p.phone as patient_phone, 
+		       d.name as doctor_name, COALESCE(d.clinic_name, '') as clinic_name, d.id as doctor_id
+		FROM appointments a
+		JOIN patients p ON a.patient_id = p.id
+		JOIN users d ON a.doctor_id = d.id
+		WHERE a.status = 'PENDING'
+		  AND a.reminder_sent = FALSE
+		  AND a.appointment_date::date <= CURRENT_DATE + INTERVAL '1 day'
+		  AND a.appointment_date >= NOW()
+	`
+	rows, err := db.Pool.Query(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to query appointment reminders: %v", err)
+	}
+	defer rows.Close()
+
+	type ApptReminder struct {
+		ID              int
+		AppointmentDate time.Time
+		Reason          string
+		PatientName     string
+		PatientPhone    string
+		DoctorName      string
+		ClinicName      string
+		DoctorID        int
+	}
+
+	var reminders []ApptReminder
+	for rows.Next() {
+		var a ApptReminder
+		var reason *string
+		err := rows.Scan(&a.ID, &a.AppointmentDate, &reason, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.ClinicName, &a.DoctorID)
+		if err != nil {
+			log.Printf("[Worker] Error scanning appointment reminder row: %v", err)
+			continue
+		}
+		if reason != nil {
+			a.Reason = *reason
+		}
+		reminders = append(reminders, a)
+	}
+
+	for _, a := range reminders {
+		clinicName := a.ClinicName
+		if clinicName == "" {
+			clinicName = "Our Clinic"
+		}
+
+		// Try to load custom template
+		var greeting, body, footer string
+		err := db.Pool.QueryRow(ctx, 
+			"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'appointment_reminder'",
+			a.DoctorID).Scan(&greeting, &body, &footer)
+		if err != nil {
+			// Use defaults
+			greeting = "Dear {patient_name},"
+			body = "This is a reminder that you have an upcoming appointment with Dr. {doctor_name} at *{clinic_name}*.\n\n*Time:* {appointment_time}\n*Reason:* {reason}"
+			footer = "Please arrive 10 minutes early. If you need to reschedule, please contact the clinic."
+		}
+
+		msgTemplate := greeting + "\n\n" + body + "\n\n" + footer
+		replacer := strings.NewReplacer(
+			"{patient_name}", a.PatientName,
+			"{doctor_name}", a.DoctorName,
+			"{clinic_name}", clinicName,
+			"{appointment_time}", a.AppointmentDate.Format("Mon, Jan 2 at 3:04 PM"),
+			"{reason}", a.Reason,
+		)
+		messageText := replacer.Replace(msgTemplate)
+
+		err = services.SendWhatsApp(a.PatientPhone, messageText)
+		if err != nil {
+			log.Printf("[Worker] Failed to send appointment reminder WhatsApp to patient %s (%s): %v", a.PatientName, a.PatientPhone, err)
+			continue
+		}
+
+		_, err = db.Pool.Exec(ctx, "UPDATE appointments SET reminder_sent = TRUE WHERE id = $1", a.ID)
+		if err != nil {
+			log.Printf("[Worker] Failed to update appointment reminder status for ID %d: %v", a.ID, err)
+		}
 	}
 
 	return nil

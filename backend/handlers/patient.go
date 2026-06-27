@@ -146,6 +146,11 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(input.DoctorIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Please assign at least one doctor to this patient"})
+		return
+	}
+
 	input.Name = CapitalizeName(input.Name)
 
 	// Determine primary doctor_id for legacy compatibility (must be NOT NULL in schema)
@@ -260,21 +265,44 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rows pgx.Rows
+	treatedOnly := r.URL.Query().Get("treated_only") == "true"
+
 	if strings.ToUpper(role) == "DOCTOR" {
-		// Doctors only see patients assigned to them via patient_doctors
-		query := `
-			SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
-			       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
-			       COALESCE(SUM(b.remaining_amount), 0) as total_dues
-			FROM patients p
-			JOIN patient_doctors pd ON p.id = pd.patient_id
-			LEFT JOIN bills b ON p.id = b.patient_id
-			WHERE pd.doctor_id = $1 AND pd.facility_id = $4
-			GROUP BY p.id
-			ORDER BY total_dues DESC, p.name ASC
-			LIMIT $2 OFFSET $3
-		`
-		rows, err = db.Pool.Query(r.Context(), query, userID, limit, offset, facilityID)
+		if treatedOnly {
+			// In hospital mode, doctors only see patients they have treated in the past or are referred/assigned to them
+			query := `
+				SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+				       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
+				       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+				FROM patients p
+				LEFT JOIN bills b ON p.id = b.patient_id
+				WHERE p.facility_id = $4 AND (
+					p.id IN (SELECT patient_id FROM queue_entries WHERE doctor_id = $1 AND status = 'COMPLETED') OR
+					p.id IN (SELECT patient_id FROM appointments WHERE doctor_id = $1 AND status = 'COMPLETED') OR
+					p.id IN (SELECT patient_id FROM prescriptions WHERE doctor_id = $1) OR
+					p.id IN (SELECT patient_id FROM patient_doctors WHERE doctor_id = $1 AND facility_id = $4)
+				)
+				GROUP BY p.id
+				ORDER BY p.name ASC
+				LIMIT $2 OFFSET $3
+			`
+			rows, err = db.Pool.Query(r.Context(), query, userID, limit, offset, facilityID)
+		} else {
+			// Doctors only see patients assigned to them via patient_doctors
+			query := `
+				SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+				       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
+				       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+				FROM patients p
+				JOIN patient_doctors pd ON p.id = pd.patient_id
+				LEFT JOIN bills b ON p.id = b.patient_id
+				WHERE pd.doctor_id = $1 AND pd.facility_id = $4
+				GROUP BY p.id
+				ORDER BY total_dues DESC, p.name ASC
+				LIMIT $2 OFFSET $3
+			`
+			rows, err = db.Pool.Query(r.Context(), query, userID, limit, offset, facilityID)
+		}
 	} else {
 		// Admin/Receptionist sees all patients in the facility
 		query := `
@@ -414,6 +442,18 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 		}
 		billsList = append(billsList, b)
 	}
+
+	// Compute total dues and dues count from billsList
+	var totalDues float64
+	var duesCount int
+	for _, b := range billsList {
+		if b.RemainingAmount > 0 {
+			totalDues += b.RemainingAmount
+			duesCount++
+		}
+	}
+	p.TotalDues = totalDues
+	p.DuesCount = duesCount
 
 	// Load appointments list
 	queryAppts := `

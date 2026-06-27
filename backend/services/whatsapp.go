@@ -38,20 +38,20 @@ func InitWhatsApp() {
 	}
 
 	// whatsmeow requires its own logging system
-	dbLog := waLog.Stdout("Database", "WARN", true)
+	dbLog := waLog.Stdout("Database", "OFF", true)
 	
 	// Initialize sqlstore using postgres driver with background context
 	container, err := sqlstore.New(context.Background(), "postgres", dbConnStr, dbLog)
 	if err != nil {
 		log.Fatalf("Failed to initialize whatsmeow sqlstore: %v", err)
 	}
-
+ 
 	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		log.Fatalf("Failed to get whatsmeow device: %v", err)
 	}
-
-	clientLog := waLog.Stdout("Client", "WARN", true)
+ 
+	clientLog := waLog.Stdout("Client", "OFF", true)
 	WAClient = whatsmeow.NewClient(deviceStore, clientLog)
 	WAClient.AutoTrustIdentity = true
 	WAClient.AutomaticMessageRerequestFromPhone = true
