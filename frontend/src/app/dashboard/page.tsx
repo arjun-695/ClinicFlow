@@ -41,6 +41,8 @@ import { cn } from "../../utils/cn";
 import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import { useRouter } from "next/navigation";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
+import useMeasure from "react-use-measure";
 import {
   FloatingPanelRoot,
   FloatingPanelTrigger,
@@ -198,6 +200,10 @@ export default function Dashboard() {
     "patients" | "appointments" | "billing" | "medicines" | "analytics" | "whatsapp" | "staff" | "queue" | "vitals" | "labs" | "reschedule-queue" | "availability" | "prescriptions" | "pharmacy"
   >("patients");
   const [viewState, setViewState] = useState<ViewState>({ type: "list" });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [direction, setDirection] = useState(0);
+  const [contentRef, contentBounds] = useMeasure();
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Core Data
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -1823,12 +1829,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* 2. Navigation Tabs */}
-      <nav className="border-b border-[var(--border)] bg-[var(--nav-bg)] py-1.5 transition-all">
+      {/* 2. Navigation Tabs (Desktop only) */}
+      <nav className="hidden md:block border-b border-[var(--border)] bg-[var(--nav-bg)] py-1.5 transition-all">
         <div className="max-w-7xl mx-auto px-4 flex items-center space-x-1 overflow-x-auto">
           {(() => {
             const role = doctorInfo?.role || "DOCTOR";
-            const allTabs = [];
+            const allTabs: { id: string; label: string; icon: any }[] = [];
             if (role === "USER") {
               allTabs.push(
                 { id: "appointments", label: "My Appointments", icon: Calendar },
@@ -1876,17 +1882,29 @@ export default function Dashboard() {
                 <button
                   key={tab.id}
                   onClick={() => {
+                    const prevIndex = allTabs.findIndex((t) => t.id === activeTab);
+                    const newIndex = allTabs.findIndex((t) => t.id === tab.id);
+                    if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                      setDirection(newIndex > prevIndex ? 1 : -1);
+                    }
                     setActiveTab(tab.id as any);
                     setViewState({ type: "list" });
                   }}
-                  className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition duration-200 cursor-pointer whitespace-nowrap ${
+                  className={`relative flex items-center space-x-2 px-4 py-2.5 rounded-xl text-xs font-bold tracking-tight transition duration-200 cursor-pointer whitespace-nowrap select-none outline-none ${
                     isActive
-                      ? "bg-indigo-600 text-white shadow-md"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-[var(--card-hover)] hover:text-[var(--foreground)]"
+                      ? "text-white shadow-md font-extrabold"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-950/5 dark:hover:bg-white/10 hover:text-[var(--foreground)]"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
+                  {isActive && (
+                    <motion.span
+                      layoutId="activeTabBubble"
+                      className="absolute inset-0 z-0 bg-indigo-600 rounded-xl"
+                      transition={{ type: "spring", bounce: 0.15, duration: 0.38 }}
+                    />
+                  )}
+                  <Icon className="relative z-10 w-4 h-4" />
+                  <span className="relative z-10">{tab.label}</span>
                 </button>
               );
             });
@@ -1895,7 +1913,7 @@ export default function Dashboard() {
       </nav>
 
       {/* 3. Main Dashboard Panels */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
         {/* Workspace Creation Panel */}
         <FloatingPanelRoot isOpen={isCreateWorkspaceOpen} onOpenChange={setIsCreateWorkspaceOpen}>
           <FloatingPanelContent className="w-80 sm:w-96 text-left">
@@ -1969,10 +1987,46 @@ export default function Dashboard() {
 
         {/* VIEW: List vs Detail */}
         {viewState.type === "list" ? (
-          <div>
-            {/* TABS INNER PAGES */}
-
-            {/* TABS INNER PAGES */}
+          <div className={`relative ${isTransitioning ? "overflow-hidden" : ""}`}>
+            <MotionConfig transition={{ duration: 0.4, type: "spring", bounce: 0.15 }}>
+              <motion.div
+                className="relative w-full"
+                animate={{ height: contentBounds.height || "auto" }}
+                transition={{ duration: 0.35, ease: "easeInOut" }}
+              >
+                <div ref={contentRef}>
+                  <AnimatePresence initial={false} custom={direction} mode="popLayout">
+                    <motion.div
+                      key={activeTab}
+                      custom={direction}
+                      variants={{
+                        initial: (direction: number) => ({
+                          x: direction > 0 ? 300 : -300,
+                          opacity: 0,
+                          filter: "blur(4px)",
+                        }),
+                        active: {
+                          x: 0,
+                          opacity: 1,
+                          filter: "blur(0px)",
+                        },
+                        exit: (direction: number) => ({
+                          x: direction > 0 ? -300 : 300,
+                          opacity: 0,
+                          filter: "blur(4px)",
+                        }),
+                      }}
+                      initial="initial"
+                      animate="active"
+                      exit="exit"
+                      onAnimationStart={() => setIsTransitioning(true)}
+                      onAnimationComplete={(definition) => {
+                        if (definition === "active") {
+                          setIsTransitioning(false);
+                        }
+                      }}
+                    >
+                      {/* TABS INNER PAGES */}
 
             {activeTab === "staff" && (
               <div className="space-y-6">
@@ -2106,7 +2160,7 @@ export default function Dashboard() {
                       <tbody>
                         {staffList.length > 0 ? (
                           staffList.map((member) => (
-                            <tr key={member.id} className="border-b border-[var(--border)]">
+                            <tr key={member.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
                               <td className="px-6 py-4 font-semibold">{member.name}</td>
                               <td className="px-6 py-4 text-slate-500">{member.email}</td>
                               <td className="px-6 py-4 text-slate-500">{member.phone || "-"}</td>
@@ -2118,7 +2172,7 @@ export default function Dashboard() {
                             </tr>
                           ))
                         ) : (
-                          <tr className="border-b border-[var(--border)]">
+                          <tr className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
                             <td className="px-6 py-4 font-semibold">{doctorInfo?.name}</td>
                             <td className="px-6 py-4 text-slate-500">{doctorInfo?.email}</td>
                             <td className="px-6 py-4 text-slate-500">{doctorInfo?.phone || "-"}</td>
@@ -2244,8 +2298,133 @@ export default function Dashboard() {
                 </div>
 
                 {/* Queue Table */}
+                {/* Queue Table */}
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  <div className="overflow-x-auto">
+                  {/* Mobile Card List View for Queue */}
+                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                    {queueEntries.length > 0 ? (
+                      queueEntries.map((entry, idx) => {
+                        const isUserOwn = doctorInfo?.role === "USER" && entry.patient_phone === doctorInfo.phone;
+                        return (
+                          <div
+                            key={entry.id}
+                            className={cn(
+                              "p-4 hover:bg-[var(--accent)] transition space-y-3",
+                              isUserOwn ? "bg-indigo-500/5 font-semibold" : ""
+                            )}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex items-center space-x-2">
+                                <span className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-black flex items-center justify-center text-zinc-950 dark:text-zinc-50">{idx + 1}</span>
+                                <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                                  {entry.patient_name} {isUserOwn && <span className="text-[9px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
+                                </span>
+                              </div>
+                              <span className={cn(
+                                "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                entry.status === "IN_CONSULTATION" ? "bg-amber-500/10 text-amber-500" : "bg-indigo-500/10 text-indigo-500"
+                              )}>
+                                {entry.status}
+                              </span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                              <span>Check-in: {new Date(entry.check_in_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                              <span className="text-indigo-500 font-bold">{entry.status === "IN_CONSULTATION" ? "In Consult" : `${entry.estimated_wait_minutes} mins`}</span>
+                            </div>
+
+                            {doctorInfo?.role !== "USER" && (
+                              <div className="flex justify-end items-center gap-2 pt-1">
+                                {entry.status === "WAITING" && (
+                                  <button
+                                    onClick={async () => {
+                                      await fetchAPI("/api/queue/status", {
+                                        method: "PUT",
+                                        body: JSON.stringify({ entry_id: entry.id, status: "IN_CONSULTATION" })
+                                      });
+                                      loadQueue();
+                                    }}
+                                    className="px-3 py-1.5 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
+                                  >
+                                    Call Patient
+                                  </button>
+                                )}
+                                {entry.status === "IN_CONSULTATION" && (
+                                  <button
+                                    onClick={async () => {
+                                      await fetchAPI("/api/queue/status", {
+                                        method: "PUT",
+                                        body: JSON.stringify({ entry_id: entry.id, status: "COMPLETED" })
+                                      });
+                                      loadQueue();
+                                    }}
+                                    className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
+                                  >
+                                    Complete Consult
+                                  </button>
+                                )}
+                                {entry.status === "WAITING" && (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      disabled={idx === 0 || queueEntries[idx - 1].status !== "WAITING"}
+                                      onClick={async () => {
+                                        const updated = [...queueEntries];
+                                        const temp = updated[idx].queue_order;
+                                        updated[idx].queue_order = updated[idx - 1].queue_order;
+                                        updated[idx - 1].queue_order = temp;
+                                        await fetchAPI("/api/queue/reorder", {
+                                          method: "PUT",
+                                          body: JSON.stringify({
+                                            orders: [
+                                              { id: updated[idx].id, queue_order: updated[idx].queue_order },
+                                              { id: updated[idx - 1].id, queue_order: updated[idx - 1].queue_order }
+                                            ]
+                                          })
+                                        });
+                                        loadQueue();
+                                      }}
+                                      className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
+                                    >
+                                      <ChevronUp className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      disabled={idx === queueEntries.length - 1 || queueEntries[idx + 1].status !== "WAITING"}
+                                      onClick={async () => {
+                                        const updated = [...queueEntries];
+                                        const temp = updated[idx].queue_order;
+                                        updated[idx].queue_order = updated[idx + 1].queue_order;
+                                        updated[idx + 1].queue_order = temp;
+                                        await fetchAPI("/api/queue/reorder", {
+                                          method: "PUT",
+                                          body: JSON.stringify({
+                                            orders: [
+                                              { id: updated[idx].id, queue_order: updated[idx].queue_order },
+                                              { id: updated[idx + 1].id, queue_order: updated[idx + 1].queue_order }
+                                            ]
+                                          })
+                                        });
+                                        loadQueue();
+                                      }}
+                                      className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
+                                    >
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-8 text-center text-slate-400 font-semibold">
+                        No patients currently checked in today.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
@@ -3097,7 +3276,39 @@ export default function Dashboard() {
                 </div>
 
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  <div className="overflow-x-auto">
+                  {/* Mobile Card List View */}
+                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                    {filteredPatients.length > 0 ? (
+                      filteredPatients.map((pt) => (
+                        <div
+                          key={pt.id}
+                          onClick={() => setViewState({ type: "patient", patientId: pt.id })}
+                          className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">{pt.name}</span>
+                            <span className={cn("font-black text-xs", pt.total_dues > 0 ? "text-red-500" : "text-emerald-500")}>
+                              {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                            <span>{pt.phone}</span>
+                            <span>{pt.age} yrs / {pt.gender}</span>
+                          </div>
+                          {pt.medical_history && (
+                            <p className="text-[11px] text-slate-400 truncate">{pt.medical_history}</p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center text-slate-400 font-semibold">
+                        No patients found. Click 'Register Patient' to add one.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
@@ -3601,7 +3812,71 @@ export default function Dashboard() {
                 </div>
 
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  <div className="overflow-x-auto">
+                  {/* Mobile Card List View for Appointments */}
+                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                    {appointments.length > 0 ? (
+                      appointments.map((ap) => (
+                        <div
+                          key={ap.id}
+                          className="p-4 hover:bg-[var(--accent)] transition space-y-2"
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="font-bold text-sm text-zinc-905 dark:text-zinc-50">{ap.patient_name}</span>
+                            <span
+                              className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                ap.status === "COMPLETED"
+                                  ? "bg-emerald-500/10 text-emerald-500"
+                                  : ap.status === "CANCELLED"
+                                  ? "bg-red-500/10 text-red-500"
+                                  : "bg-amber-500/10 text-amber-500"
+                              }`}
+                            >
+                              <span>{ap.status}</span>
+                            </span>
+                          </div>
+                          
+                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                            <span>Dr. {ap.doctor_name}</span>
+                            <span className="font-bold text-slate-600 dark:text-slate-300">
+                              {new Date(ap.appointment_date).toLocaleDateString()} {ap.slot_time ? `(${ap.slot_time})` : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between items-center gap-2 pt-1">
+                            <span className="text-[11px] text-slate-400 italic truncate max-w-[60%]">{ap.reason || "General Consult"}</span>
+                            
+                            {ap.status !== "CANCELLED" && doctorInfo?.role !== "USER" && (
+                              <button
+                                onClick={() => toggleAppointmentStatus(ap.id, ap.status)}
+                                className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                                  ap.status === "COMPLETED"
+                                    ? "border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
+                                    : "border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
+                                }`}
+                              >
+                                {ap.status === "COMPLETED" ? "Mark Pending" : "Mark Completed"}
+                              </button>
+                            )}
+                            {ap.status === "PENDING" && doctorInfo?.role === "USER" && (
+                              <button
+                                onClick={() => toggleAppointmentStatus(ap.id, "CANCELLED")}
+                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+                              >
+                                Cancel Booking
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center text-slate-400 font-semibold">
+                        No appointments booked. Click 'Book Appointment' to schedule one.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
@@ -4137,8 +4412,51 @@ export default function Dashboard() {
                   />
                 </div>
 
-                <div className="bg-[var(--card)] border border(--border) rounded-3xl overflow-hidden transition-all shadow-sm">
-                  <div className="overflow-x-auto">
+                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                  {/* Mobile Card List View for Billings */}
+                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                    {recentBills.length > 0 ? (
+                      recentBills.map((bill) => (
+                        <div
+                          key={bill.id}
+                          onClick={() => setViewState({ type: "bill", billId: bill.id })}
+                          className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{bill.patient_name}</span>
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                bill.status === "SETTLED"
+                                  ? "bg-emerald-500/10 text-emerald-500"
+                                  : bill.status === "PARTIALLY_PAID"
+                                  ? "bg-amber-500/10 text-amber-500"
+                                  : "bg-red-500/10 text-red-500"
+                              }`}
+                            >
+                              {bill.status}
+                            </span>
+                          </div>
+                          
+                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                            <span>Total: ₹{bill.total_amount.toFixed(2)}</span>
+                            <span className="font-bold text-red-500">Dues: ₹{bill.remaining_amount.toFixed(2)}</span>
+                          </div>
+
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
+                            <span className="truncate max-w-[60%]">{bill.description}</span>
+                            <span>{new Date(bill.created_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-8 text-center text-slate-400 font-semibold">
+                        {billsLoading ? "Loading bills..." : "No billing records found."}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
@@ -4834,8 +5152,8 @@ export default function Dashboard() {
                 </div>
 
                 {doctorInfo?.role === "HOSPITAL_ADMIN" && (
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm space-y-2">
-                    <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor to Configure</label>
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm space-y-2 border-white">
+                    <label className="text-[12px] font-bold uppercase text-slate-400">Select Doctor to Configure</label>
                     <select
                       value={configDoctorId}
                       onChange={(e) => {
@@ -5303,6 +5621,11 @@ export default function Dashboard() {
                 </FloatingPanelRoot>
               </div>
             )}
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              </motion.div>
+            </MotionConfig>
           </div>
         ) : viewState.type === "patient" ? (
           /* VIEW: PATIENT DETAILS */
@@ -5731,6 +6054,165 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* 4. Mobile Bottom Navigation Bar */}
+      {(() => {
+        const getMobileTabs = () => {
+          const role = doctorInfo?.role || "DOCTOR";
+          if (role === "USER") {
+            return [
+              { id: "appointments", label: "Slots", icon: Calendar },
+              { id: "vitals", label: "Vitals", icon: Activity },
+              { id: "labs", label: "Labs", icon: BriefcaseMedical },
+              { id: "billing", label: "Billing", icon: FileText },
+              { id: "queue", label: "Queue", icon: Clock }
+            ];
+          } else if (role === "PHARMACIST") {
+            return [
+              { id: "pharmacy", label: "Pharmacy", icon: BriefcaseMedical },
+              { id: "medicines", label: "Medicines", icon: Plus },
+              { id: "billing", label: "Ledger", icon: FileText },
+              { id: "whatsapp", label: "WhatsApp", icon: Smartphone }
+            ];
+          } else if (role === "HOSPITAL_ADMIN") {
+            return [
+              { id: "staff", label: "Staff", icon: Users },
+              { id: "patients", label: "Patients", icon: Users },
+              { id: "appointments", label: "Slots", icon: Calendar },
+              { id: "queue", label: "Queue", icon: Clock },
+              { id: "more", label: "More", icon: Settings }
+            ];
+          } else {
+            // Default to DOCTOR
+            return [
+              { id: "patients", label: "Patients", icon: Users },
+              { id: "prescriptions", label: "Rx", icon: FileText },
+              { id: "appointments", label: "Slots", icon: Calendar },
+              { id: "queue", label: "Queue", icon: Clock },
+              { id: "more", label: "More", icon: Settings }
+            ];
+          }
+        };
+
+        const getMoreTabs = () => {
+          const role = doctorInfo?.role || "DOCTOR";
+          const primaryIds = getMobileTabs().map(t => t.id);
+          const allTabs = [];
+          if (role === "HOSPITAL_ADMIN") {
+            allTabs.push(
+              { id: "staff", label: "Staff Directory", icon: Users },
+              { id: "patients", label: "Patient Directory", icon: Users },
+              { id: "appointments", label: "Appointment Slots", icon: Calendar },
+              { id: "availability", label: "Availability Settings", icon: Settings },
+              { id: "queue", label: "Active Hospital Queue", icon: Clock },
+              { id: "billing", label: "Organization Ledger", icon: FileText },
+              { id: "medicines", label: "Pharmacy Stock", icon: Plus },
+              { id: "analytics", label: "Facility Analytics", icon: Activity },
+              { id: "reschedule-queue", label: "Reschedule Queue", icon: AlertTriangle },
+              { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+            );
+          } else if (role === "DOCTOR") {
+            allTabs.push(
+              { id: "patients", label: "Patient Directory", icon: Users },
+              { id: "prescriptions", label: "Prescriptions", icon: FileText },
+              { id: "appointments", label: "Appointment Slots", icon: Calendar },
+              { id: "queue", label: "Patient Queue", icon: Clock },
+              { id: "vitals", label: "Patient Vitals", icon: Activity },
+              { id: "availability", label: "Slot Settings", icon: Settings },
+              { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
+            );
+          }
+          return allTabs.filter(t => !primaryIds.includes(t.id));
+        };
+
+        const primaryTabs = getMobileTabs();
+        const moreTabs = getMoreTabs();
+
+        return (
+          <>
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 z-40 pb-safe shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+              <div className="flex justify-around items-center py-2 text-[10px] font-bold">
+                {primaryTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const isTabActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        if (tab.id === "more") {
+                          setIsMobileMenuOpen(true);
+                        } else {
+                          const prevIndex = primaryTabs.findIndex((t) => t.id === activeTab);
+                          const newIndex = primaryTabs.findIndex((t) => t.id === tab.id);
+                          if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                            setDirection(newIndex > prevIndex ? 1 : -1);
+                          }
+                          setActiveTab(tab.id as any);
+                          setViewState({ type: "list" });
+                          setIsMobileMenuOpen(false);
+                        }
+                      }}
+                      className={cn(
+                        "flex flex-col items-center justify-center w-14 py-1 transition cursor-pointer select-none space-y-0.5",
+                        isTabActive
+                          ? "text-indigo-600 dark:text-indigo-400"
+                          : "text-slate-400 dark:text-slate-500 hover:text-slate-600"
+                      )}
+                    >
+                      <Icon className="w-5 h-5" />
+                      <span className="truncate w-full text-center">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Mobile "More" Drawer bottom sheet */}
+            {isMobileMenuOpen && (
+              <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-all duration-200" onClick={() => setIsMobileMenuOpen(false)}>
+                <div 
+                  className="absolute bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-[32px] p-6 max-h-[80vh] overflow-y-auto shadow-2xl animate-in slide-in-from-bottom duration-300"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6" />
+                  <h3 className="text-base font-black mb-4 tracking-tight">More Options</h3>
+                  <div className="grid grid-cols-3 gap-3">
+                    {moreTabs.map((tab) => {
+                      const Icon = tab.icon;
+                      const isTabActive = activeTab === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => {
+                            const allMobileTabs = [...primaryTabs, ...moreTabs];
+                            const prevIndex = allMobileTabs.findIndex((t) => t.id === activeTab);
+                            const newIndex = allMobileTabs.findIndex((t) => t.id === tab.id);
+                            if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                              setDirection(newIndex > prevIndex ? 1 : -1);
+                            }
+                            setActiveTab(tab.id as any);
+                            setViewState({ type: "list" });
+                            setIsMobileMenuOpen(false);
+                          }}
+                          className={cn(
+                            "flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition cursor-pointer select-none space-y-1.5",
+                            isTabActive
+                              ? "bg-indigo-600 border-indigo-600 text-white shadow-md"
+                              : "bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                          )}
+                        >
+                          <Icon className="w-5 h-5" />
+                          <span className="text-[9px] font-bold leading-tight">{tab.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }

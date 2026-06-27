@@ -53,6 +53,8 @@ func InitWhatsApp() {
 
 	clientLog := waLog.Stdout("Client", "WARN", true)
 	WAClient = whatsmeow.NewClient(deviceStore, clientLog)
+	WAClient.AutoTrustIdentity = true
+	WAClient.AutomaticMessageRerequestFromPhone = true
 
 	// Set up event handlers
 	WAClient.AddEventHandler(eventHandler)
@@ -89,7 +91,7 @@ func InitWhatsApp() {
 }
 
 func eventHandler(evt interface{}) {
-	switch evt.(type) {
+	switch v := evt.(type) {
 	case *events.Connected:
 		IsConnected.Store(true)
 		QRMutex.Lock()
@@ -99,6 +101,29 @@ func eventHandler(evt interface{}) {
 	case *events.LoggedOut:
 		IsConnected.Store(false)
 		log.Println("WhatsApp client logged out!")
+	case *events.AppStateSyncError:
+		log.Printf("WhatsApp AppState sync error for %s (FullSync=%t): %v", v.Name, v.FullSync, v.Error)
+		// Trigger an automatic recovery sync or recovery request
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if v.FullSync {
+				log.Printf("AppStateSyncError persists after full sync. Sending recovery peer message...")
+				msg := whatsmeow.BuildAppStateRecoveryRequest(v.Name)
+				_, err := WAClient.SendPeerMessage(ctx, msg)
+				if err != nil {
+					log.Printf("Failed to send app state recovery request for %s: %v", v.Name, err)
+				}
+			} else {
+				log.Printf("Attempting full AppState resync for %s...", v.Name)
+				err := WAClient.FetchAppState(ctx, v.Name, true, false)
+				if err != nil {
+					log.Printf("Failed to force FetchAppState for %s: %v", v.Name, err)
+				} else {
+					log.Printf("FetchAppState successfully completed for %s", v.Name)
+				}
+			}
+		}()
 	}
 }
 

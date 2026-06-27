@@ -10,6 +10,7 @@ import React, {
 } from "react"
 import { AnimatePresence, MotionConfig, Variants, motion } from "framer-motion"
 import { ArrowLeftIcon } from "lucide-react"
+import { createPortal } from "react-dom"
 
 import { cn } from "../../utils/cn"
 
@@ -158,6 +159,11 @@ export function FloatingPanelContent({
   const { isOpen, closeFloatingPanel, uniqueId, title } =
     useFloatingPanel()
   const contentRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -185,7 +191,9 @@ export function FloatingPanelContent({
     visible: { opacity: 1, scale: 1, y: 0 },
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <>
@@ -200,7 +208,7 @@ export function FloatingPanelContent({
               ref={contentRef}
               layoutId={`floating-panel-${uniqueId}`}
               className={cn(
-                "overflow-hidden border border-zinc-950/10 bg-white shadow-lg outline-none dark:border-zinc-50/10 dark:bg-zinc-800 pointer-events-auto",
+                "flex flex-col max-h-[calc(100vh-2rem)] overflow-hidden border border-zinc-950/10 bg-white shadow-lg outline-none dark:border-zinc-50/10 dark:bg-zinc-800 pointer-events-auto",
                 className
               )}
               style={{
@@ -209,18 +217,19 @@ export function FloatingPanelContent({
               initial="hidden"
               animate="visible"
               exit="hidden"
-            variants={variants}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={`floating-panel-title-${uniqueId}`}
-          >
-            <FloatingPanelTitle>{title}</FloatingPanelTitle>
-            {children}
-          </motion.div>
+              variants={variants}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`floating-panel-title-${uniqueId}`}
+            >
+              <FloatingPanelTitle>{title}</FloatingPanelTitle>
+              {children}
+            </motion.div>
           </div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   )
 }
 
@@ -363,7 +372,7 @@ export function FloatingPanelBody({
 }: FloatingPanelBodyProps) {
   return (
     <motion.div
-      className={cn("p-4", className)}
+      className={cn("p-4 overflow-y-auto flex-grow min-h-0", className)}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
