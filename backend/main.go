@@ -365,7 +365,7 @@ func main() {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		allowedOrigin := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		allowedOrigin := strings.TrimSpace(strings.TrimSuffix(os.Getenv("WEBAUTHN_RP_ORIGIN"), "/"))
 		if allowedOrigin == "" {
 			allowedOrigin = "http://localhost:3000"
 		}
@@ -377,6 +377,17 @@ func corsMiddleware(next http.Handler) http.Handler {
 			origin == "http://127.0.0.1:3001" || 
 			strings.HasSuffix(origin, ":3000") || 
 			strings.HasSuffix(origin, ":3001")
+
+		if !isAllowed && origin != "" {
+			if extra := os.Getenv("ALLOWED_ORIGINS"); extra != "" {
+				for _, o := range strings.Split(extra, ",") {
+					if origin == strings.TrimSpace(strings.TrimSuffix(o, "/")) {
+						isAllowed = true
+						break
+					}
+				}
+			}
+		}
 
 		if isAllowed {
 			w.Header().Set("Access-Control-Allow-Origin", origin)

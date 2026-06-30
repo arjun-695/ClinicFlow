@@ -41,7 +41,7 @@ var (
 // development over plain HTTP it returns false so the browser will actually
 // store and send the cookies.
 func isSecureCookie() bool {
-	origin := os.Getenv("WEBAUTHN_RP_ORIGIN")
+	origin := strings.TrimSpace(os.Getenv("WEBAUTHN_RP_ORIGIN"))
 	return strings.HasPrefix(origin, "https://")
 }
 
@@ -363,7 +363,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	var name, clinicName, phone, role string
 	var googleID string
 
-	query := `SELECT id, password_hash, name, clinic_name, phone, google_id, role FROM users WHERE email = $1`
+	query := `SELECT id, COALESCE(password_hash, ''), name, clinic_name, phone, COALESCE(google_id, ''), role FROM users WHERE email = $1`
 	err := db.Pool.QueryRow(r.Context(), query, input.Email).Scan(&id, &passwordHash, &name, &clinicName, &phone, &googleID, &role)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid email or password"})
@@ -585,7 +585,7 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	var googleID string
 	var dbName, dbClinicName, dbPhone, dbRole string
 
-	query := `SELECT id, google_id, name, clinic_name, phone, role FROM users WHERE email = $1`
+	query := `SELECT id, COALESCE(google_id, ''), name, clinic_name, phone, role FROM users WHERE email = $1`
 	err = db.Pool.QueryRow(r.Context(), query, claims.Email).Scan(&id, &googleID, &dbName, &dbClinicName, &dbPhone, &dbRole)
 	
 	if err != nil || id == 0 {
