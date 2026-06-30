@@ -48,13 +48,25 @@ type AppointmentSummary struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type PrescriptionItem struct {
+	ID           int    `json:"id"`
+	MedicineName string `json:"medicine_name"`
+	MedicineID   *int   `json:"medicine_id"`
+	Dosage       string `json:"dosage"`
+	Frequency    string `json:"frequency"`
+	Duration     string `json:"duration"`
+	Quantity     int    `json:"quantity"`
+	Instructions string `json:"instructions"`
+}
+
 type PrescriptionSummary struct {
-	ID          int      `json:"id"`
-	Diagnosis   string   `json:"diagnosis"`
-	Notes       string   `json:"notes"`
-	Status      string   `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	LabRequests []string `json:"lab_requests,omitempty"`
+	ID          int                `json:"id"`
+	Diagnosis   string             `json:"diagnosis"`
+	Notes       string             `json:"notes"`
+	Status      string             `json:"status"`
+	CreatedAt   time.Time          `json:"created_at"`
+	LabRequests []string           `json:"lab_requests,omitempty"`
+	Items       []PrescriptionItem `json:"items,omitempty"`
 }
 
 // CreatePatient handles patient creation
@@ -540,6 +552,38 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			log.Printf("GetPatient lab requests query error: %v", err)
+		}
+
+		// Fetch prescription items
+		itemRows, err := db.Pool.Query(ctx, `
+			SELECT id, prescription_id, medicine_name, medicine_id, dosage, frequency, duration, quantity, instructions
+			FROM prescription_items
+			WHERE prescription_id = ANY($1)
+			ORDER BY id ASC
+		`, rxIDs)
+		if err == nil {
+			defer itemRows.Close()
+			itemsMap := make(map[int][]PrescriptionItem)
+			for itemRows.Next() {
+				var rxID int
+				var item PrescriptionItem
+				errScan := itemRows.Scan(
+					&item.ID, &rxID, &item.MedicineName, &item.MedicineID,
+					&item.Dosage, &item.Frequency, &item.Duration, &item.Quantity, &item.Instructions,
+				)
+				if errScan == nil {
+					itemsMap[rxID] = append(itemsMap[rxID], item)
+				}
+			}
+			for i := range rxsList {
+				if items, ok := itemsMap[rxsList[i].ID]; ok {
+					rxsList[i].Items = items
+				} else {
+					rxsList[i].Items = []PrescriptionItem{}
+				}
+			}
+		} else {
+			log.Printf("GetPatient prescription items query error: %v", err)
 		}
 	}
 

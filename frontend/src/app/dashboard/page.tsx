@@ -149,6 +149,12 @@ interface Bill {
   patient_id: number;
   patient_name: string;
   patient_phone: string;
+  patient_gender?: string;
+  patient_age?: number | string;
+  weight?: string;
+  bp?: string;
+  pulse?: string;
+  temp?: string;
   doctor_id: number;
   clinic_name: string;
   description: string;
@@ -296,6 +302,7 @@ export default function Dashboard() {
 
   // Modals Open/Close
   const [isAddPatientOpen, setIsAddPatientOpen] = useState(false);
+  const [isCheckInOpen, setIsCheckInOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isCreateBillOpen, setIsCreateBillOpen] = useState(false);
   const [isLogPaymentOpen, setIsLogPaymentOpen] = useState(false);
@@ -326,9 +333,9 @@ export default function Dashboard() {
   const [rxTemp, setRxTemp] = useState("");
   const [rxItems, setRxItems] = useState<any[]>([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
   const [pendingPrescriptions, setPendingPrescriptions] = useState<any[]>([]);
-  const [isDispenseModalOpen, setIsDispenseModalOpen] = useState(false);
   const [activeRxToDispense, setActiveRxToDispense] = useState<any | null>(null);
   const [dispenseItems, setDispenseItems] = useState<any[]>([]);
+  const [expandedRxId, setExpandedRxId] = useState<number | null>(null);
 
   // 2. Appointment Form
   const [apptPatientId, setApptPatientId] = useState("");
@@ -666,7 +673,7 @@ export default function Dashboard() {
         loadAppointments();
         loadMedicines();
         loadPrescriptions();
-        if (doctorInfo.role === "PHARMACIST") {
+        if (doctorInfo.role === "PHARMACIST" || doctorInfo.role === "HOSPITAL_ADMIN") {
           loadPendingPrescriptions();
         }
         loadAnalytics();
@@ -1223,7 +1230,6 @@ export default function Dashboard() {
         })
       });
       setToast({ message: "Medication dispensed and bill generated!", type: "success" });
-      setIsDispenseModalOpen(false);
       setActiveRxToDispense(null);
       setDispenseItems([]);
       loadPendingPrescriptions();
@@ -1282,26 +1288,34 @@ export default function Dashboard() {
             medicine_id: item.medicine_id ? parseInt(item.medicine_id) : null
           })),
           lab_requests: activeLabRequests,
-          visit_charges: isClinicMode && rxVisitCharges ? parseFloat(rxVisitCharges) : 0,
-          amount_paid: isClinicMode && rxAmountPaid ? parseFloat(rxAmountPaid) : 0
+          visit_charges: rxVisitCharges ? parseFloat(rxVisitCharges) : 0,
+          amount_paid: rxAmountPaid ? parseFloat(rxAmountPaid) : 0
         })
       });
 
-      if (isClinicMode) {
+      if (res.id) {
         try {
           const patient = patients.find(p => p.id.toString() === rxPatientId);
           const patientName = patient ? patient.name : "Patient";
           const patientPhone = patient ? patient.phone : "";
+          const patientGender = patient ? patient.gender : "";
+          const patientAge = patient ? patient.age : "";
 
           const rxDetail = {
             id: res.id,
             patient_name: patientName,
             patient_phone: patientPhone,
+            patient_gender: patientGender,
+            patient_age: patientAge,
             diagnosis: rxDiagnosis,
             notes: rxNotes,
             items: activeMedItems,
             lab_requests: activeLabRequests,
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            weight: rxWeight || "",
+            bp: rxBP || "",
+            pulse: rxPulse || "",
+            temp: rxTemp || ""
           };
           const rxDoc = buildPrescriptionPDF(rxDetail);
           const rxBlob = rxDoc.output("blob");
@@ -1317,6 +1331,8 @@ export default function Dashboard() {
                 patient_id: parseInt(rxPatientId),
                 patient_name: patientName,
                 patient_phone: patientPhone,
+                patient_gender: patientGender,
+                patient_age: patientAge,
                 doctor_id: doctorInfo?.id || 0,
                 clinic_name: doctorInfo?.clinic_name || "ClinicFlow",
                 description: "Consultation / Visit Charges",
@@ -1326,7 +1342,11 @@ export default function Dashboard() {
                 promised_due_date: null,
                 invoice_url: null,
                 notified: false,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                weight: rxWeight || "",
+                bp: rxBP || "",
+                pulse: rxPulse || "",
+                temp: rxTemp || ""
               },
               items: [
                 { item_name: "Consultation Fee", quantity: 1, unit_price: parseFloat(rxVisitCharges), dosage: "" }
@@ -1712,180 +1732,366 @@ export default function Dashboard() {
 
   const buildPrescriptionPDF = (rx: any): jsPDF => {
     const doc = new jsPDF();
-
-    // Header
+    
+    // Draw top header box
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+    
+    // Hospital Name / Clinic Name
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(99, 102, 241);
-    doc.text(doctorInfo?.clinic_name || "ClinicFlow Prescription", 20, 25);
-
-    // Metadata
+    doc.setFontSize(16);
+    doc.setTextColor(30, 41, 59);
+    doc.text(doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, { align: "center" });
+    
+    // Row 1 metadata
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Prescription ID: #Rx-${rx.id}`, 20, 32);
-    doc.text(`Date: ${new Date(rx.created_at).toLocaleDateString()}`, 20, 37);
-    doc.text(`Doctor: Dr. ${rx.doctor_name || doctorInfo?.name}`, 20, 42);
-
-    doc.line(20, 47, 190, 47);
-
-    // Patient info
+    doc.setTextColor(71, 85, 105);
+    
+    const formattedDate = rx.created_at ? new Date(rx.created_at).toLocaleDateString() : new Date().toLocaleDateString();
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Name:", 20, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.patient_name || "N/A", 35, 36);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Gender:", 90, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.patient_gender || "N/A", 108, 36);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 145, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(formattedDate, 158, 36);
+    
+    // Row 2 metadata
+    doc.setFont("helvetica", "bold");
+    doc.text("Age:", 20, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.patient_age ? rx.patient_age.toString() : "N/A", 35, 46);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Weight:", 90, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.weight ? `${rx.weight} kg` : "N/A", 108, 46);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("B/P:", 145, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(rx.bp || "N/A", 158, 46);
+    
+    // Draw Left Box (Staff)
+    doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
-    doc.text("PATIENT INFORMATION:", 20, 56);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Name: ${rx.patient_name}`, 20, 62);
-    if (rx.patient_phone) {
-      doc.text(`Phone: ${rx.patient_phone}`, 20, 67);
+    doc.text("Staff:", 20, 70);
+    
+    // List other doctors in the left column
+    doc.setFontSize(9);
+    let staffY = 78;
+    const currentDoctorId = doctorInfo?.id;
+    const otherDocs = facilityDoctors.filter((doc: any) => doc.id !== currentDoctorId);
+    
+    if (otherDocs.length > 0) {
+      otherDocs.forEach((d: any) => {
+        if (staffY > 260) return; // Page boundary check
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(51, 65, 85);
+        const nameLines = doc.splitTextToSize(`Dr. ${d.name}`, 45);
+        nameLines.forEach((line: string) => {
+          doc.text(line, 20, staffY);
+          staffY += 4.5;
+        });
+        
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(100, 116, 139);
+        const specLines = doc.splitTextToSize(d.specialization || "General Medicine", 45);
+        specLines.forEach((line: string) => {
+          doc.text(line, 20, staffY);
+          staffY += 4.5;
+        });
+        staffY += 4; // Space between doctors
+      });
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184);
+      doc.text("No other doctors", 20, staffY);
     }
-
+    
+    // Draw Right Box (Prescriptions)
+    doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Prescriptions:", 80, 70);
+    
+    doc.setFontSize(10);
+    let rxY = 78;
+    
     // Diagnosis
     doc.setFont("helvetica", "bold");
-    doc.text("Diagnosis:", 20, 75);
+    doc.text("Diagnosis:", 80, rxY);
     doc.setFont("helvetica", "normal");
-    doc.text(rx.diagnosis || "N/A", 45, 75);
-
-    let y = 85;
-
-    // Medicines Table
+    doc.text(rx.diagnosis || "N/A", 105, rxY);
+    rxY += 8;
+    
+    // Vitals if present (Pulse, Temp, SpO2, Heart Rate)
+    const hasVitals = rx.pulse || rx.temp || rx.spo2;
+    if (hasVitals) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Vitals:", 80, rxY);
+      doc.setFont("helvetica", "normal");
+      let vitalsText = "";
+      if (rx.pulse) vitalsText += `Pulse: ${rx.pulse} bpm   `;
+      if (rx.temp) vitalsText += `Temp: ${rx.temp}°F   `;
+      if (rx.spo2) vitalsText += `SpO2: ${rx.spo2}%`;
+      doc.text(vitalsText, 95, rxY);
+      rxY += 8;
+    }
+    
+    // Medicines List
     if (rx.items && rx.items.length > 0) {
       doc.setFont("helvetica", "bold");
-      doc.text("Prescribed Medicine", 20, y);
-      doc.text("Dosage", 90, y);
-      doc.text("Freq", 120, y);
-      doc.text("Dur", 145, y);
-      doc.text("Qty", 175, y);
-
-      doc.line(20, y + 2, 190, y + 2);
-      y += 10;
-
-      doc.setFont("helvetica", "normal");
-      rx.items.forEach((item: any) => {
-        doc.text(item.medicine_name, 20, y);
-        doc.text(item.dosage || "-", 90, y);
-        doc.text(item.frequency || "-", 120, y);
-        doc.text(item.duration || "-", 145, y);
-        doc.text(item.quantity ? item.quantity.toString() : "1", 175, y);
-        y += 8;
+      doc.setTextColor(79, 70, 229);
+      doc.text("Prescribed Medicines:", 80, rxY);
+      rxY += 6;
+      
+      rx.items.forEach((item: any, index: number) => {
+        if (rxY > 255) return;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(51, 65, 85);
+        doc.text(`${index + 1}. ${item.medicine_name}`, 82, rxY);
+        rxY += 5;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(9);
+        let detailText = `Dosage: ${item.dosage || "N/A"}  |  Freq: ${item.frequency || "N/A"}  |  Dur: ${item.duration || "N/A"}  |  Qty: ${item.quantity || 1}`;
+        doc.text(detailText, 85, rxY);
+        rxY += 4.5;
+        
+        if (item.instructions) {
+          doc.setFont("helvetica", "italic");
+          doc.text(`Instructions: ${item.instructions}`, 85, rxY);
+          rxY += 5;
+        }
+        rxY += 1.5;
+        doc.setFontSize(10);
       });
-      y += 5;
+      rxY += 3;
     }
-
-    // Diagnostic/Lab requests
+    
+    // Recommended Lab tests
     if (rx.lab_requests && rx.lab_requests.length > 0) {
-      doc.setFont("helvetica", "bold");
-      doc.text("Recommended Lab/Diagnostic Tests:", 20, y);
-      y += 8;
-      doc.setFont("helvetica", "normal");
-      rx.lab_requests.forEach((test: string) => {
-        doc.text(`• ${test}`, 25, y);
-        y += 8;
-      });
-      y += 5;
+      if (rxY < 255) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(79, 70, 229);
+        doc.text("Recommended Lab/Diagnostic Tests:", 80, rxY);
+        rxY += 6;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(51, 65, 85);
+        rx.lab_requests.forEach((test: string) => {
+          if (rxY > 260) return;
+          doc.text(`• ${test}`, 85, rxY);
+          rxY += 5.5;
+        });
+        rxY += 3;
+      }
     }
-
-    // Clinical Notes/Advice
+    
+    // Clinical Notes / Advice
     if (rx.notes) {
-      doc.setFont("helvetica", "bold");
-      doc.text("Clinical Notes / Advice:", 20, y);
-      y += 8;
-      doc.setFont("helvetica", "normal");
-      const lines = doc.splitTextToSize(rx.notes, 170);
-      lines.forEach((line: string) => {
-        doc.text(line, 20, y);
-        y += 6;
-      });
+      if (rxY < 255) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(79, 70, 229);
+        doc.text("Clinical Notes / Advice:", 80, rxY);
+        rxY += 6;
+        
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(51, 65, 85);
+        const lines = doc.splitTextToSize(rx.notes, 110);
+        lines.forEach((line: string) => {
+          if (rxY > 260) return;
+          doc.text(line, 82, rxY);
+          rxY += 5.5;
+        });
+      }
     }
-
-    // Footer
-    y += 15;
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9);
-    doc.setTextColor(148, 163, 184);
-    doc.text("Get well soon. Maintain regular follow-ups as recommended.", 20, y);
-
+    
     return doc;
   };
 
   const buildInvoicePDF = (detail: BillDetail): jsPDF => {
     const doc = new jsPDF();
     const { bill, items, payments } = detail;
-
-    // Header
+    
+    // Draw top header box
+    doc.setDrawColor(148, 163, 184);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+    
+    // Hospital Name / Clinic Name
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(99, 102, 241);
-    doc.text(bill.clinic_name || "ClinicFlow Medical Invoice", 20, 25);
-
-    // Metadata
+    doc.setFontSize(16);
+    doc.setTextColor(30, 41, 59);
+    doc.text(bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, { align: "center" });
+    
+    // Row 1 metadata
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Invoice ID: #INV-${bill.id}`, 20, 32);
-    doc.text(`Date: ${new Date(bill.created_at).toLocaleDateString()}`, 20, 37);
-    if (bill.promised_due_date) {
-      doc.text(`Due Date: ${new Date(bill.promised_due_date).toLocaleDateString()}`, 20, 42);
-    }
-
-    doc.line(20, 47, 190, 47);
-
-    // Patient info
+    doc.setTextColor(71, 85, 105);
+    
+    const formattedDate = bill.created_at ? new Date(bill.created_at).toLocaleDateString() : new Date().toLocaleDateString();
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Name:", 20, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.patient_name || "N/A", 35, 36);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Gender:", 90, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.patient_gender || "N/A", 108, 36);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 145, 36);
+    doc.setFont("helvetica", "normal");
+    doc.text(formattedDate, 158, 36);
+    
+    // Row 2 metadata
+    doc.setFont("helvetica", "bold");
+    doc.text("Age:", 20, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.patient_age ? bill.patient_age.toString() : "N/A", 35, 46);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("Weight:", 90, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.weight ? `${bill.weight} kg` : "N/A", 108, 46);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text("B/P:", 145, 46);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.bp || "N/A", 158, 46);
+    
+    // Draw Left Box (Staff)
+    doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
-    doc.text("PATIENT INFORMATION:", 20, 56);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Name: ${bill.patient_name}`, 20, 62);
-    doc.text(`Phone: ${bill.patient_phone}`, 20, 67);
-
-    // Items table
-    let y = 80;
-    doc.setFont("helvetica", "bold");
-    doc.text("Prescribed Item / Medicine", 20, y);
-    doc.text("Qty", 100, y);
-    doc.text("Unit (INR)", 125, y);
-    doc.text("Dosage", 150, y);
-    doc.text("Subtotal", 175, y);
-
-    doc.line(20, y + 2, 190, y + 2);
-    y += 10;
-
-    doc.setFont("helvetica", "normal");
-    items.forEach((item) => {
-      doc.text(item.item_name, 20, y);
-      doc.text(item.quantity.toString(), 102, y);
-      doc.text(`Rs. ${item.unit_price.toFixed(2)}`, 125, y);
-      doc.text(item.dosage || "-", 150, y);
-      doc.text(`Rs. ${(item.quantity * item.unit_price).toFixed(2)}`, 175, y);
-      y += 8;
-    });
-
-    doc.line(20, y, 190, y);
-    y += 10;
-
-    // Totals
-    doc.setFont("helvetica", "bold");
-    doc.text("Total Amount:", 120, y);
-    doc.text(`Rs. ${bill.total_amount.toFixed(2)}`, 175, y);
-    y += 8;
-
-    const totalPaid = bill.total_amount - bill.remaining_amount;
-    doc.text("Amount Paid:", 120, y);
-    doc.text(`Rs. ${totalPaid.toFixed(2)}`, 175, y);
-    y += 8;
-
-    doc.setTextColor(239, 68, 68);
-    doc.text("Outstanding Dues:", 120, y);
-    doc.text(`Rs. ${bill.remaining_amount.toFixed(2)}`, 175, y);
-
-    // Footer
-    y += 20;
-    doc.setFont("helvetica", "italic");
+    doc.text("Staff:", 20, 70);
+    
+    // List other doctors in the left column
     doc.setFontSize(9);
-    doc.setTextColor(148, 163, 184);
-    doc.text("Thank you for visiting. Please maintain regular follow-ups.", 20, y);
-
+    let staffY = 78;
+    const currentDoctorId = doctorInfo?.id;
+    const otherDocs = facilityDoctors.filter((doc: any) => doc.id !== currentDoctorId);
+    
+    if (otherDocs.length > 0) {
+      otherDocs.forEach((d: any) => {
+        if (staffY > 260) return;
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(51, 65, 85);
+        const nameLines = doc.splitTextToSize(`Dr. ${d.name}`, 45);
+        nameLines.forEach((line: string) => {
+          doc.text(line, 20, staffY);
+          staffY += 4.5;
+        });
+        
+        doc.setFont("helvetica", "italic");
+        doc.setTextColor(100, 116, 139);
+        const specLines = doc.splitTextToSize(d.specialization || "General Medicine", 45);
+        specLines.forEach((line: string) => {
+          doc.text(line, 20, staffY);
+          staffY += 4.5;
+        });
+        staffY += 4;
+      });
+    } else {
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184);
+      doc.text("No other doctors", 20, staffY);
+    }
+    
+    // Draw Right Box (Billing)
+    doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text("Billing Details:", 80, 70);
+    
+    doc.setFontSize(10);
+    let billY = 78;
+    
+    // Invoice ID
+    doc.setFont("helvetica", "bold");
+    doc.text("Invoice ID:", 80, billY);
+    doc.setFont("helvetica", "normal");
+    doc.text(`#INV-${bill.id}`, 105, billY);
+    billY += 8;
+    
+    // Description
+    if (bill.description) {
+      doc.setFont("helvetica", "bold");
+      doc.text("Description:", 80, billY);
+      doc.setFont("helvetica", "normal");
+      doc.text(bill.description, 105, billY);
+      billY += 8;
+    }
+    
+    // Items List
+    if (items && items.length > 0) {
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.text("Billing Items:", 80, billY);
+      billY += 6;
+      
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(51, 65, 85);
+      doc.text("Item Name", 82, billY);
+      doc.text("Qty", 140, billY);
+      doc.text("Subtotal", 165, billY);
+      billY += 5;
+      doc.line(80, billY - 1, 185, billY - 1);
+      
+      doc.setFont("helvetica", "normal");
+      items.forEach((item: any) => {
+        if (billY > 230) return;
+        doc.text(item.item_name, 82, billY);
+        doc.text(item.quantity.toString(), 142, billY);
+        doc.text(`Rs. ${(item.quantity * item.unit_price).toFixed(2)}`, 165, billY);
+        billY += 6;
+      });
+      billY += 4;
+      doc.setFontSize(10);
+    }
+    
+    // Totals Box
+    if (billY < 240) {
+      doc.line(80, billY, 185, billY);
+      billY += 6;
+      
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(51, 65, 85);
+      doc.text("Total Amount:", 115, billY);
+      doc.text(`Rs. ${bill.total_amount.toFixed(2)}`, 165, billY);
+      billY += 6;
+      
+      const totalPaid = bill.total_amount - bill.remaining_amount;
+      doc.text("Amount Paid:", 115, billY);
+      doc.text(`Rs. ${totalPaid.toFixed(2)}`, 165, billY);
+      billY += 6;
+      
+      doc.setTextColor(239, 68, 68);
+      doc.text("Outstanding Dues:", 115, billY);
+      doc.text(`Rs. ${bill.remaining_amount.toFixed(2)}`, 165, billY);
+    }
+    
     return doc;
   };
 
@@ -2266,6 +2472,7 @@ export default function Dashboard() {
                 { id: "appointments", label: "Appointment Slots", icon: Calendar },
                 { id: "availability", label: "Availability Settings", icon: Settings },
                 { id: "queue", label: "Active Hospital Queue", icon: Clock },
+                { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
                 { id: "billing", label: "Organization Ledger", icon: FileText },
                 { id: "medicines", label: "Pharmacy Stock", icon: Plus },
                 { id: "analytics", label: "Facility Analytics", icon: Activity },
@@ -2630,7 +2837,7 @@ export default function Dashboard() {
                     <h2 className="text-xl font-black">Clinic Queue Board</h2>
                     <p className="text-xs text-slate-400">Track and manage checked-in patients in real-time.</p>
                   </div>
-                  <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
+                  <FloatingPanelRoot isOpen={isCheckInOpen} onOpenChange={setIsCheckInOpen}>
                     <FloatingPanelTrigger
                       title={doctorInfo?.role === "USER" ? "Check In to Queue" : "Check In Patient"}
                       className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
@@ -2663,7 +2870,7 @@ export default function Dashboard() {
                             setToast({ message: "Checked in successfully!", type: "success" });
                             setCheckinPatientId("");
                             setCheckinReason("");
-                            setIsAddPatientOpen(false);
+                            setIsCheckInOpen(false);
                             loadQueue();
                           } catch (err: any) {
                             setToast({ message: err.message || "Check-in failed", type: "error" });
@@ -3849,7 +4056,7 @@ export default function Dashboard() {
                               />
                              </div>
 
-                            {isClinicMode && doctorInfo?.role === "DOCTOR" && (
+                            {(doctorInfo?.role === "DOCTOR" || doctorInfo?.role === "HOSPITAL_ADMIN") && (
                               <div className="grid grid-cols-2 gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl">
                                 <div>
                                   <label className="text-[10px] font-bold uppercase text-slate-400">Total Charges (₹)</label>
@@ -4560,45 +4767,198 @@ export default function Dashboard() {
                             <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">{rx.status}</span>
                           </div>
                           <div>
-                            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{rx.patient_name}</h3>
+                            <h3 
+                              onClick={() => {
+                                if (activeRxToDispense?.id === rx.id) {
+                                  setActiveRxToDispense(null);
+                                  setDispenseItems([]);
+                                } else {
+                                  setActiveRxToDispense(rx);
+                                  const itemsToDispense = rx.items.map((item: any) => {
+                                    const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
+                                    return {
+                                      prescription_item_id: item.id,
+                                      medicine_name: item.medicine_name,
+                                      medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
+                                      prescribed_qty: item.quantity,
+                                      dosage: item.dosage,
+                                      duration: item.duration || "N/A",
+                                      tablets_given: item.quantity,
+                                      cost_per_tablet: "", // Blank field!
+                                      is_nil: false,
+                                      nil_reason: "",
+                                      line_total: 0
+                                    };
+                                  });
+                                  setDispenseItems(itemsToDispense);
+                                }
+                              }}
+                              className="text-sm font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 cursor-pointer transition flex items-center justify-between"
+                            >
+                              <span>{rx.patient_name}</span>
+                              <span className="text-[10px] text-indigo-500 font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
+                                {activeRxToDispense?.id === rx.id ? "Hide details ▲" : "View details ▼"}
+                              </span>
+                            </h3>
                             <p className="text-[10px] text-slate-400">Dr. {rx.doctor_name}</p>
                           </div>
-                          <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
-                            <span className="text-[9px] font-black uppercase text-slate-400 block">Prescribed Meds:</span>
-                            {rx.items && rx.items.map((it: any) => (
-                              <div key={it.id} className="text-xs flex justify-between text-slate-500 dark:text-slate-400">
-                                <span>{it.medicine_name} ({it.dosage})</span>
-                                <span className="font-semibold">x{it.quantity}</span>
-                              </div>
-                            ))}
-                          </div>
+                          
+                          {activeRxToDispense?.id !== rx.id && (
+                            <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
+                              <span className="text-[9px] font-black uppercase text-slate-400 block">Prescribed Meds:</span>
+                              {rx.items && rx.items.map((it: any) => (
+                                <div key={it.id} className="text-xs flex justify-between text-slate-500 dark:text-slate-400">
+                                  <span>{it.medicine_name} ({it.dosage})</span>
+                                  <span className="font-semibold">x{it.quantity}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
-                        <button
-                          onClick={() => {
-                            setActiveRxToDispense(rx);
-                            const itemsToDispense = rx.items.map((item: any) => {
-                              const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
-                              return {
-                                prescription_item_id: item.id,
-                                medicine_name: item.medicine_name,
-                                medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
-                                prescribed_qty: item.quantity,
-                                dosage: item.dosage,
-                                tablets_given: item.quantity,
-                                cost_per_tablet: matchedMed ? matchedMed.price : 0,
-                                is_nil: false,
-                                nil_reason: "",
-                                line_total: matchedMed ? item.quantity * matchedMed.price : 0
-                              };
-                            });
-                            setDispenseItems(itemsToDispense);
-                            setIsDispenseModalOpen(true);
-                          }}
-                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
-                        >
-                          Dispense Medication
-                        </button>
+                        {activeRxToDispense?.id === rx.id ? (
+                          <form 
+                            onSubmit={handleDispensePrescription}
+                            className="mt-4 border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200"
+                          >
+                            <p className="text-[10px] text-slate-400 uppercase font-black">Diagnosis: {rx.diagnosis || "N/A"}</p>
+                            <div className="space-y-3">
+                              {dispenseItems.map((item, idx) => (
+                                <div key={idx} className={`p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5 ${item.is_nil ? "opacity-60 border-red-500/20 bg-red-500/5" : ""}`}>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {/* Block in front showing dosage and number of days (duration) */}
+                                    <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black rounded-lg border border-indigo-200 dark:border-indigo-800/40">
+                                      {item.dosage} | {item.duration}
+                                    </span>
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">{item.medicine_name}</span>
+                                    <span className="text-[10px] text-slate-400">Prescribed: {item.prescribed_qty}</span>
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase">Amt:</span>
+                                      <input
+                                        type="text"
+                                        placeholder="0.00"
+                                        value={item.cost_per_tablet}
+                                        disabled={item.is_nil}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                                            const updated = [...dispenseItems];
+                                            updated[idx].cost_per_tablet = val;
+                                            const price = parseFloat(val) || 0;
+                                            updated[idx].line_total = item.tablets_given * price;
+                                            setDispenseItems(updated);
+                                          }
+                                        }}
+                                        className="w-20 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                      />
+                                    </div>
+
+                                    <div className="flex items-center space-x-1.5">
+                                      <span className="text-[10px] font-bold text-slate-400 uppercase">Qty:</span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        required
+                                        disabled={item.is_nil}
+                                        value={item.tablets_given}
+                                        onChange={(e) => {
+                                          const val = parseInt(e.target.value) || 0;
+                                          const updated = [...dispenseItems];
+                                          updated[idx].tablets_given = val;
+                                          const price = parseFloat(item.cost_per_tablet) || 0;
+                                          updated[idx].line_total = val * price;
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="w-14 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                      />
+                                    </div>
+
+                                    <div className="flex items-center space-x-1">
+                                      <input
+                                        type="checkbox"
+                                        id={`nil-${rx.id}-${idx}`}
+                                        checked={item.is_nil}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          const updated = [...dispenseItems];
+                                          updated[idx].is_nil = checked;
+                                          if (checked) {
+                                            updated[idx].line_total = 0;
+                                          } else {
+                                            const price = parseFloat(item.cost_per_tablet) || 0;
+                                            updated[idx].line_total = item.tablets_given * price;
+                                          }
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                      />
+                                      <label htmlFor={`nil-${rx.id}-${idx}`} className="text-[10px] font-black text-red-500 uppercase cursor-pointer">NIL</label>
+                                    </div>
+                                  </div>
+
+                                  {item.is_nil && (
+                                    <input
+                                      type="text"
+                                      required
+                                      placeholder="Reason (e.g. Out of Stock)"
+                                      value={item.nil_reason}
+                                      onChange={(e) => {
+                                        const updated = [...dispenseItems];
+                                        updated[idx].nil_reason = e.target.value;
+                                        setDispenseItems(updated);
+                                      }}
+                                      className="w-full px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
+                                    />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 border-t border-[var(--border)]">
+                              <span>TOTAL VALUE:</span>
+                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">
+                                ₹{dispenseItems.reduce((acc, it) => acc + (it.is_nil ? 0 : it.line_total), 0).toFixed(2)}
+                              </span>
+                            </div>
+
+                            <button
+                              type="submit"
+                              disabled={isSubmitting}
+                              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center disabled:opacity-50"
+                            >
+                              {isSubmitting ? "Processing..." : "Dispense & Generate Bill"}
+                            </button>
+                          </form>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setActiveRxToDispense(rx);
+                              const itemsToDispense = rx.items.map((item: any) => {
+                                const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
+                                return {
+                                  prescription_item_id: item.id,
+                                  medicine_name: item.medicine_name,
+                                  medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
+                                  prescribed_qty: item.quantity,
+                                  dosage: item.dosage,
+                                  duration: item.duration || "N/A",
+                                  tablets_given: item.quantity,
+                                  cost_per_tablet: "", // Blank field!
+                                  is_nil: false,
+                                  nil_reason: "",
+                                  line_total: 0
+                                };
+                              });
+                              setDispenseItems(itemsToDispense);
+                            }}
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
+                          >
+                            Dispense Medication
+                          </button>
+                        )}
                       </div>
                     ))
                   ) : (
@@ -4607,136 +4967,6 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
-
-                {/* DISPENSING WORKFLOW MODAL */}
-                <FloatingPanelRoot isOpen={isDispenseModalOpen} onOpenChange={setIsDispenseModalOpen}>
-                  <FloatingPanelContent className="w-[95vw] sm:w-[600px] text-left max-h-[90vh] overflow-y-auto">
-                    <FloatingPanelBody>
-                      {activeRxToDispense && (
-                        <form onSubmit={handleDispensePrescription} className="space-y-5 text-xs text-[var(--foreground)]">
-                          <div>
-                            <h3 className="text-sm font-black">Dispense Rx #{activeRxToDispense.id}</h3>
-                            <p className="text-[10px] text-slate-400 uppercase mt-0.5">Patient: {activeRxToDispense.patient_name} | Diagnosis: {activeRxToDispense.diagnosis}</p>
-                          </div>
-
-                          <div className="overflow-x-auto border border-[var(--border)] rounded-2xl bg-[var(--card)]">
-                            <table className="w-full text-left text-xs border-collapse">
-                              <thead>
-                                <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 font-bold uppercase text-[9px]">
-                                  <th className="px-3 py-2.5">Medication</th>
-                                  <th className="px-3 py-2.5">Prescribed</th>
-                                  <th className="px-3 py-2.5">Dispense Qty</th>
-                                  <th className="px-3 py-2.5">Price / Tab</th>
-                                  <th className="px-3 py-2.5">Total</th>
-                                  <th className="px-3 py-2.5 text-center">NIL</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {dispenseItems.map((item, idx) => (
-                                  <tr key={idx} className={`border-b border-[var(--border)] ${item.is_nil ? "bg-red-500/5 text-slate-400" : ""}`}>
-                                    <td className="px-3 py-3 font-semibold">
-                                      {item.is_nil ? "NIL — " : ""}{item.medicine_name} ({item.dosage})
-                                      {item.is_nil && (
-                                        <input
-                                          type="text"
-                                          required
-                                          placeholder="Enter NIL reason (e.g. Out of Stock)"
-                                          value={item.nil_reason}
-                                          onChange={(e) => {
-                                            const updated = [...dispenseItems];
-                                            updated[idx].nil_reason = e.target.value;
-                                            setDispenseItems(updated);
-                                          }}
-                                          className="w-full mt-1 px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
-                                        />
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3 font-bold text-center">{item.prescribed_qty}</td>
-                                    <td className="px-3 py-3">
-                                      <input
-                                        type="number"
-                                        required
-                                        min={0}
-                                        disabled={item.is_nil}
-                                        value={item.tablets_given}
-                                        onChange={(e) => {
-                                          const val = parseInt(e.target.value) || 0;
-                                          const updated = [...dispenseItems];
-                                          updated[idx].tablets_given = val;
-                                          updated[idx].line_total = val * item.cost_per_tablet;
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="w-16 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center text-xs focus:ring-1 focus:ring-indigo-500 outline-none disabled:opacity-50"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-3">
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        required
-                                        min={0}
-                                        disabled={item.is_nil}
-                                        value={item.cost_per_tablet}
-                                        onChange={(e) => {
-                                          const val = parseFloat(e.target.value) || 0;
-                                          const updated = [...dispenseItems];
-                                          updated[idx].cost_per_tablet = val;
-                                          updated[idx].line_total = item.tablets_given * val;
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="w-16 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center text-xs focus:ring-1 focus:ring-indigo-500 outline-none disabled:opacity-50"
-                                      />
-                                    </td>
-                                    <td className="px-3 py-3 font-bold">
-                                      ₹{item.is_nil ? "0.00" : item.line_total.toFixed(2)}
-                                    </td>
-                                    <td className="px-3 py-3 text-center">
-                                      <input
-                                        type="checkbox"
-                                        checked={item.is_nil}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          const updated = [...dispenseItems];
-                                          updated[idx].is_nil = checked;
-                                          if (checked) {
-                                            updated[idx].tablets_given = 0;
-                                            updated[idx].line_total = 0;
-                                            updated[idx].nil_reason = "Out of Stock";
-                                          } else {
-                                            updated[idx].tablets_given = item.prescribed_qty;
-                                            updated[idx].line_total = item.prescribed_qty * item.cost_per_tablet;
-                                            updated[idx].nil_reason = "";
-                                          }
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="w-4 h-4 cursor-pointer text-indigo-600 focus:ring-indigo-500 rounded border-slate-300"
-                                      />
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          <div className="flex justify-between items-center border-t border-[var(--border)] pt-4 text-sm">
-                            <span className="font-bold">Total Bill Amount:</span>
-                            <span className="text-lg font-black text-indigo-600">
-                              ₹{dispenseItems.reduce((acc, it) => acc + (it.is_nil ? 0 : it.line_total), 0).toFixed(2)}
-                            </span>
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Dispense & Bill"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      )}
-                    </FloatingPanelBody>
-                  </FloatingPanelContent>
-                </FloatingPanelRoot>
               </div>
             )}
 
@@ -6425,37 +6655,103 @@ export default function Dashboard() {
                         <tbody>
                           {currentPatientData.prescriptions && currentPatientData.prescriptions.length > 0 ? (
                             currentPatientData.prescriptions.map((rx) => (
-                              <tr key={rx.id} className="border-b border-[var(--border)]">
-                                <td className="px-4 py-3 font-bold text-indigo-500">#Rx-{rx.id}</td>
-                                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                                  <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
-                                  {rx.lab_requests && rx.lab_requests.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-1.5">
-                                      {rx.lab_requests.map((test: string, idx: number) => (
-                                        <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
-                                          🔬 {test}
-                                        </span>
-                                      ))}
+                              <React.Fragment key={rx.id}>
+                                <tr 
+                                  onClick={() => setExpandedRxId(expandedRxId === rx.id ? null : rx.id)}
+                                  className="border-b border-[var(--border)] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
+                                >
+                                  <td className="px-4 py-3 font-bold text-indigo-500">
+                                    <div className="flex items-center space-x-1">
+                                      <span>#Rx-{rx.id}</span>
+                                      <span className="text-[10px] text-slate-400">
+                                        {expandedRxId === rx.id ? "▲" : "▼"}
+                                      </span>
                                     </div>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right">
-                                  <span
-                                    className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                                      rx.status === "dispensed"
-                                        ? "bg-emerald-500/10 text-emerald-500"
-                                        : rx.status === "partially_dispensed"
-                                        ? "bg-blue-500/10 text-blue-500"
-                                        : rx.status === "cancelled"
-                                        ? "bg-red-500/10 text-red-500"
-                                        : "bg-amber-500/10 text-amber-500"
-                                    }`}
-                                  >
-                                    {rx.status}
-                                  </span>
-                                </td>
-                              </tr>
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                                    <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
+                                    {rx.lab_requests && rx.lab_requests.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1.5">
+                                        {rx.lab_requests.map((test: string, idx: number) => (
+                                          <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
+                                            🔬 {test}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
+                                  <td className="px-4 py-3 text-right">
+                                    <span
+                                      className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                        rx.status === "dispensed"
+                                          ? "bg-emerald-500/10 text-emerald-500"
+                                          : rx.status === "partially_dispensed"
+                                          ? "bg-blue-500/10 text-blue-500"
+                                          : rx.status === "cancelled"
+                                          ? "bg-red-500/10 text-red-500"
+                                          : "bg-amber-500/10 text-amber-500"
+                                      }`}
+                                    >
+                                      {rx.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                                {expandedRxId === rx.id && (
+                                  <tr className="bg-slate-50/50 dark:bg-slate-900/30">
+                                    <td colSpan={4} className="px-6 py-4 border-b border-[var(--border)]">
+                                      <div className="space-y-3.5 text-xs text-slate-600 dark:text-slate-300">
+                                        {/* Notes Section */}
+                                        {rx.notes && (
+                                          <div>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">Clinical Notes / Advice:</span>
+                                            <p className="pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 italic">{rx.notes}</p>
+                                          </div>
+                                        )}
+                                        {/* Medicines Section */}
+                                        {rx.items && rx.items.length > 0 ? (
+                                          <div>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1.5">Prescribed Medicines:</span>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-2.5">
+                                              {rx.items.map((item: any, itemIdx: number) => (
+                                                <div key={itemIdx} className="bg-white dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm relative space-y-1">
+                                                  <div className="font-bold text-slate-800 dark:text-slate-100 flex justify-between">
+                                                    <span>{item.medicine_name}</span>
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase font-mono">Qty: {item.quantity || 1}</span>
+                                                  </div>
+                                                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                    Dosage: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.dosage || "N/A"}</span> | Freq: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.frequency || "N/A"}</span> | Dur: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.duration || "N/A"}</span>
+                                                  </div>
+                                                  {item.instructions && (
+                                                    <div className="text-[10px] text-indigo-500 dark:text-indigo-400 italic">
+                                                      ★ Instructions: {item.instructions}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div className="text-slate-400 italic">No medicines prescribed.</div>
+                                        )}
+                                        {/* Lab Tests Section */}
+                                        {rx.lab_requests && rx.lab_requests.length > 0 && (
+                                          <div>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">Recommended Diagnostic / Lab Tests:</span>
+                                            <div className="flex flex-wrap gap-1.5 pl-2.5">
+                                              {rx.lab_requests.map((test: string, testIdx: number) => (
+                                                <span key={testIdx} className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20 shadow-sm">
+                                                  🔬 {test}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
                             ))
                           ) : (
                             <tr>
@@ -6870,6 +7166,7 @@ export default function Dashboard() {
               { id: "appointments", label: "Appointment Slots", icon: Calendar },
               { id: "availability", label: "Availability Settings", icon: Settings },
               { id: "queue", label: "Active Hospital Queue", icon: Clock },
+              { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
               { id: "billing", label: "Organization Ledger", icon: FileText },
               { id: "medicines", label: "Pharmacy Stock", icon: Plus },
               { id: "analytics", label: "Facility Analytics", icon: Activity },

@@ -27,7 +27,9 @@ func ListFacilities(w http.ResponseWriter, r *http.Request) {
 		SELECT f.id, f.name, f.type, uf.role
 		FROM facilities f
 		JOIN user_facilities uf ON f.id = uf.facility_id
+		JOIN users u ON uf.user_id = u.id
 		WHERE uf.user_id = $1
+		AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
 		ORDER BY f.name ASC
 	`
 	rows, err := db.Pool.Query(r.Context(), query, userID)

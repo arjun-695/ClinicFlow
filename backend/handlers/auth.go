@@ -165,7 +165,14 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 		Role string `json:"role"`
 	}
 	facilities := []SessionFacility{}
-	rows, err := db.Pool.Query(r.Context(), "SELECT f.id, f.name, f.type, uf.role FROM facilities f JOIN user_facilities uf ON f.id = uf.facility_id WHERE uf.user_id = $1", shopkeeperID)
+	rows, err := db.Pool.Query(r.Context(), `
+		SELECT f.id, f.name, f.type, uf.role 
+		FROM facilities f 
+		JOIN user_facilities uf ON f.id = uf.facility_id 
+		JOIN users u ON uf.user_id = u.id
+		WHERE uf.user_id = $1
+		AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
+	`, shopkeeperID)
 	if err == nil {
 		for rows.Next() {
 			var f SessionFacility

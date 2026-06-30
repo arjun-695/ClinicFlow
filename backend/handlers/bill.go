@@ -33,6 +33,12 @@ type Bill struct {
 	PatientID       int        `json:"patient_id"`
 	PatientName     string     `json:"patient_name"`
 	PatientPhone    string     `json:"patient_phone"`
+	PatientGender   string     `json:"patient_gender,omitempty"`
+	PatientAge      int        `json:"patient_age,omitempty"`
+	Weight          string     `json:"weight,omitempty"`
+	BP              string     `json:"bp,omitempty"`
+	Pulse           string     `json:"pulse,omitempty"`
+	Temp            string     `json:"temp,omitempty"`
 	DoctorID        int        `json:"doctor_id"`
 	ClinicName      string     `json:"clinic_name"`
 	Description     string     `json:"description"`
@@ -408,11 +414,18 @@ func GetBillDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil && role != "USER" {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	var b Bill
 	var queryBill string
 	if role == "USER" {
 		queryBill = `
 			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
+			       COALESCE(p.gender, '') as patient_gender, COALESCE(p.age, 0) as patient_age,
 			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
 			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
 			FROM bills b
@@ -421,21 +434,22 @@ func GetBillDetails(w http.ResponseWriter, r *http.Request) {
 			WHERE b.id = $1 AND p.phone = $2
 		`
 		err = db.Pool.QueryRow(ctx, queryBill, id, phone).Scan(
-			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
+			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.PatientGender, &b.PatientAge, &b.DoctorID, &b.ClinicName,
 			&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
 		)
 	} else {
 		queryBill = `
 			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
+			       COALESCE(p.gender, '') as patient_gender, COALESCE(p.age, 0) as patient_age,
 			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
 			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
 			FROM bills b
 			JOIN patients p ON b.patient_id = p.id
 			LEFT JOIN users d ON b.doctor_id = d.id
-			WHERE b.id = $1 AND p.doctor_id = $2
+			WHERE b.id = $1 AND p.facility_id = $2
 		`
-		err = db.Pool.QueryRow(ctx, queryBill, id, doctorID).Scan(
-			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
+		err = db.Pool.QueryRow(ctx, queryBill, id, facilityID).Scan(
+			&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.PatientGender, &b.PatientAge, &b.DoctorID, &b.ClinicName,
 			&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
 		)
 	}
@@ -443,6 +457,21 @@ func GetBillDetails(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found"})
 		return
 	}
+
+	// Fetch latest vitals for this patient if available
+	vitalsQuery := `
+		SELECT COALESCE(weight_kg::text, ''), COALESCE(blood_pressure, ''), COALESCE(pulse::text, ''), COALESCE(temperature::text, '')
+		FROM vitals
+		WHERE patient_id = $1
+		ORDER BY recorded_at DESC
+		LIMIT 1
+	`
+	var weight, bp, pulse, temp string
+	_ = db.Pool.QueryRow(ctx, vitalsQuery, b.PatientID).Scan(&weight, &bp, &pulse, &temp)
+	b.Weight = weight
+	b.BP = bp
+	b.Pulse = pulse
+	b.Temp = temp
 
 	// Load Bill Items
 	queryItems := `

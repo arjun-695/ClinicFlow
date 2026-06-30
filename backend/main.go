@@ -242,8 +242,8 @@ func main() {
 	mux.HandleFunc("PUT /api/prescriptions", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireDoctor(bodySizeLimit(1<<20, handlers.UpdatePrescription)))))
 
 	// Pharmacy
-	mux.HandleFunc("GET /api/pharmacy/queue", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequirePharmacist(handlers.ListPendingPrescriptions))))
-	mux.HandleFunc("POST /api/pharmacy/dispense", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequirePharmacist(bodySizeLimit(1<<20, handlers.DispensePrescription)))))
+	mux.HandleFunc("GET /api/pharmacy/queue", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequirePharmacistOrAdmin(handlers.ListPendingPrescriptions))))
+	mux.HandleFunc("POST /api/pharmacy/dispense", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequirePharmacistOrAdmin(bodySizeLimit(1<<20, handlers.DispensePrescription)))))
 	mux.HandleFunc("GET /api/pharmacy/dispensing", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequirePharmacistOrAdmin(handlers.GetDispensingRecord))))
 
 	// Availability & Slots

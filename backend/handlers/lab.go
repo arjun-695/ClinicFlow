@@ -19,7 +19,6 @@ type LabRequest struct {
 	TestName      string     `json:"test_name"`
 	Status        string     `json:"status"` // REQUESTED, COMPLETED, CANCELLED
 	RequestedDate time.Time  `json:"requested_date"`
-	MedplumID     *string    `json:"medplum_id"`
 	ReportURL     *string    `json:"report_url"`
 	ResultSummary *string    `json:"result_summary"`
 	UploadedAt    *time.Time `json:"uploaded_at"`
@@ -166,7 +165,7 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 		}
 		query = `
 			SELECT lr.id, lr.patient_id, p.name as patient_name, lr.doctor_id, u.name as doctor_name,
-			       lr.test_name, lr.status, lr.requested_date, lr.medplum_id,
+			       lr.test_name, lr.status, lr.requested_date,
 			       rep.report_url, rep.result_summary, rep.uploaded_at
 			FROM lab_requests lr
 			JOIN patients p ON lr.patient_id = p.id
@@ -179,7 +178,7 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 	} else {
 		query = `
 			SELECT lr.id, lr.patient_id, p.name as patient_name, lr.doctor_id, u.name as doctor_name,
-			       lr.test_name, lr.status, lr.requested_date, lr.medplum_id,
+			       lr.test_name, lr.status, lr.requested_date,
 			       rep.report_url, rep.result_summary, rep.uploaded_at
 			FROM lab_requests lr
 			JOIN patients p ON lr.patient_id = p.id
@@ -202,7 +201,7 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 		var lr LabRequest
 		err = rows.Scan(
 			&lr.ID, &lr.PatientID, &lr.PatientName, &lr.DoctorID, &lr.DoctorName,
-			&lr.TestName, &lr.Status, &lr.RequestedDate, &lr.MedplumID,
+			&lr.TestName, &lr.Status, &lr.RequestedDate,
 			&lr.ReportURL, &lr.ResultSummary, &lr.UploadedAt,
 		)
 		if err == nil {

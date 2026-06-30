@@ -183,9 +183,9 @@ func CheckInPatient(w http.ResponseWriter, r *http.Request) {
 
 	// Verify doctor belongs to facility
 	var docExists bool
-	err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND role = 'DOCTOR')", doctorID).Scan(&docExists)
+	err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM user_facilities WHERE user_id = $1 AND facility_id = $2)", doctorID, facilityID).Scan(&docExists)
 	if err != nil || !docExists {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Selected doctor does not exist"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Selected doctor is not associated with this facility"})
 		return
 	}
 
@@ -211,6 +211,31 @@ func CheckInPatient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+
+	// Automatically map the patient to the doctor in patient_doctors for this facility if not already assigned
+	var isAssigned bool
+	err = tx.QueryRow(r.Context(), `
+		SELECT EXISTS(SELECT 1 FROM patient_doctors WHERE patient_id = $1 AND doctor_id = $2 AND facility_id = $3)
+	`, patientID, doctorID, facilityID).Scan(&isAssigned)
+	if err != nil {
+		log.Printf("CheckInPatient verify assignment error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database validation error"})
+		return
+	}
+
+	if !isAssigned {
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO patient_doctors (patient_id, doctor_id, facility_id, assigned_by)
+			VALUES ($1, $2, $3, $4)
+		`, patientID, doctorID, facilityID, userID)
+		if err != nil {
+			log.Printf("CheckInPatient patient_doctors mapping error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to assign doctor to patient"})
+			return
+		}
+		db.InvalidateCache(r.Context(), "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(patientID))
+		db.InvalidateCache(r.Context(), "patients:list:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(facilityID)+":*")
+	}
 
 	// Insert temporary entry
 	var entryID int

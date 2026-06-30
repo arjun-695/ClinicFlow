@@ -1,9 +1,0 @@
-{
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "lib": ["esnext", "dom", "dom.iterable"],
-    "types": ["vite/client"]
-  }
-}
