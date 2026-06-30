@@ -45,6 +45,13 @@ func isSecureCookie() bool {
 	return strings.HasPrefix(origin, "https://")
 }
 
+func getSameSiteMode() http.SameSite {
+	if isSecureCookie() {
+		return http.SameSiteNoneMode
+	}
+	return http.SameSiteLaxMode
+}
+
 // InitSessionSecret initializes the HMAC signing key for session tokens
 func InitSessionSecret() {
 	secret := os.Getenv("SESSION_SECRET")
@@ -233,7 +240,7 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   isSecureCookie(),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: getSameSiteMode(),
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out successfully"})
 }
@@ -315,7 +322,7 @@ func Signup(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400, // 24 hours
 		HttpOnly: true,
 		Secure:   isSecureCookie(),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: getSameSiteMode(),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -387,7 +394,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400, // 24 hours
 		HttpOnly: true,
 		Secure:   isSecureCookie(),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: getSameSiteMode(),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -616,7 +623,7 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400, // 24 hours
 		HttpOnly: true,
 		Secure:   isSecureCookie(),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: getSameSiteMode(),
 	})
 
 	// Redirect back to frontend dashboard
@@ -1047,7 +1054,7 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   86400,
 		HttpOnly: true,
 		Secure:   isSecureCookie(),
-		SameSite: http.SameSiteLaxMode,
+		SameSite: getSameSiteMode(),
 	})
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
