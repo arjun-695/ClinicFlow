@@ -289,7 +289,15 @@ export default function Dashboard() {
         }
       }
     }
-  }, [doctorInfo]);
+  const getCombinedPhone = (phoneCode: string, rawPhone: string) => {
+    const clean = rawPhone.replace(/[\s+-]/g, "");
+    const codeDigits = phoneCode.replace("+", "");
+    // If the number already starts with the country code and has more than 10 digits, don't prepend it
+    if (clean.startsWith(codeDigits) && clean.length > 10) {
+      return `+${clean}`;
+    }
+    return `${phoneCode}${clean}`;
+  };
 
   // Core Data
   const [patients, setPatients] = useState<Patient[]>([]);

@@ -95,7 +95,7 @@ func SendOTPInvites(email string, phone string, appName string, onboardLink stri
 		return "", "", err
 	}
 
-	// Dispatch SMTP and WhatsApp sending asynchronously to avoid blocking the HTTP request
+	// Dispatch SMTP email sending asynchronously
 	go func() {
 		// Try sending email via local SMTP if configured
 		smtpHost := os.Getenv("SMTP_HOST")
@@ -103,8 +103,6 @@ func SendOTPInvites(email string, phone string, appName string, onboardLink stri
 		smtpUser := os.Getenv("SMTP_USER")
 		smtpPass := os.Getenv("SMTP_PASS")
 		smtpFrom := os.Getenv("SMTP_FROM")
-
-		var sentEmail, sentWhatsApp bool
 
 		if smtpHost != "" && smtpUser != "" && smtpPass != "" {
 			addr := smtpHost + ":" + smtpPort
@@ -130,29 +128,25 @@ func SendOTPInvites(email string, phone string, appName string, onboardLink stri
 			err = smtp.SendMail(addr, auth, smtpFrom, []string{email}, msg)
 			if err == nil {
 				log.Printf("[OTP Service] Successfully sent local email OTP to %s", email)
-				sentEmail = true
 			} else {
 				log.Printf("[OTP Service] Failed to send email via SMTP: %v", err)
 			}
 		}
+	}()
 
-		// Try sending OTP to phone via WhatsApp if provided and WhatsApp service is connected
-		if phone != "" {
+	// Dispatch OTP to phone via WhatsApp asynchronously in parallel
+	if phone != "" {
+		go func() {
 			cleanedPhone := strings.TrimPrefix(phone, "+")
 			message := fmt.Sprintf("[ClinicFlow] You have been invited to join as a staff member.\nOnboarding Link: %s\nVerification Code: %s\nValid for 24 hours.", onboardLink, otpRes.OTP)
 			errWs := SendWhatsApp(cleanedPhone, message)
 			if errWs == nil {
 				log.Printf("[OTP Service] Successfully sent local WhatsApp OTP to %s", phone)
-				sentWhatsApp = true
 			} else {
 				log.Printf("[OTP Service] Failed to send WhatsApp OTP: %v", errWs)
 			}
-		}
-
-		if !sentEmail && !sentWhatsApp {
-			log.Printf("[DEVELOPMENT ALERT] Local OTP created: %s (Hash: %s). Communication channels failed/unconfigured, copy from here.", otpRes.OTP, otpRes.Hash)
-		}
-	}()
+		}()
+	}
 
 	return otpRes.Hash, otpRes.OTP, nil
 }
