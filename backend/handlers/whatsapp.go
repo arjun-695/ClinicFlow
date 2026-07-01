@@ -41,15 +41,22 @@ func GetWhatsAppQR(w http.ResponseWriter, r *http.Request) {
 	services.WhatsAppStatesMutex.RUnlock()
 
 	// If not connected, not paired, and the QR stream loop has timed out or is stale
-	if !isConnected && state.Client != nil && state.Client.Store.ID == nil {
-		if qr == "" || time.Since(lastQRTime) > 25*time.Second || !state.QRChannelActive {
-			log.Printf("[WhatsApp] QR stream stale or inactive for facility %d. Re-initializing whatsmeow QR channel...", facilityID)
-			state.Client.Disconnect()
-			time.Sleep(100 * time.Millisecond) // brief pause to disconnect
+	if !isConnected && (state.Client == nil || state.Client.Store.ID == nil) {
+		if state.Client == nil || qr == "" || time.Since(lastQRTime) > 25*time.Second || !state.QRChannelActive {
+			log.Printf("[WhatsApp] QR stream stale, inactive or client uninitialized for facility %d. Re-initializing whatsmeow QR channel...", facilityID)
+			
+			if state.Client != nil {
+				state.Client.Disconnect()
+				time.Sleep(100 * time.Millisecond) // brief pause to disconnect
+			}
+			
 			services.StartQRStream(facilityID)
-			err := state.Client.Connect()
-			if err != nil {
-				log.Printf("[WhatsApp] Connect error on QR refresh for facility %d: %v", facilityID, err)
+			
+			if state.Client != nil {
+				err := state.Client.Connect()
+				if err != nil {
+					log.Printf("[WhatsApp] Connect error on QR refresh for facility %d: %v", facilityID, err)
+				}
 			}
 
 			// Block for up to 2 seconds to wait for a fresh QR to arrive in the stream
