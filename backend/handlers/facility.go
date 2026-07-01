@@ -123,6 +123,7 @@ func CreateFacility(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message":     "Facility created successfully",
+		"id":          facilityID,
 		"facility_id": facilityID,
 		"name":        input.Name,
 		"type":        input.Type,
@@ -180,5 +181,57 @@ func ListFacilityStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, staff)
+}
+
+// DeleteFacilityStaff removes a staff member from the current workspace (facility) (Admin only)
+func DeleteFacilityStaff(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	adminRole, err := getUserRole(r.Context(), adminID)
+	if err != nil || adminRole != "HOSPITAL_ADMIN" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Only Hospital Admins can remove staff"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, adminID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to resolve active facility"})
+		return
+	}
+
+	staffIDStr := r.URL.Query().Get("id")
+	if staffIDStr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Staff ID is required"})
+		return
+	}
+
+	staffID, err := strconv.Atoi(staffIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid staff ID"})
+		return
+	}
+
+	if staffID == adminID {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "You cannot remove yourself from the workspace"})
+		return
+	}
+
+	// Delete from user_facilities matching staff ID and active facility ID
+	_, err = db.Pool.Exec(r.Context(), "DELETE FROM user_facilities WHERE user_id = $1 AND facility_id = $2", staffID, facilityID)
+	if err != nil {
+		log.Printf("DeleteFacilityStaff DB error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to remove staff from facility"})
+		return
+	}
+
+	// Invalidate role cache and profile cache for the deleted user
+	db.InvalidateCache(r.Context(), "user:role:"+strconv.Itoa(staffID))
+	db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(staffID)+":*")
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Staff member removed from workspace successfully"})
 }
 

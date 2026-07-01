@@ -865,11 +865,14 @@ func InviteStaff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	respData := map[string]interface{}{
 		"message": "Staff invited successfully",
 		"token":   token, // returned for client-side routing convenience
-		"otp":     rawOTP,
-	})
+	}
+	if !isSecureCookie() {
+		respData["otp"] = rawOTP
+	}
+	writeJSON(w, http.StatusOK, respData)
 }
 
 // VerifyInvite checks if an invite token & OTP are valid
@@ -1002,6 +1005,7 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	err = db.Pool.QueryRow(r.Context(), "SELECT id, password_hash, name FROM users WHERE email = $1", email).Scan(&newUserID, &existingHash, &existingName)
 	if err == nil {
 		// User already exists!
+		var updatedPasswordHash *string
 		// Verify password if they have one set
 		if existingHash != nil && *existingHash != "" {
 			err = bcrypt.CompareHashAndPassword([]byte(*existingHash), []byte(input.Password))
@@ -1011,27 +1015,48 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Set password if not set (e.g. Google OAuth only users)
+			if input.Password == "" || len(input.Password) < 6 {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Password must be at least 6 characters"})
+				return
+			}
 			hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 			if err == nil {
-				_, _ = db.Pool.Exec(r.Context(), "UPDATE users SET password_hash = $1 WHERE id = $2", string(hashed), newUserID)
+				hashStr := string(hashed)
+				updatedPasswordHash = &hashStr
 			}
 		}
 
-		// Update fields if provided
+		// Consolidate updates (Bug 7 + Bug 1 role update)
+		nameToUpdate := existingName
 		if input.Name != "" && existingName == "" {
-			_, _ = db.Pool.Exec(r.Context(), "UPDATE users SET name = $1 WHERE id = $2", input.Name, newUserID)
+			nameToUpdate = input.Name
 		}
-		if input.Phone != "" {
-			_, _ = db.Pool.Exec(r.Context(), "UPDATE users SET phone = $1 WHERE id = $2", input.Phone, newUserID)
+		
+		updateQuery := `
+			UPDATE users 
+			SET role = $1,
+			    name = $2,
+			    phone = CASE WHEN $3 = '' THEN phone ELSE $3 END,
+			    specialization = CASE WHEN $4 = '' THEN specialization ELSE $4 END,
+			    location = CASE WHEN $5 = '' THEN location ELSE $5 END,
+			    password_hash = COALESCE($6, password_hash)
+			WHERE id = $7
+		`
+		_, err = db.Pool.Exec(r.Context(), updateQuery, role, nameToUpdate, input.Phone, input.Specialization, input.Location, updatedPasswordHash, newUserID)
+		if err != nil {
+			log.Printf("AcceptInvite existing user update error: %v", err)
 		}
-		if input.Specialization != "" {
-			_, _ = db.Pool.Exec(r.Context(), "UPDATE users SET specialization = $1 WHERE id = $2", input.Specialization, newUserID)
-		}
-		if input.Location != "" {
-			_, _ = db.Pool.Exec(r.Context(), "UPDATE users SET location = $1 WHERE id = $2", input.Location, newUserID)
-		}
+		
+		// Invalidate cache for the modified user
+		db.InvalidateCache(r.Context(), "user:role:"+strconv.Itoa(newUserID))
+		db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(newUserID)+":*")
 	} else {
-		// Create user
+		// Create user (Bug 2: password validation for new users)
+		if input.Password == "" || len(input.Password) < 6 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Password must be at least 6 characters"})
+			return
+		}
+
 		hashed, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Internal server error"})
@@ -1051,13 +1076,19 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Associate staff user with the invited facility
+	// Associate staff user with the invited facility (Bug 4: log errors)
 	if inviteFacilityID != nil {
-		_, _ = db.Pool.Exec(r.Context(), "INSERT INTO user_facilities (user_id, facility_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", newUserID, *inviteFacilityID, role)
+		_, err = db.Pool.Exec(r.Context(), "INSERT INTO user_facilities (user_id, facility_id, role) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", newUserID, *inviteFacilityID, role)
+		if err != nil {
+			log.Printf("AcceptInvite facility association error: %v", err)
+		}
 	}
 
-	// Mark invite as used
-	_, _ = db.Pool.Exec(r.Context(), "UPDATE user_invites SET is_used = true WHERE id = $1", inviteID)
+	// Mark invite as used (Bug 4: log errors)
+	_, err = db.Pool.Exec(r.Context(), "UPDATE user_invites SET is_used = true WHERE id = $1", inviteID)
+	if err != nil {
+		log.Printf("AcceptInvite mark invite used error: %v", err)
+	}
 
 	// Set session cookie
 	token := CreateSessionToken(newUserID)

@@ -490,6 +490,14 @@ export default function Dashboard() {
   const [ownPatientProfile, setOwnPatientProfile] = useState<any>(null);
   const [staffList, setStaffList] = useState<any[]>([]);
 
+  // Clear stale invite state when invite panel opens (Bug 6)
+  useEffect(() => {
+    if (isInviteOpen) {
+      setInviteLink("");
+      setInviteOTP("");
+    }
+  }, [isInviteOpen]);
+
   // Automatically set selectedDoctorIds to the logged-in doctor if role is DOCTOR when registering a patient
   useEffect(() => {
     if (isAddPatientOpen && doctorInfo?.role === "DOCTOR" && doctorInfo?.id) {
@@ -1472,6 +1480,36 @@ export default function Dashboard() {
       setToast({ message: e.message || "Failed to register patient", type: "error" });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeletePatient = async (id: number) => {
+    if (!window.confirm("Are you sure you want to delete this patient? This will cascade and delete all associated records (appointments, prescriptions, vitals, etc.).")) {
+      return;
+    }
+    try {
+      await fetchAPI(`/api/patients?id=${id}`, {
+        method: "DELETE",
+      });
+      setToast({ message: "Patient deleted successfully", type: "success" });
+      loadPatients();
+    } catch (e: any) {
+      setToast({ message: e.message || "Failed to delete patient", type: "error" });
+    }
+  };
+
+  const handleRemoveStaff = async (id: number) => {
+    if (!window.confirm("Are you sure you want to remove this staff member from this workspace? They will lose all access and visibility to this hospital/clinic workspace.")) {
+      return;
+    }
+    try {
+      await fetchAPI(`/api/facilities/staff?id=${id}`, {
+        method: "DELETE",
+      });
+      setToast({ message: "Staff member removed from workspace successfully", type: "success" });
+      loadStaff();
+    } catch (e: any) {
+      setToast({ message: e.message || "Failed to remove staff member", type: "error" });
     }
   };
 
@@ -2817,6 +2855,7 @@ export default function Dashboard() {
                           <th className="px-6 py-4">Contact</th>
                           <th className="px-6 py-4">Specialization</th>
                           <th className="px-6 py-4">Location</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2831,6 +2870,17 @@ export default function Dashboard() {
                                 {member.specialization ? ` (${member.specialization})` : ""}
                               </td>
                               <td className="px-6 py-4 text-slate-400">{member.location || "-"}</td>
+                              <td className="px-6 py-4 text-right">
+                                {doctorInfo?.role === "HOSPITAL_ADMIN" && member.id !== doctorInfo.id && (
+                                  <button
+                                    onClick={() => handleRemoveStaff(member.id)}
+                                    className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                    title="Remove Staff Member"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))
                         ) : (
@@ -2840,6 +2890,7 @@ export default function Dashboard() {
                             <td className="px-6 py-4 text-slate-500">{doctorInfo?.phone || "-"}</td>
                             <td className="px-6 py-4 text-indigo-500 font-bold uppercase">{doctorInfo?.role}</td>
                             <td className="px-6 py-4 text-slate-400">{doctorInfo?.location || "-"}</td>
+                            <td className="px-6 py-4"></td>
                           </tr>
                         )}
                       </tbody>
@@ -3966,9 +4017,20 @@ export default function Dashboard() {
                         >
                           <div className="flex justify-between items-center">
                             <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">{pt.name}</span>
-                            <span className={cn("font-black text-xs", pt.total_dues > 0 ? "text-red-500" : "text-emerald-500")}>
-                              {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
-                            </span>
+                            <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                              <span className={cn("font-black text-xs", pt.total_dues > 0 ? "text-red-500" : "text-emerald-500")}>
+                                {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
+                              </span>
+                              {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                                <button
+                                  onClick={() => handleDeletePatient(pt.id)}
+                                  className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                  title="Delete Patient"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
                             <span>{pt.phone}</span>
@@ -3996,6 +4058,7 @@ export default function Dashboard() {
                           <th className="px-6 py-4">Age / Gender</th>
                           <th className="px-6 py-4">Medical History Summary</th>
                           <th className="px-6 py-4 text-right">Outstanding Dues</th>
+                          <th className="px-6 py-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4013,11 +4076,22 @@ export default function Dashboard() {
                               <td className="px-6 py-4 text-right font-black text-red-500">
                                 {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
                               </td>
+                              <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                                  <button
+                                    onClick={() => handleDeletePatient(pt.id)}
+                                    className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                    title="Delete Patient"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-semibold">
+                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
                               {isDoctorInHospital ? "No treated patients found." : "No patients found. Click 'Register Patient' to add one."}
                             </td>
                           </tr>

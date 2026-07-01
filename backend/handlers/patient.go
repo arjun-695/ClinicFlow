@@ -597,3 +597,77 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, responseData)
 }
+
+// DeletePatient deletes a patient and all their cascading data (Admin only)
+func DeletePatient(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	adminRole, err := getUserRole(r.Context(), adminID)
+	if err != nil || adminRole != "HOSPITAL_ADMIN" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Only Hospital Admins can delete patients"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, adminID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to resolve active facility"})
+		return
+	}
+
+	patientIDStr := r.URL.Query().Get("id")
+	if patientIDStr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Patient ID is required"})
+		return
+	}
+
+	patientID, err := strconv.Atoi(patientIDStr)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid patient ID"})
+		return
+	}
+
+	// Run inside a transaction to ensure all associated records not set to ON DELETE CASCADE are cleaned up properly
+	tx, err := db.Pool.Begin(r.Context())
+	if err != nil {
+		log.Printf("DeletePatient begin tx error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// 1. Delete from reschedule_queue
+	_, _ = tx.Exec(r.Context(), "DELETE FROM reschedule_queue WHERE patient_id = $1", patientID)
+
+	// 2. Delete from dispensing_items
+	_, _ = tx.Exec(r.Context(), "DELETE FROM dispensing_items WHERE dispensing_id IN (SELECT id FROM dispensing_records WHERE patient_id = $1)", patientID)
+
+	// 3. Delete from dispensing_records
+	_, _ = tx.Exec(r.Context(), "DELETE FROM dispensing_records WHERE patient_id = $1", patientID)
+
+	// 4. Delete from lab_reports
+	_, _ = tx.Exec(r.Context(), "DELETE FROM lab_reports WHERE lab_request_id IN (SELECT id FROM lab_requests WHERE patient_id = $1)", patientID)
+
+	// 5. Delete patient
+	_, err = tx.Exec(r.Context(), "DELETE FROM patients WHERE id = $1 AND facility_id = $2", patientID, facilityID)
+	if err != nil {
+		log.Printf("DeletePatient delete patient error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete patient"})
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		log.Printf("DeletePatient commit error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete patient"})
+		return
+	}
+
+	// Invalidate cache
+	db.InvalidateCache(r.Context(), "patient:detail:"+strconv.Itoa(patientID))
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Patient deleted successfully"})
+}
+
