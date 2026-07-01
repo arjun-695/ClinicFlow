@@ -95,61 +95,64 @@ func SendOTPInvites(email string, phone string, appName string, onboardLink stri
 		return "", "", err
 	}
 
-	var sentEmail, sentWhatsApp bool
+	// Dispatch SMTP and WhatsApp sending asynchronously to avoid blocking the HTTP request
+	go func() {
+		// Try sending email via local SMTP if configured
+		smtpHost := os.Getenv("SMTP_HOST")
+		smtpPort := os.Getenv("SMTP_PORT") // e.g. "587"
+		smtpUser := os.Getenv("SMTP_USER")
+		smtpPass := os.Getenv("SMTP_PASS")
+		smtpFrom := os.Getenv("SMTP_FROM")
 
-	// Try sending email via local SMTP if configured
-	smtpHost := os.Getenv("SMTP_HOST")
-	smtpPort := os.Getenv("SMTP_PORT") // e.g. "587"
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPass := os.Getenv("SMTP_PASS")
-	smtpFrom := os.Getenv("SMTP_FROM")
+		var sentEmail, sentWhatsApp bool
 
-	if smtpHost != "" && smtpUser != "" && smtpPass != "" {
-		addr := smtpHost + ":" + smtpPort
-		auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
-		
-		subject := fmt.Sprintf("Subject: OTP | %s Verification Code\r\n", appName)
-		mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
-		
-		body := fmt.Sprintf(`
-			<h2>ClinicFlow Staff Invitation</h2>
-			<p>You have been invited to join as a staff member on <strong>%s</strong>.</p>
-			<p>Click the link below to accept the invitation and complete your profile:</p>
-			<p><a href="%s" style="display: inline-block; padding: 10px 20px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">Accept Invitation & Register</a></p>
-			<p>Alternatively, copy and visit this link: <a href="%s">%s</a></p>
-			<p>Use the verification code below to verify your invitation when prompted:</p>
-			<div style="font-size: 24px; font-weight: bold; background: #f3f4f6; padding: 15px; border-radius: 5px; text-align: center; width: 200px; margin: 20px 0;">
-				%s
-			</div>
-			<p>This code is valid for 24 hours.</p>
-		`, appName, onboardLink, onboardLink, onboardLink, otpRes.OTP)
-		
-		msg := []byte(subject + mime + body)
-		err = smtp.SendMail(addr, auth, smtpFrom, []string{email}, msg)
-		if err == nil {
-			log.Printf("[OTP Service] Successfully sent local email OTP to %s", email)
-			sentEmail = true
-		} else {
-			log.Printf("[OTP Service] Failed to send email via SMTP: %v", err)
+		if smtpHost != "" && smtpUser != "" && smtpPass != "" {
+			addr := smtpHost + ":" + smtpPort
+			auth := smtp.PlainAuth("", smtpUser, smtpPass, smtpHost)
+			
+			subject := fmt.Sprintf("Subject: OTP | %s Verification Code\r\n", appName)
+			mime := "MIME-version: 1.0;\r\nContent-Type: text/html; charset=\"UTF-8\";\r\n\r\n"
+			
+			body := fmt.Sprintf(`
+				<h2>ClinicFlow Staff Invitation</h2>
+				<p>You have been invited to join as a staff member on <strong>%s</strong>.</p>
+				<p>Click the link below to accept the invitation and complete your profile:</p>
+				<p><a href="%s" style="display: inline-block; padding: 10px 20px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">Accept Invitation & Register</a></p>
+				<p>Alternatively, copy and visit this link: <a href="%s">%s</a></p>
+				<p>Use the verification code below to verify your invitation when prompted:</p>
+				<div style="font-size: 24px; font-weight: bold; background: #f3f4f6; padding: 15px; border-radius: 5px; text-align: center; width: 200px; margin: 20px 0;">
+					%s
+				</div>
+				<p>This code is valid for 24 hours.</p>
+			`, appName, onboardLink, onboardLink, onboardLink, otpRes.OTP)
+			
+			msg := []byte(subject + mime + body)
+			err = smtp.SendMail(addr, auth, smtpFrom, []string{email}, msg)
+			if err == nil {
+				log.Printf("[OTP Service] Successfully sent local email OTP to %s", email)
+				sentEmail = true
+			} else {
+				log.Printf("[OTP Service] Failed to send email via SMTP: %v", err)
+			}
 		}
-	}
 
-	// Try sending OTP to phone via WhatsApp if provided and WhatsApp service is connected
-	if phone != "" {
-		cleanedPhone := strings.TrimPrefix(phone, "+")
-		message := fmt.Sprintf("[ClinicFlow] You have been invited to join as a staff member.\nOnboarding Link: %s\nVerification Code: %s\nValid for 24 hours.", onboardLink, otpRes.OTP)
-		errWs := SendWhatsApp(cleanedPhone, message)
-		if errWs == nil {
-			log.Printf("[OTP Service] Successfully sent local WhatsApp OTP to %s", phone)
-			sentWhatsApp = true
-		} else {
-			log.Printf("[OTP Service] Failed to send WhatsApp OTP: %v", errWs)
+		// Try sending OTP to phone via WhatsApp if provided and WhatsApp service is connected
+		if phone != "" {
+			cleanedPhone := strings.TrimPrefix(phone, "+")
+			message := fmt.Sprintf("[ClinicFlow] You have been invited to join as a staff member.\nOnboarding Link: %s\nVerification Code: %s\nValid for 24 hours.", onboardLink, otpRes.OTP)
+			errWs := SendWhatsApp(cleanedPhone, message)
+			if errWs == nil {
+				log.Printf("[OTP Service] Successfully sent local WhatsApp OTP to %s", phone)
+				sentWhatsApp = true
+			} else {
+				log.Printf("[OTP Service] Failed to send WhatsApp OTP: %v", errWs)
+			}
 		}
-	}
 
-	if !sentEmail && !sentWhatsApp {
-		log.Printf("[DEVELOPMENT ALERT] Local OTP created: %s (Hash: %s). Communication channels failed/unconfigured, copy from here.", otpRes.OTP, otpRes.Hash)
-	}
+		if !sentEmail && !sentWhatsApp {
+			log.Printf("[DEVELOPMENT ALERT] Local OTP created: %s (Hash: %s). Communication channels failed/unconfigured, copy from here.", otpRes.OTP, otpRes.Hash)
+		}
+	}()
 
 	return otpRes.Hash, otpRes.OTP, nil
 }

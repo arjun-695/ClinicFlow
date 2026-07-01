@@ -2735,6 +2735,7 @@ export default function Dashboard() {
                             setInviteEmail("");
                             setInvitePhone("");
                             setInvitePhoneCode("+91");
+                            setIsInviteOpen(false);
                           } catch (err: any) {
                             setToast({ message: err.message || "Failed to invite staff", type: "error" });
                           } finally {
