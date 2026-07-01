@@ -289,6 +289,8 @@ export default function Dashboard() {
         }
       }
     }
+  }, [doctorInfo]);
+
   const getCombinedPhone = (phoneCode: string, rawPhone: string) => {
     const clean = rawPhone.replace(/[\s+-]/g, "");
     const codeDigits = phoneCode.replace("+", "");
@@ -1457,9 +1459,8 @@ export default function Dashboard() {
   // --- Handlers ---
   const handleAddPatient = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPhoneNum = newPtPhone.replace(/[\s+-]/g, "");
-    const combinedPhone = `${newPtPhoneCode}${cleanPhoneNum}`;
-    if (!newPtName || !cleanPhoneNum) return;
+    const combinedPhone = getCombinedPhone(newPtPhoneCode, newPtPhone);
+    if (!newPtName || !newPtPhone) return;
     if (isSubmitting) return;
     setIsSubmitting(true);
 
@@ -1776,9 +1777,8 @@ export default function Dashboard() {
 
   const handleWhatsAppPairing = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPhoneNum = pairPhone.replace(/[\s+-]/g, "");
-    const combinedPhone = `${pairPhoneCode}${cleanPhoneNum}`;
-    if (!cleanPhoneNum) return;
+    const combinedPhone = getCombinedPhone(pairPhoneCode, pairPhone);
+    if (!pairPhone) return;
     setIsPairing(true);
 
     try {
@@ -2725,8 +2725,7 @@ export default function Dashboard() {
                         <form onSubmit={async (e) => {
                           e.preventDefault();
                           if (!inviteEmail) return;
-                          const cleanPhoneNum = invitePhone.replace(/[\s+-]/g, "");
-                          const combinedPhone = cleanPhoneNum ? `${invitePhoneCode}${cleanPhoneNum}` : "";
+                          const combinedPhone = invitePhone ? getCombinedPhone(invitePhoneCode, invitePhone) : "";
                           setIsSubmitting(true);
                           try {
                             const res = await fetchAPI("/api/admin/invite", {
