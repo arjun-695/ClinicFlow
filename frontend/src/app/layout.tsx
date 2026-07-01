@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Bebas_Neue, Montserrat, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const bebasNeue = Bebas_Neue({
   weight: "400",
@@ -44,6 +46,8 @@ export default function RootLayout({
         >
           {children}
         </ThemeProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
