@@ -304,6 +304,7 @@ func main() {
 	mux.HandleFunc("GET /api/whatsapp/status", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetWhatsAppStatus)))
 	mux.HandleFunc("POST /api/whatsapp/test", rateLimitMiddleware(whatsappLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.SendWhatsAppTest))))
 	mux.HandleFunc("POST /api/whatsapp/pair-phone", rateLimitMiddleware(whatsappLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.PairWhatsAppPhone))))
+	mux.HandleFunc("POST /api/whatsapp/disconnect", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DisconnectWhatsApp)))
 	mux.HandleFunc("GET /api/whatsapp/templates", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetWhatsAppTemplates)))
 	mux.HandleFunc("PUT /api/whatsapp/templates", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateWhatsAppTemplate))))
 

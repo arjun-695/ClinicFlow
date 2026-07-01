@@ -441,6 +441,7 @@ export default function Dashboard() {
   // WhatsApp QR
   const [waStatus, setWaStatus] = useState<"CONNECTED" | "DISCONNECTED" | "INITIALIZING">("INITIALIZING");
   const [waQR, setWaQR] = useState("");
+  const [waConnectedPhone, setWaConnectedPhone] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [pairPhone, setPairPhone] = useState("");
   const [pairPhoneCode, setPairPhoneCode] = useState("+91");
@@ -1012,6 +1013,7 @@ export default function Dashboard() {
       const data = await fetchAPI("/api/whatsapp/qr");
       setWaStatus(data.status);
       setWaQR(data.qr || "");
+      setWaConnectedPhone(data.phone || "");
     } catch (e) {
       console.error("Failed to load WhatsApp Status", e);
     }
@@ -1792,6 +1794,22 @@ export default function Dashboard() {
       setToast({ message: e.message || "Failed to initiate phone pairing", type: "error" });
     } finally {
       setIsPairing(false);
+    }
+  };
+
+  const handleWhatsAppDisconnect = async () => {
+    if (!window.confirm("Are you sure you want to disconnect WhatsApp? This will log out the linked device and stop sending automated notifications.")) {
+      return;
+    }
+    try {
+      await fetchAPI("/api/whatsapp/disconnect", {
+        method: "POST"
+      });
+      setToast({ message: "WhatsApp client disconnected successfully", type: "success" });
+      setWaConnectedPhone("");
+      loadWhatsAppStatus();
+    } catch (e: any) {
+      setToast({ message: e.message || "Failed to disconnect WhatsApp", type: "error" });
     }
   };
 
@@ -5923,9 +5941,22 @@ export default function Dashboard() {
                 )}
 
                 {waStatus === "CONNECTED" && (
-                  <div className="text-center py-6 text-xs text-slate-400">
+                  <div className="text-center py-6 text-xs text-slate-400 space-y-4 border border-[var(--border)] rounded-3xl bg-[var(--card)] p-6">
                     <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 animate-bounce" />
-                    <span>WhatsApp client is authenticated and sending automated notifications!</span>
+                    <div>
+                      <p className="font-bold text-slate-800 dark:text-slate-200">WhatsApp Client is Connected!</p>
+                      {waConnectedPhone && (
+                        <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                          Logged in with: <strong className="text-emerald-500 font-bold">+{waConnectedPhone}</strong>
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={handleWhatsAppDisconnect}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer border-none outline-none"
+                    >
+                      Disconnect WhatsApp
+                    </button>
                   </div>
                 )}
 

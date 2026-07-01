@@ -47,9 +47,13 @@ func GetWhatsAppQR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var status string
+	phone := ""
 	if services.IsConnected.Load() {
 		status = "CONNECTED"
 		qr = ""
+		if services.WAClient != nil && services.WAClient.Store.ID != nil {
+			phone = services.WAClient.Store.ID.User
+		}
 	} else if qr == "" {
 		status = "INITIALIZING"
 	} else {
@@ -59,6 +63,7 @@ func GetWhatsAppQR(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status": status,
 		"qr":     qr,
+		"phone":  phone,
 	})
 }
 
@@ -142,4 +147,41 @@ func PairWhatsAppPhone(w http.ResponseWriter, r *http.Request) {
 		"status":       "Pairing code generated",
 		"pairing_code": code,
 	})
+}
+
+// DisconnectWhatsApp logs out the linked WhatsApp device and resets state (Admin only)
+func DisconnectWhatsApp(w http.ResponseWriter, r *http.Request) {
+	if services.WAClient == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "WhatsApp client is not initialized"})
+		return
+	}
+
+	// Verify caller has permissions (since WhatsApp settings are for admins)
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	userRole, err := getUserRole(r.Context(), userID)
+	if err != nil || userRole != "HOSPITAL_ADMIN" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Only Hospital Admins can disconnect WhatsApp"})
+		return
+	}
+
+	// Call whatsmeow Logout to unlink the device and clear session store
+	err = services.WAClient.Logout(r.Context())
+	if err != nil {
+		// Fallback: manually disconnect if Logout fails
+		log.Printf("[WhatsApp] Logout failed: %v, attempting manual disconnect", err)
+		services.WAClient.Disconnect()
+	}
+
+	// Reset shared states
+	services.IsConnected.Store(false)
+	services.QRMutex.Lock()
+	services.LatestQR = ""
+	services.QRMutex.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "WhatsApp disconnected successfully"})
 }
