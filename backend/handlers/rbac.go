@@ -109,3 +109,37 @@ func RequireMedicalStaff(next http.HandlerFunc) http.HandlerFunc {
 func RequirePharmacistOrAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return RoleMiddleware("PHARMACIST", "HOSPITAL_ADMIN", "DOCTOR")(next)
 }
+
+// CheckWhatsAppAccess verifies if the caller is authorized to view or modify WhatsApp configuration
+// based on their active facility's type (HOSPITAL requires admin, CLINIC allows doctor or admin)
+func CheckWhatsAppAccess(r *http.Request, userID int) (int, bool, error) {
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		return 0, false, err
+	}
+
+	var facType string
+	err = db.Pool.QueryRow(r.Context(), "SELECT type FROM facilities WHERE id = $1", facilityID).Scan(&facType)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to load facility type: %w", err)
+	}
+
+	userRole, err := getUserRole(r.Context(), userID)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to load user role: %w", err)
+	}
+
+	if facType == "HOSPITAL" {
+		if userRole == "HOSPITAL_ADMIN" {
+			return facilityID, true, nil
+		}
+		return facilityID, false, nil
+	}
+
+	// Clinic / Personal workspace: doctor or admin can access
+	if userRole == "HOSPITAL_ADMIN" || userRole == "DOCTOR" {
+		return facilityID, true, nil
+	}
+
+	return facilityID, false, nil
+}

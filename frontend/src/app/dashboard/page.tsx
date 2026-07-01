@@ -583,7 +583,12 @@ export default function Dashboard() {
       if (tab) {
         const validTabs = ["patients", "appointments", "billing", "medicines", "analytics", "whatsapp", "staff", "queue", "vitals", "labs", "reschedule-queue", "availability", "prescriptions", "pharmacy"];
         if (validTabs.includes(tab)) {
-          setActiveTab(tab as any);
+          const isDoctorInHospital = doctorInfo?.role === "DOCTOR" && !isClinicMode;
+          if (tab === "whatsapp" && isDoctorInHospital) {
+            setActiveTab("patients");
+          } else {
+            setActiveTab(tab as any);
+          }
         }
       }
 
@@ -2569,9 +2574,11 @@ export default function Dashboard() {
                 { id: "prescriptions", label: "Prescriptions", icon: FileText },
                 { id: "appointments", label: "Appointment Slots", icon: Calendar },
                 { id: "queue", label: "Patient Queue", icon: Clock },
-                { id: "availability", label: "Slot Settings", icon: Settings },
-                { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
+                { id: "availability", label: "Slot Settings", icon: Settings }
               );
+              if (isClinicMode) {
+                allTabs.push({ id: "whatsapp", label: "WhatsApp Link", icon: Smartphone });
+              }
             }
             return allTabs.map((tab) => {
               const Icon = tab.icon;
@@ -7311,9 +7318,11 @@ export default function Dashboard() {
               { id: "prescriptions", label: "Prescriptions", icon: FileText },
               { id: "appointments", label: "Appointment Slots", icon: Calendar },
               { id: "queue", label: "Patient Queue", icon: Clock },
-              { id: "availability", label: "Slot Settings", icon: Settings },
-              { id: "whatsapp", label: "WhatsApp Link", icon: Smartphone }
+              { id: "availability", label: "Slot Settings", icon: Settings }
             );
+            if (isClinicMode) {
+              allTabs.push({ id: "whatsapp", label: "WhatsApp Link", icon: Smartphone });
+            }
           }
           return allTabs.filter(t => !primaryIds.includes(t.id));
         };

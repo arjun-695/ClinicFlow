@@ -49,6 +49,7 @@ type Bill struct {
 	InvoiceURL      *string    `json:"invoice_url"`
 	CreatedAt       time.Time  `json:"created_at"`
 	Notified        bool       `json:"notified"`
+	FacilityID      *int       `json:"facility_id,omitempty"`
 }
 
 type BillDetail struct {
@@ -308,7 +309,7 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
 	skipWhatsApp := r.FormValue("skip_whatsapp") == "true"
 	if !skipWhatsApp {
-		go func() {
+		go func(fID int) {
 			// Fetch doctor custom template or default
 			tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
@@ -369,14 +370,14 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 				billURL = *invoiceURL
 			}
 
-			err := services.SendTwilioWhatsApp(pt.Phone, messageText, billURL)
+			err := services.SendTwilioWhatsApp(fID, pt.Phone, messageText, billURL)
 			if err != nil {
 				log.Printf("Twilio WhatsApp billing dispatch failed for Patient %s (%s): %v", pt.Name, pt.Phone, err)
 			} else {
 				// Update notified status
 				_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
 			}
-		}()
+		}(facilityID)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -698,7 +699,8 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 	queryBill := `
 		SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone, 
 		       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount, 
-		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+		       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified,
+		       b.facility_id
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		LEFT JOIN users d ON b.doctor_id = d.id
@@ -707,6 +709,7 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 	err = db.Pool.QueryRow(ctx, queryBill, billID, doctorID).Scan(
 		&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
 		&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
+		&b.FacilityID,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found or unauthorized"})
@@ -798,8 +801,10 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	activeFacID, _ := GetActiveFacilityID(r, doctorID)
+
 	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
-	go func() {
+	go func(fID int) {
 		tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
 		// Build payment details string
@@ -848,14 +853,19 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
+		facID := fID
+		if b.FacilityID != nil {
+			facID = *b.FacilityID
+		}
+
 		// Send WhatsApp with attachment
-		err = services.SendWhatsAppWithAttachment(b.PatientPhone, messageText, fileBytes, fileHeader.Filename, detectedMIME)
+		err = services.SendWhatsAppWithAttachment(facID, b.PatientPhone, messageText, fileBytes, fileHeader.Filename, detectedMIME)
 		if err != nil {
 			log.Printf("WhatsApp billing dispatch failed (UploadInvoice) for Patient %s (%s): %v", b.PatientName, b.PatientPhone, err)
 		} else {
 			_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
 		}
-	}()
+	}(activeFacID)
 
 	// Invalidate caches
 	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(b.PatientID))

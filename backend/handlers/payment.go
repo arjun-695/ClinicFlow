@@ -191,10 +191,12 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		PatientName     string
 		PatientPhone    string
 		ClinicName      string
+		FacilityID      *int
 	}
 	querySelect := `
 		SELECT b.id, b.patient_id, b.remaining_amount, b.total_amount, b.status,
-		       b.description, p.name, p.phone, COALESCE(d.clinic_name, 'Our Clinic')
+		       b.description, p.name, p.phone, COALESCE(d.clinic_name, 'Our Clinic'),
+		       b.facility_id
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		LEFT JOIN users d ON b.doctor_id = d.id
@@ -211,6 +213,7 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		&cc.PatientName,
 		&cc.PatientPhone,
 		&cc.ClinicName,
+		&cc.FacilityID,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Bill not found"})
@@ -279,7 +282,14 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(shopkeeperID)+":"+strconv.Itoa(cc.PatientID))
 	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(shopkeeperID)+":*")
 
-	go func() {
+	var facID int
+	if cc.FacilityID != nil {
+		facID = *cc.FacilityID
+	} else {
+		facID, _ = GetActiveFacilityID(r, shopkeeperID)
+	}
+
+	go func(fID int) {
 		appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
 		if appURL == "" {
 			appURL = "http://localhost:3000"
@@ -305,10 +315,10 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 			billLink,
 		)
 
-		if err := services.SendWhatsApp(cc.PatientPhone, messageText); err != nil {
+		if err := services.SendWhatsApp(fID, cc.PatientPhone, messageText); err != nil {
 			log.Printf("WhatsApp installment dispatch failed for Patient %s (%s): %v", cc.PatientName, cc.PatientPhone, err)
 		}
-	}()
+	}(facID)
 
 	// Return response payload
 	writeJSON(w, http.StatusOK, map[string]interface{}{

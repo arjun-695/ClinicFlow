@@ -12,7 +12,7 @@ import (
 
 // SendTwilioWhatsApp sends a WhatsApp message (with an optional PDF invoice URL) using Twilio.
 // If Twilio env vars are not set, it falls back to the whatsmeow client.
-func SendTwilioWhatsApp(toPhone string, message string, mediaURL string) error {
+func SendTwilioWhatsApp(facilityID int, toPhone string, message string, mediaURL string) error {
 	accountSid := os.Getenv("TWILIO_ACCOUNT_SID")
 	authToken := os.Getenv("TWILIO_AUTH_TOKEN")
 	fromNumber := os.Getenv("TWILIO_FROM_NUMBER") // Format: whatsapp:+14155238886
@@ -35,7 +35,7 @@ func SendTwilioWhatsApp(toPhone string, message string, mediaURL string) error {
 				if err == nil {
 					filename := "invoice.pdf"
 					mimeType := "application/pdf"
-					errMedia := SendWhatsAppWithAttachment(cleanedPhone, message, fileBytes, filename, mimeType)
+					errMedia := SendWhatsAppWithAttachment(facilityID, cleanedPhone, message, fileBytes, filename, mimeType)
 					if errMedia == nil {
 						log.Printf("[Twilio Fallback] Successfully sent PDF attachment via whatsmeow to %s", cleanedPhone)
 						return nil
@@ -46,7 +46,7 @@ func SendTwilioWhatsApp(toPhone string, message string, mediaURL string) error {
 		}
 
 		// Fallback to plain text message
-		err := SendWhatsApp(cleanedPhone, message)
+		err := SendWhatsApp(facilityID, cleanedPhone, message)
 		if err != nil {
 			log.Printf("[Twilio Fallback] failed to send text message: %v", err)
 			return err

@@ -636,20 +636,24 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch prescription and patient details
 	var pName, pPhone, docName, clinicName, diagnosis, notes string
+	var rxFacilityID *int
 	queryRx := `
 		SELECT p.name as patient_name, p.phone as patient_phone, d.name as doctor_name, 
-		       COALESCE(d.clinic_name, '') as clinic_name, rx.diagnosis, rx.notes
+		       COALESCE(d.clinic_name, '') as clinic_name, rx.diagnosis, rx.notes,
+		       rx.facility_id
 		FROM prescriptions rx
 		JOIN patients p ON rx.patient_id = p.id
 		LEFT JOIN users d ON rx.doctor_id = d.id
 		WHERE rx.id = $1 AND p.doctor_id = $2
 	`
-	err = db.Pool.QueryRow(ctx, queryRx, rxID, doctorID).Scan(&pName, &pPhone, &docName, &clinicName, &diagnosis, &notes)
+	err = db.Pool.QueryRow(ctx, queryRx, rxID, doctorID).Scan(&pName, &pPhone, &docName, &clinicName, &diagnosis, &notes, &rxFacilityID)
 	if err != nil {
 		log.Printf("UploadPrescriptionAndBillPDF query error: %v", err)
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Prescription not found or unauthorized"})
 		return
 	}
+
+	activeFacID, _ := GetActiveFacilityID(r, doctorID)
 
 	// Process prescription PDF if uploaded
 	fileRx, fileHeaderRx, errRx := r.FormFile("prescription")
@@ -658,7 +662,7 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 		fileBytesRx, errRead := io.ReadAll(fileRx)
 		if errRead == nil {
 			// Send prescription WhatsApp notification asynchronously
-			go func() {
+			go func(fID int) {
 				tmpl := GetTemplateForDoctor(context.Background(), doctorID, "prescription_notification")
 				msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
 				replacer := strings.NewReplacer(
@@ -669,11 +673,17 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 					"{notes}", notes,
 				)
 				messageText := replacer.Replace(msgTemplate)
-				errSend := services.SendWhatsAppWithAttachment(pPhone, messageText, fileBytesRx, fileHeaderRx.Filename, "application/pdf")
+
+				facID := fID
+				if rxFacilityID != nil {
+					facID = *rxFacilityID
+				}
+
+				errSend := services.SendWhatsAppWithAttachment(facID, pPhone, messageText, fileBytesRx, fileHeaderRx.Filename, "application/pdf")
 				if errSend != nil {
 					log.Printf("WhatsApp prescription dispatch failed for Patient %s (%s): %v", pName, pPhone, errSend)
 				}
-			}()
+			}(activeFacID)
 		} else {
 			log.Printf("UploadPrescriptionAndBillPDF prescription read error: %v", errRead)
 		}
@@ -701,15 +711,16 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 					}
 
 					// Dispatch bill WhatsApp notification asynchronously
-					go func() {
+					go func(fID int) {
 						var b BillSummary
+						var billFacilityID *int
 						queryBill := `
-							SELECT b.id, b.patient_id, b.description, b.total_amount, b.remaining_amount, b.status, b.created_at, b.notified
+							SELECT b.id, b.patient_id, b.description, b.total_amount, b.remaining_amount, b.status, b.created_at, b.notified, b.facility_id
 							FROM bills b
 							WHERE b.id = $1
 						`
 						errQueryBill := db.Pool.QueryRow(context.Background(), queryBill, billID).Scan(
-							&b.ID, &b.PatientID, &b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.CreatedAt, &b.Notified,
+							&b.ID, &b.PatientID, &b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.CreatedAt, &b.Notified, &billFacilityID,
 						)
 						if errQueryBill != nil {
 							log.Printf("UploadPrescriptionAndBillPDF queryBill error: %v", errQueryBill)
@@ -774,13 +785,18 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 						)
 						messageText := replacer.Replace(msgTemplate)
 
-						errSendBill := services.SendWhatsAppWithAttachment(pPhone, messageText, fileBytesBill, fileHeaderBill.Filename, "application/pdf")
+						facID := fID
+						if billFacilityID != nil {
+							facID = *billFacilityID
+						}
+
+						errSendBill := services.SendWhatsAppWithAttachment(facID, pPhone, messageText, fileBytesBill, fileHeaderBill.Filename, "application/pdf")
 						if errSendBill != nil {
 							log.Printf("WhatsApp bill dispatch failed (UploadPrescriptionAndBillPDF) for Patient %s (%s): %v", pName, pPhone, errSendBill)
 						} else {
 							_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
 						}
-					}()
+					}(activeFacID)
 				}
 			}
 		}

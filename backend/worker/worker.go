@@ -38,45 +38,43 @@ func StartWorker(ctx context.Context) {
 			if r := recover(); r != nil {
 				log.Printf("[Worker] PANIC recovered: %v", r)
 			}
+			ticker.Stop()
 		}()
 
-		// Run once on startup
-		runNotificationChecks(ctx)
+		// Run immediate check on start
+		runNotificationCycle(ctx)
 
 		for {
 			select {
 			case <-ticker.C:
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[Worker] PANIC recovered during check: %v", r)
-						}
-					}()
-					runNotificationChecks(ctx)
-				}()
+				runNotificationCycle(ctx)
 			case <-ctx.Done():
-				ticker.Stop()
-				log.Println("Notification worker stopped.")
+				log.Println("Stopping background notification worker...")
 				return
 			}
 		}
 	}()
 }
 
-func runNotificationChecks(ctx context.Context) {
-	log.Println("[Worker] Running scheduled clinic database checks for due notifications...")
+func runNotificationCycle(ctx context.Context) {
+	log.Println("[Worker] Running clinic notification checks...")
+	
 	if err := checkCustomerPromises(ctx); err != nil {
-		log.Printf("[Worker] Patient bills check failed: %v", err)
+		log.Printf("[Worker] Customer promises check failed: %v", err)
 	}
+
 	if err := checkSupplierDues(ctx); err != nil {
-		log.Printf("[Worker] Supplier dues check failed: %v", err)
+		log.Printf("[Worker] Supplier payables check failed: %v", err)
 	}
+
 	if err := checkRescheduleQueue(ctx); err != nil {
 		log.Printf("[Worker] Reschedule queue check failed: %v", err)
 	}
+
 	if err := checkRecurringPaymentReminders(ctx); err != nil {
 		log.Printf("[Worker] Recurring payment reminders check failed: %v", err)
 	}
+
 	if err := checkAppointmentReminders(ctx); err != nil {
 		log.Printf("[Worker] Appointment reminders check failed: %v", err)
 	}
@@ -85,7 +83,7 @@ func runNotificationChecks(ctx context.Context) {
 func checkCustomerPromises(ctx context.Context) error {
 	// Query bills that are overdue/due and not yet notified, joining with doctors to get the clinic name
 	query := `
-		SELECT b.id, b.description, b.remaining_amount, b.promised_due_date, p.name, p.phone, d.clinic_name, d.id as doctor_id
+		SELECT b.id, b.description, b.remaining_amount, b.promised_due_date, p.name, p.phone, d.clinic_name, d.id as doctor_id, b.facility_id
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		JOIN users d ON b.doctor_id = d.id
@@ -113,12 +111,13 @@ func checkCustomerPromises(ctx context.Context) error {
 		CustPhone   string
 		ClinicName  string
 		DoctorID    int
+		FacilityID  *int
 	}
 
 	var duePromises []Promise
 	for rows.Next() {
 		var p Promise
-		err := rows.Scan(&p.ID, &p.Description, &p.Amount, &p.DueDate, &p.CustName, &p.CustPhone, &p.ClinicName, &p.DoctorID)
+		err := rows.Scan(&p.ID, &p.Description, &p.Amount, &p.DueDate, &p.CustName, &p.CustPhone, &p.ClinicName, &p.DoctorID, &p.FacilityID)
 		if err != nil {
 			log.Printf("[Worker] Error scanning bill row: %v", err)
 			continue
@@ -154,7 +153,12 @@ func checkCustomerPromises(ctx context.Context) error {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
-		err = services.SendWhatsApp(p.CustPhone, messageText)
+		facID := 0
+		if p.FacilityID != nil {
+			facID = *p.FacilityID
+		}
+
+		err = services.SendWhatsApp(facID, p.CustPhone, messageText)
 		if err != nil {
 			log.Printf("[Worker] Failed to send WhatsApp to patient %s (%s): %v", p.CustName, p.CustPhone, err)
 			continue
@@ -171,8 +175,10 @@ func checkCustomerPromises(ctx context.Context) error {
 
 func checkSupplierDues(ctx context.Context) error {
 	// Query supplier dues that are due in the next 2 days or past due, and not yet notified, joining with doctors to get their phone
+	// Also select facility ID mapped to the user
 	query := `
-		SELECT sd.id, sd.supplier_name, sd.amount, sd.due_date, d.phone
+		SELECT sd.id, sd.supplier_name, sd.amount, sd.due_date, d.phone,
+		       COALESCE((SELECT facility_id FROM user_facilities WHERE user_id = sd.shopkeeper_id LIMIT 1), 0) as facility_id
 		FROM supplier_dues sd
 		JOIN users d ON sd.shopkeeper_id = d.id
 		WHERE sd.due_date <= CURRENT_DATE + INTERVAL '2 days'
@@ -190,12 +196,13 @@ func checkSupplierDues(ctx context.Context) error {
 		Amount       float64
 		DueDate      time.Time
 		DoctorPhone  string
+		FacilityID   int
 	}
 
 	var dueSuppliers []Due
 	for rows.Next() {
 		var d Due
-		err := rows.Scan(&d.ID, &d.SupplierName, &d.Amount, &d.DueDate, &d.DoctorPhone)
+		err := rows.Scan(&d.ID, &d.SupplierName, &d.Amount, &d.DueDate, &d.DoctorPhone, &d.FacilityID)
 		if err != nil {
 			log.Printf("[Worker] Error scanning supplier row: %v", err)
 			continue
@@ -213,7 +220,7 @@ func checkSupplierDues(ctx context.Context) error {
 			d.Amount, d.SupplierName, d.DueDate.Format("2006-01-02"),
 		)
 
-		err := services.SendWhatsApp(d.DoctorPhone, messageText)
+		err := services.SendWhatsApp(d.FacilityID, d.DoctorPhone, messageText)
 		if err != nil {
 			log.Printf("[Worker] Failed to send WhatsApp reminder to doctor (%s): %v", d.DoctorPhone, err)
 			continue
@@ -231,7 +238,7 @@ func checkSupplierDues(ctx context.Context) error {
 func checkRescheduleQueue(ctx context.Context) error {
 	// 1. Process Unavailability Alerts (status = 'pending' AND notification_sent = false)
 	pendingQuery := `
-		SELECT rq.id, rq.appointment_id, p.name, p.phone, u.name, rq.original_date::text, u.clinic_name, u.id
+		SELECT rq.id, rq.appointment_id, p.name, p.phone, u.name, rq.original_date::text, u.clinic_name, u.id, rq.facility_id
 		FROM reschedule_queue rq
 		JOIN patients p ON rq.patient_id = p.id
 		JOIN users u ON rq.doctor_id = u.id
@@ -248,11 +255,12 @@ func checkRescheduleQueue(ctx context.Context) error {
 			OriginalDate  string
 			ClinicName    string
 			DoctorID      int
+			FacilityID    *int
 		}
 		var alerts []PendingAlert
 		for rows.Next() {
 			var a PendingAlert
-			if errScan := rows.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.ClinicName, &a.DoctorID); errScan == nil {
+			if errScan := rows.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.ClinicName, &a.DoctorID, &a.FacilityID); errScan == nil {
 				alerts = append(alerts, a)
 			}
 		}
@@ -283,7 +291,12 @@ func checkRescheduleQueue(ctx context.Context) error {
 			msg := greeting + "\n\n" + body + "\n\n" + footer
 			messageText := replacer.Replace(msg)
 
-			errSend := services.SendWhatsApp(a.PatientPhone, messageText)
+			facID := 0
+			if a.FacilityID != nil {
+				facID = *a.FacilityID
+			}
+
+			errSend := services.SendWhatsApp(facID, a.PatientPhone, messageText)
 			if errSend != nil {
 				log.Printf("[Worker] Failed to send unavailability WhatsApp to %s: %v", a.PatientPhone, errSend)
 				continue
@@ -298,7 +311,7 @@ func checkRescheduleQueue(ctx context.Context) error {
 	// 2. Process Rescheduled Alerts (status = 'rescheduled')
 	reschedQuery := `
 		SELECT rq.id, rq.appointment_id, p.name, p.phone, u.name, rq.original_date::text, 
-		       s.slot_date::text, s.start_time::text, u.clinic_name, u.id
+		       s.slot_date::text, s.start_time::text, u.clinic_name, u.id, rq.facility_id
 		FROM reschedule_queue rq
 		JOIN patients p ON rq.patient_id = p.id
 		JOIN users u ON rq.doctor_id = u.id
@@ -318,11 +331,12 @@ func checkRescheduleQueue(ctx context.Context) error {
 			NewTime       string
 			ClinicName    string
 			DoctorID      int
+			FacilityID    *int
 		}
 		var alerts []ReschedAlert
 		for rowsResched.Next() {
 			var a ReschedAlert
-			if errScan := rowsResched.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.NewDate, &a.NewTime, &a.ClinicName, &a.DoctorID); errScan == nil {
+			if errScan := rowsResched.Scan(&a.ID, &a.AppointmentID, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.OriginalDate, &a.NewDate, &a.NewTime, &a.ClinicName, &a.DoctorID, &a.FacilityID); errScan == nil {
 				alerts = append(alerts, a)
 			}
 		}
@@ -339,28 +353,28 @@ func checkRescheduleQueue(ctx context.Context) error {
 				a.DoctorID).Scan(&greeting, &body, &footer)
 			if errTemplate != nil {
 				greeting = "Dear {patient_name},"
-				body = "Your appointment #APP-{appointment_id} with Dr. {doctor_name} originally on {original_date} has been rescheduled to {new_date} at {new_time}."
-				footer = "Thank you for choosing {clinic_name}."
-			}
-
-			newTime := a.NewTime
-			if len(newTime) > 5 {
-				newTime = newTime[:5]
+				body = "Your appointment #APP-{appointment_id} with Dr. {doctor_name} originally on {original_date} has been successfully rescheduled.\n\n*New Details:*\n*Date:* {new_date}\n*Time:* {new_time}"
+				footer = "Thank you. - {clinic_name}"
 			}
 
 			replacer := strings.NewReplacer(
 				"{patient_name}", a.PatientName,
 				"{doctor_name}", a.DoctorName,
 				"{original_date}", a.OriginalDate,
-				"{new_date}", a.NewDate,
-				"{new_time}", newTime,
 				"{appointment_id}", strconv.Itoa(a.AppointmentID),
+				"{new_date}", a.NewDate,
+				"{new_time}", a.NewTime,
 				"{clinic_name}", clinic,
 			)
 			msg := greeting + "\n\n" + body + "\n\n" + footer
 			messageText := replacer.Replace(msg)
 
-			errSend := services.SendWhatsApp(a.PatientPhone, messageText)
+			facID := 0
+			if a.FacilityID != nil {
+				facID = *a.FacilityID
+			}
+
+			errSend := services.SendWhatsApp(facID, a.PatientPhone, messageText)
 			if errSend != nil {
 				log.Printf("[Worker] Failed to send rescheduled WhatsApp to %s: %v", a.PatientPhone, errSend)
 				continue
@@ -378,7 +392,7 @@ func checkRescheduleQueue(ctx context.Context) error {
 // checkRecurringPaymentReminders queries unpaid bills and sends reminders every 15 days
 func checkRecurringPaymentReminders(ctx context.Context) error {
 	query := `
-		SELECT b.id, b.description, b.remaining_amount, p.name, p.phone, d.clinic_name, d.id as doctor_id
+		SELECT b.id, b.description, b.remaining_amount, p.name, p.phone, d.clinic_name, d.id as doctor_id, b.facility_id
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		JOIN users d ON b.doctor_id = d.id
@@ -400,12 +414,13 @@ func checkRecurringPaymentReminders(ctx context.Context) error {
 		CustPhone   string
 		ClinicName  string
 		DoctorID    int
+		FacilityID  *int
 	}
 
 	var reminders []Reminder
 	for rows.Next() {
 		var r Reminder
-		err := rows.Scan(&r.ID, &r.Description, &r.Amount, &r.CustName, &r.CustPhone, &r.ClinicName, &r.DoctorID)
+		err := rows.Scan(&r.ID, &r.Description, &r.Amount, &r.CustName, &r.CustPhone, &r.ClinicName, &r.DoctorID, &r.FacilityID)
 		if err != nil {
 			log.Printf("[Worker] Error scanning reminder row: %v", err)
 			continue
@@ -446,7 +461,12 @@ func checkRecurringPaymentReminders(ctx context.Context) error {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
-		err = services.SendWhatsApp(r.CustPhone, messageText)
+		facID := 0
+		if r.FacilityID != nil {
+			facID = *r.FacilityID
+		}
+
+		err = services.SendWhatsApp(facID, r.CustPhone, messageText)
 		if err != nil {
 			log.Printf("[Worker] Failed to send payment reminder WhatsApp to patient %s (%s): %v", r.CustName, r.CustPhone, err)
 			continue
@@ -465,7 +485,7 @@ func checkRecurringPaymentReminders(ctx context.Context) error {
 func checkAppointmentReminders(ctx context.Context) error {
 	query := `
 		SELECT a.id, a.appointment_date, a.reason, p.name as patient_name, p.phone as patient_phone, 
-		       d.name as doctor_name, COALESCE(d.clinic_name, '') as clinic_name, d.id as doctor_id
+		       d.name as doctor_name, COALESCE(d.clinic_name, '') as clinic_name, d.id as doctor_id, a.facility_id
 		FROM appointments a
 		JOIN patients p ON a.patient_id = p.id
 		JOIN users d ON a.doctor_id = d.id
@@ -489,13 +509,14 @@ func checkAppointmentReminders(ctx context.Context) error {
 		DoctorName      string
 		ClinicName      string
 		DoctorID        int
+		FacilityID      *int
 	}
 
 	var reminders []ApptReminder
 	for rows.Next() {
 		var a ApptReminder
 		var reason *string
-		err := rows.Scan(&a.ID, &a.AppointmentDate, &reason, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.ClinicName, &a.DoctorID)
+		err := rows.Scan(&a.ID, &a.AppointmentDate, &reason, &a.PatientName, &a.PatientPhone, &a.DoctorName, &a.ClinicName, &a.DoctorID, &a.FacilityID)
 		if err != nil {
 			log.Printf("[Worker] Error scanning appointment reminder row: %v", err)
 			continue
@@ -534,7 +555,12 @@ func checkAppointmentReminders(ctx context.Context) error {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
-		err = services.SendWhatsApp(a.PatientPhone, messageText)
+		facID := 0
+		if a.FacilityID != nil {
+			facID = *a.FacilityID
+		}
+
+		err = services.SendWhatsApp(facID, a.PatientPhone, messageText)
 		if err != nil {
 			log.Printf("[Worker] Failed to send appointment reminder WhatsApp to patient %s (%s): %v", a.PatientName, a.PatientPhone, err)
 			continue

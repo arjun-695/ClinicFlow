@@ -46,7 +46,7 @@ func GenerateLocalOTP() (*OTPResult, error) {
 
 // SendOTPInvites sends the OTP.
 // First tries the Google Apps Script OTP Generator if configured, otherwise falls back to local dispatch.
-func SendOTPInvites(email string, phone string, appName string, onboardLink string) (string, string, error) {
+func SendOTPInvites(facilityID int, email string, phone string, appName string, onboardLink string) (string, string, error) {
 	otpGeneratorURL := os.Getenv("OTP_GENERATOR_URL")
 	
 	if otpGeneratorURL != "" {
@@ -139,7 +139,7 @@ func SendOTPInvites(email string, phone string, appName string, onboardLink stri
 		go func() {
 			cleanedPhone := strings.TrimPrefix(phone, "+")
 			message := fmt.Sprintf("[ClinicFlow] You have been invited to join as a staff member.\nOnboarding Link: %s\nVerification Code: %s\nValid for 24 hours.", onboardLink, otpRes.OTP)
-			errWs := SendWhatsApp(cleanedPhone, message)
+			errWs := SendWhatsApp(facilityID, cleanedPhone, message)
 			if errWs == nil {
 				log.Printf("[OTP Service] Successfully sent local WhatsApp OTP to %s", phone)
 			} else {

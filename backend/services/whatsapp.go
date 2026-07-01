@@ -1,5 +1,5 @@
-// Package services initializes and operates the WhatsApp client used for QR
-// pairing, connection tracking, and outbound message delivery.
+// Package services initializes and operates multi-tenant WhatsApp clients used for QR
+// pairing, connection tracking, and outbound message delivery scoped to facilities.
 package services
 
 import (
@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -21,52 +20,100 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
+
+	"backend/db"
 )
+
+type FacilityWhatsAppState struct {
+	Client          *whatsmeow.Client
+	LatestQR        string
+	QRChannelActive bool
+	LastQRTime      time.Time
+	IsConnected     bool
+}
 
 var (
-	WAClient        *whatsmeow.Client
-	LatestQR        string
-	QRMutex         sync.RWMutex
-	IsConnected     atomic.Bool
-	QRChannelActive atomic.Bool
-	LastQRTime      time.Time
+	WhatsAppStates      = make(map[int]*FacilityWhatsAppState)
+	WhatsAppStatesMutex sync.RWMutex
+	container           *sqlstore.Container
+	clientLog           waLog.Logger
 )
 
-func StartQRStream() {
-	if WAClient == nil || WAClient.Store.ID != nil {
-		if WAClient != nil && WAClient.Store.ID != nil {
-			IsConnected.Store(true)
-		}
+func GetWhatsAppState(facilityID int) *FacilityWhatsAppState {
+	WhatsAppStatesMutex.Lock()
+	defer WhatsAppStatesMutex.Unlock()
+
+	state, exists := WhatsAppStates[facilityID]
+	if !exists {
+		state = &FacilityWhatsAppState{}
+		WhatsAppStates[facilityID] = state
+	}
+	return state
+}
+
+func StartQRStream(facilityID int) {
+	if container == nil {
+		log.Println("[WhatsApp] sqlstore container is not initialized, cannot start QR stream")
 		return
 	}
 
-	if QRChannelActive.Swap(true) {
-		// Already active
+	state := GetWhatsAppState(facilityID)
+	if state.Client == nil {
+		deviceStore := container.NewDevice()
+		client := whatsmeow.NewClient(deviceStore, clientLog)
+		client.AutoTrustIdentity = true
+		client.AutomaticMessageRerequestFromPhone = true
+
+		client.AddEventHandler(func(evt interface{}) {
+			eventHandler(facilityID, client, evt)
+		})
+		state.Client = client
+	}
+
+	if state.Client.Store.ID != nil {
+		WhatsAppStatesMutex.Lock()
+		state.IsConnected = true
+		WhatsAppStatesMutex.Unlock()
 		return
 	}
 
-	qrChan, err := WAClient.GetQRChannel(context.Background())
+	WhatsAppStatesMutex.Lock()
+	if state.QRChannelActive {
+		WhatsAppStatesMutex.Unlock()
+		return
+	}
+	state.QRChannelActive = true
+	WhatsAppStatesMutex.Unlock()
+
+	qrChan, err := state.Client.GetQRChannel(context.Background())
 	if err != nil {
-		log.Printf("Failed to get QR channel: %v", err)
-		QRChannelActive.Store(false)
+		log.Printf("[WhatsApp] Failed to get QR channel for facility %d: %v", facilityID, err)
+		WhatsAppStatesMutex.Lock()
+		state.QRChannelActive = false
+		WhatsAppStatesMutex.Unlock()
 		return
 	}
 
 	go func() {
-		defer QRChannelActive.Store(false)
+		defer func() {
+			WhatsAppStatesMutex.Lock()
+			state.QRChannelActive = false
+			WhatsAppStatesMutex.Unlock()
+		}()
+
 		for qr := range qrChan {
 			if qr.Event == "code" {
-				QRMutex.Lock()
-				LatestQR = qr.Code
-				LastQRTime = time.Now()
-				QRMutex.Unlock()
-				log.Println("[WhatsApp] New QR code generated.")
+				WhatsAppStatesMutex.Lock()
+				state.LatestQR = qr.Code
+				state.LastQRTime = time.Now()
+				WhatsAppStatesMutex.Unlock()
+				log.Printf("[WhatsApp] New QR code generated for facility %d.", facilityID)
 			} else {
-				log.Printf("[WhatsApp] QR channel event: %s", qr.Event)
+				log.Printf("[WhatsApp] QR channel event for facility %d: %s", facilityID, qr.Event)
 				if qr.Event == "timeout" || qr.Event == "error" {
-					QRMutex.Lock()
-					LatestQR = ""
-					QRMutex.Unlock()
+					WhatsAppStatesMutex.Lock()
+					state.LatestQR = ""
+					WhatsAppStatesMutex.Unlock()
 				}
 			}
 		}
@@ -80,93 +127,153 @@ func InitWhatsApp() {
 		return
 	}
 
+	// Create facility_whatsapp_sessions mapping table dynamically
+	_, err := db.Pool.Exec(context.Background(), `
+		CREATE TABLE IF NOT EXISTS facility_whatsapp_sessions (
+			facility_id INT PRIMARY KEY REFERENCES facilities(id) ON DELETE CASCADE,
+			jid VARCHAR(100) NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		log.Fatalf("Failed to create facility_whatsapp_sessions table: %v", err)
+	}
+
 	// whatsmeow requires its own logging system
 	dbLog := waLog.Stdout("Database", "OFF", true)
+	clientLog = waLog.Stdout("Client", "OFF", true)
 	
 	// Initialize sqlstore using postgres driver with background context
-	container, err := sqlstore.New(context.Background(), "postgres", dbConnStr, dbLog)
+	container, err = sqlstore.New(context.Background(), "postgres", dbConnStr, dbLog)
 	if err != nil {
 		log.Fatalf("Failed to initialize whatsmeow sqlstore: %v", err)
 	}
- 
-	deviceStore, err := container.GetFirstDevice(context.Background())
+
+	// Query existing pairings and connect them
+	rows, err := db.Pool.Query(context.Background(), "SELECT facility_id, jid FROM facility_whatsapp_sessions")
 	if err != nil {
-		log.Fatalf("Failed to get whatsmeow device: %v", err)
+		log.Printf("Failed to load facility WhatsApp sessions: %v", err)
+		return
 	}
- 
-	clientLog := waLog.Stdout("Client", "OFF", true)
-	WAClient = whatsmeow.NewClient(deviceStore, clientLog)
-	WAClient.AutoTrustIdentity = true
-	WAClient.AutomaticMessageRerequestFromPhone = true
+	defer rows.Close()
 
-	// Set up event handlers
-	WAClient.AddEventHandler(eventHandler)
+	for rows.Next() {
+		var facilityID int
+		var jidStr string
+		if err := rows.Scan(&facilityID, &jidStr); err == nil {
+			parsedJID, err := types.ParseJID(jidStr)
+			if err != nil {
+				log.Printf("[WhatsApp] Failed to parse JID %s: %v", jidStr, err)
+				continue
+			}
 
-	if WAClient.Store.ID == nil {
-		StartQRStream()
-	} else {
-		IsConnected.Store(true)
-		fmt.Println("WhatsApp client is already authenticated and linked!")
-	}
+			deviceStore, err := container.GetDevice(context.Background(), parsedJID)
+			if err != nil || deviceStore == nil {
+				log.Printf("[WhatsApp] Failed to load device store for %s: %v", jidStr, err)
+				continue
+			}
 
-	err = WAClient.Connect()
-	if err != nil {
-		log.Printf("Failed to connect whatsmeow client: %v", err)
+			client := whatsmeow.NewClient(deviceStore, clientLog)
+			client.AutoTrustIdentity = true
+			client.AutomaticMessageRerequestFromPhone = true
+
+			state := GetWhatsAppState(facilityID)
+			state.Client = client
+			state.IsConnected = false // will be updated via Connected event
+
+			client.AddEventHandler(func(evt interface{}) {
+				eventHandler(facilityID, client, evt)
+			})
+
+			err = client.Connect()
+			if err != nil {
+				log.Printf("[WhatsApp] Failed to connect whatsmeow client for facility %d: %v", facilityID, err)
+			} else {
+				log.Printf("[WhatsApp] Initiated connection for facility %d", facilityID)
+			}
+		}
 	}
 }
 
-func eventHandler(evt interface{}) {
+func eventHandler(facilityID int, client *whatsmeow.Client, evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Connected:
-		IsConnected.Store(true)
-		QRMutex.Lock()
-		LatestQR = ""
-		QRMutex.Unlock()
-		log.Println("WhatsApp connected successfully!")
+		state := GetWhatsAppState(facilityID)
+		WhatsAppStatesMutex.Lock()
+		state.IsConnected = true
+		state.LatestQR = ""
+		WhatsAppStatesMutex.Unlock()
+		log.Printf("[WhatsApp] Facility %d connected successfully!", facilityID)
+
+		// Persist the JID session mapping when connected
+		if client.Store.ID != nil {
+			jidStr := client.Store.ID.String()
+			_, err := db.Pool.Exec(context.Background(), `
+				INSERT INTO facility_whatsapp_sessions (facility_id, jid)
+				VALUES ($1, $2)
+				ON CONFLICT (facility_id) DO UPDATE SET jid = EXCLUDED.jid
+			`, facilityID, jidStr)
+			if err != nil {
+				log.Printf("[WhatsApp] Failed to persist JID mapping for facility %d: %v", facilityID, err)
+			}
+		}
+
 	case *events.LoggedOut:
-		IsConnected.Store(false)
-		log.Println("WhatsApp client logged out!")
+		state := GetWhatsAppState(facilityID)
+		WhatsAppStatesMutex.Lock()
+		state.IsConnected = false
+		state.LatestQR = ""
+		WhatsAppStatesMutex.Unlock()
+		log.Printf("[WhatsApp] Facility %d logged out!", facilityID)
+
+		// Remove the persistent session record
+		_, err := db.Pool.Exec(context.Background(), "DELETE FROM facility_whatsapp_sessions WHERE facility_id = $1", facilityID)
+		if err != nil {
+			log.Printf("[WhatsApp] Failed to remove session mapping for facility %d: %v", facilityID, err)
+		}
+
 	case *events.AppStateSyncError:
-		log.Printf("WhatsApp AppState sync error for %s (FullSync=%t): %v", v.Name, v.FullSync, v.Error)
-		// Trigger an automatic recovery sync or recovery request
+		log.Printf("[WhatsApp] AppState sync error for facility %d: %s (FullSync=%t): %v", facilityID, v.Name, v.FullSync, v.Error)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if v.FullSync {
-				log.Printf("AppStateSyncError persists after full sync. Sending recovery peer message...")
+				log.Printf("[WhatsApp] AppStateSyncError persists after full sync. Sending recovery peer message...")
 				msg := whatsmeow.BuildAppStateRecoveryRequest(v.Name)
-				_, err := WAClient.SendPeerMessage(ctx, msg)
+				_, err := client.SendPeerMessage(ctx, msg)
 				if err != nil {
-					log.Printf("Failed to send app state recovery request for %s: %v", v.Name, err)
+					log.Printf("[WhatsApp] Failed to send app state recovery request for %s: %v", v.Name, err)
 				}
 			} else {
-				log.Printf("Attempting full AppState resync for %s...", v.Name)
-				err := WAClient.FetchAppState(ctx, v.Name, true, false)
+				log.Printf("[WhatsApp] Attempting full AppState resync for %s...", v.Name)
+				err := client.FetchAppState(ctx, v.Name, true, false)
 				if err != nil {
-					log.Printf("Failed to force FetchAppState for %s: %v", v.Name, err)
-				} else {
-					log.Printf("FetchAppState successfully completed for %s", v.Name)
+					log.Printf("[WhatsApp] Failed to force FetchAppState for %s: %v", v.Name, err)
 				}
 			}
 		}()
 	}
 }
 
-// SendWhatsApp sends a WhatsApp text message to the specified phone number
-func SendWhatsApp(phone string, message string) error {
-	if WAClient == nil {
-		return fmt.Errorf("whatsapp client is not initialized")
+// SendWhatsApp sends a WhatsApp text message using the specified facility's client connection
+func SendWhatsApp(facilityID int, phone string, message string) error {
+	state := GetWhatsAppState(facilityID)
+	if state.Client == nil {
+		return fmt.Errorf("whatsapp client is not initialized for this facility")
 	}
 
-	if !IsConnected.Load() {
-		return fmt.Errorf("whatsapp client is not authenticated/connected")
+	WhatsAppStatesMutex.RLock()
+	isConnected := state.IsConnected
+	WhatsAppStatesMutex.RUnlock()
+
+	if !isConnected {
+		return fmt.Errorf("whatsapp client is not authenticated/connected for this facility")
 	}
 
 	// Clean up phone number (remove +, spaces, hyphens, parentheses)
 	re := regexp.MustCompile(`[^\d]`)
 	cleaned := re.ReplaceAllString(phone, "")
 
-	// Require full international format — don't assume country code
 	if len(cleaned) < 7 || len(cleaned) > 15 {
 		return fmt.Errorf("phone number must include country code and be 7-15 digits")
 	}
@@ -183,23 +290,28 @@ func SendWhatsApp(phone string, message string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := WAClient.SendMessage(ctx, recipientJID, msg)
+	_, err := state.Client.SendMessage(ctx, recipientJID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
-	log.Printf("WhatsApp message sent successfully to %s", cleaned)
+	log.Printf("[WhatsApp] Message sent successfully to %s for facility %d", cleaned, facilityID)
 	return nil
 }
 
 // SendWhatsAppWithAttachment uploads the provided file to WhatsApp and sends it as a document or image message with a caption
-func SendWhatsAppWithAttachment(phone string, message string, fileBytes []byte, filename string, mimeType string) error {
-	if WAClient == nil {
-		return fmt.Errorf("whatsapp client is not initialized")
+func SendWhatsAppWithAttachment(facilityID int, phone string, message string, fileBytes []byte, filename string, mimeType string) error {
+	state := GetWhatsAppState(facilityID)
+	if state.Client == nil {
+		return fmt.Errorf("whatsapp client is not initialized for this facility")
 	}
 
-	if !IsConnected.Load() {
-		return fmt.Errorf("whatsapp client is not authenticated/connected")
+	WhatsAppStatesMutex.RLock()
+	isConnected := state.IsConnected
+	WhatsAppStatesMutex.RUnlock()
+
+	if !isConnected {
+		return fmt.Errorf("whatsapp client is not authenticated/connected for this facility")
 	}
 
 	// Clean up phone number
@@ -225,9 +337,9 @@ func SendWhatsAppWithAttachment(phone string, message string, fileBytes []byte, 
 			mediaType = whatsmeow.MediaDocument
 		}
 
-		log.Printf("[WhatsApp] Uploading file: name=%s, size=%d bytes, mime=%s", filename, len(fileBytes), mimeType)
+		log.Printf("[WhatsApp] Facility %d: Uploading file: name=%s, size=%d bytes, mime=%s", facilityID, filename, len(fileBytes), mimeType)
 		ctx, uploadCancel := context.WithTimeout(context.Background(), 45*time.Second)
-		resp, err := WAClient.Upload(ctx, fileBytes, mediaType)
+		resp, err := state.Client.Upload(ctx, fileBytes, mediaType)
 		uploadCancel()
 		if err != nil {
 			return fmt.Errorf("failed to upload attachment to WhatsApp: %v", err)
@@ -267,7 +379,6 @@ func SendWhatsAppWithAttachment(phone string, message string, fileBytes []byte, 
 			}
 		}
 	} else {
-		// Fallback to text message
 		msg = &waE2E.Message{
 			Conversation: proto.String(message),
 		}
@@ -276,42 +387,45 @@ func SendWhatsAppWithAttachment(phone string, message string, fileBytes []byte, 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	_, err := WAClient.SendMessage(ctx, recipientJID, msg)
+	_, err := state.Client.SendMessage(ctx, recipientJID, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
-	log.Printf("WhatsApp message with attachment sent successfully to %s", cleaned)
+	log.Printf("[WhatsApp] Message with attachment sent successfully to %s for facility %d", cleaned, facilityID)
 	return nil
 }
 
-// PairWithPhoneNumber initiates a phone-number-based pairing flow instead of
-// QR scanning. It calls whatsmeow's PairPhone which returns a short pairing
-// code the user must enter in WhatsApp → Linked Devices → Link with phone number.
-func PairWithPhoneNumber(phone string) (string, error) {
-	if WAClient == nil {
-		return "", fmt.Errorf("whatsapp client is not initialized")
+// PairWithPhoneNumber initiates a phone-number-based pairing flow instead of QR scanning
+func PairWithPhoneNumber(facilityID int, phone string) (string, error) {
+	state := GetWhatsAppState(facilityID)
+	if state.Client == nil {
+		return "", fmt.Errorf("whatsapp client is not initialized for this facility")
 	}
 
-	if IsConnected.Load() {
-		return "", fmt.Errorf("whatsapp is already connected")
+	WhatsAppStatesMutex.RLock()
+	isConnected := state.IsConnected
+	WhatsAppStatesMutex.RUnlock()
+
+	if isConnected {
+		return "", fmt.Errorf("whatsapp is already connected for this facility")
 	}
 
 	// Ensure the websocket is connected to the WhatsApp server
-	if !WAClient.IsConnected() {
-		log.Println("[WhatsApp] Client is not connected to the WhatsApp servers. Attempting to connect...")
-		err := WAClient.Connect()
+	if !state.Client.IsConnected() {
+		log.Printf("[WhatsApp] Connecting client for facility %d to WhatsApp servers...", facilityID)
+		err := state.Client.Connect()
 		if err != nil {
 			return "", fmt.Errorf("whatsapp client not connected and failed to reconnect: %w", err)
 		}
-		// Wait up to 5 seconds for connection to be established
+		// Wait up to 5 seconds for connection
 		for i := 0; i < 10; i++ {
-			if WAClient.IsConnected() {
+			if state.Client.IsConnected() {
 				break
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		if !WAClient.IsConnected() {
+		if !state.Client.IsConnected() {
 			return "", fmt.Errorf("websocket connection to WhatsApp servers is not active. Please check your internet connection")
 		}
 	}
@@ -327,12 +441,12 @@ func PairWithPhoneNumber(phone string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	code, err := WAClient.PairPhone(
+	code, err := state.Client.PairPhone(
 		ctx,
 		cleaned,
-		true,                         // show push notification
-		whatsmeow.PairClientChrome,   // client type
-		"Chrome (Windows)",           // display name (must be "Browser (OS)" format)
+		true,
+		whatsmeow.PairClientChrome,
+		"Chrome (Windows)",
 	)
 	if err != nil {
 		return "", fmt.Errorf("phone pairing failed: %v", err)

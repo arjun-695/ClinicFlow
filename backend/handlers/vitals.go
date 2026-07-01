@@ -175,12 +175,12 @@ func LogPatientVitals(w http.ResponseWriter, r *http.Request) {
 		)
 		
 		// Send WhatsApp alert using Twilio service asynchronously
-		go func() {
-			errAlert := services.SendTwilioWhatsApp(patientPhone, alertMessage, "")
+		go func(fID int) {
+			errAlert := services.SendTwilioWhatsApp(fID, patientPhone, alertMessage, "")
 			if errAlert != nil {
 				log.Printf("[Vitals Alert] Failed to dispatch WhatsApp alert: %v", errAlert)
 			}
-		}()
+		}(facilityID)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

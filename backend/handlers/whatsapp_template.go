@@ -62,6 +62,16 @@ func GetWhatsAppTemplates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, isAuthorized, err := CheckWhatsAppAccess(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if !isAuthorized {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you do not have permission to view WhatsApp settings for this workspace"})
+		return
+	}
+
 	query := `SELECT id, doctor_id, template_key, greeting, body, footer, created_at FROM whatsapp_templates WHERE doctor_id = $1`
 	rows, err := db.Pool.Query(r.Context(), query, doctorID)
 	if err != nil {
@@ -103,6 +113,16 @@ func UpdateWhatsAppTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	_, isAuthorized, err := CheckWhatsAppAccess(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if !isAuthorized {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you do not have permission to manage WhatsApp settings for this workspace"})
+		return
+	}
+
 	var input struct {
 		TemplateKey string `json:"template_key"`
 		Greeting    string `json:"greeting"`
@@ -135,7 +155,7 @@ func UpdateWhatsAppTemplate(w http.ResponseWriter, r *http.Request) {
 	`
 	var id int
 	var createdAt time.Time
-	err := db.Pool.QueryRow(r.Context(), query, doctorID, input.TemplateKey, input.Greeting, input.Body, input.Footer).Scan(&id, &createdAt)
+	err = db.Pool.QueryRow(r.Context(), query, doctorID, input.TemplateKey, input.Greeting, input.Body, input.Footer).Scan(&id, &createdAt)
 	if err != nil {
 		log.Printf("UpdateWhatsAppTemplate DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

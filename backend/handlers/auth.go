@@ -844,7 +844,7 @@ func InviteStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send OTP using the service (uses Apps Script OTP server or falls back to local WhatsApp/email)
-	otpHash, rawOTP, err := services.SendOTPInvites(input.Email, input.Phone, "ClinicFlow Staff Invite", onboardLink)
+	otpHash, rawOTP, err := services.SendOTPInvites(facilityID, input.Email, input.Phone, "ClinicFlow Staff Invite", onboardLink)
 	if err != nil {
 		log.Printf("InviteStaff send OTP error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to dispatch invite verification code"})

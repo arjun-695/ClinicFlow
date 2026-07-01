@@ -173,7 +173,7 @@ func CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		clinicName = "Our Clinic"
 	}
 
-	go func(phone, patName, docName, clName, apptTimeStr, reasonStr string, docID int) {
+	go func(facID int, phone, patName, docName, clName, apptTimeStr, reasonStr string, docID int) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
@@ -188,10 +188,10 @@ func CreateAppointment(w http.ResponseWriter, r *http.Request) {
 		)
 		messageText := replacer.Replace(msgTemplate)
 
-		if err := services.SendWhatsApp(phone, messageText); err != nil {
+		if err := services.SendWhatsApp(facID, phone, messageText); err != nil {
 			log.Printf("Failed to send appointment confirmation WhatsApp to %s (%s): %v", patName, phone, err)
 		}
-	}(patientPhone, patientName, doctorName, clinicName, parsedDateTime.Format("Mon, Jan 2 at 3:04 PM"), input.Reason, doctorID)
+	}(facilityID, patientPhone, patientName, doctorName, clinicName, parsedDateTime.Format("Mon, Jan 2 at 3:04 PM"), input.Reason, doctorID)
 
 	// Invalidate caches
 	db.InvalidateCache(r.Context(), "appointments:list:*")
