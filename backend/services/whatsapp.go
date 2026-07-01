@@ -24,11 +24,54 @@ import (
 )
 
 var (
-	WAClient    *whatsmeow.Client
-	LatestQR    string
-	QRMutex     sync.RWMutex
-	IsConnected atomic.Bool
+	WAClient        *whatsmeow.Client
+	LatestQR        string
+	QRMutex         sync.RWMutex
+	IsConnected     atomic.Bool
+	QRChannelActive atomic.Bool
+	LastQRTime      time.Time
 )
+
+func StartQRStream() {
+	if WAClient == nil || WAClient.Store.ID != nil {
+		if WAClient != nil && WAClient.Store.ID != nil {
+			IsConnected.Store(true)
+		}
+		return
+	}
+
+	if QRChannelActive.Swap(true) {
+		// Already active
+		return
+	}
+
+	qrChan, err := WAClient.GetQRChannel(context.Background())
+	if err != nil {
+		log.Printf("Failed to get QR channel: %v", err)
+		QRChannelActive.Store(false)
+		return
+	}
+
+	go func() {
+		defer QRChannelActive.Store(false)
+		for qr := range qrChan {
+			if qr.Event == "code" {
+				QRMutex.Lock()
+				LatestQR = qr.Code
+				LastQRTime = time.Now()
+				QRMutex.Unlock()
+				log.Println("[WhatsApp] New QR code generated.")
+			} else {
+				log.Printf("[WhatsApp] QR channel event: %s", qr.Event)
+				if qr.Event == "timeout" || qr.Event == "error" {
+					QRMutex.Lock()
+					LatestQR = ""
+					QRMutex.Unlock()
+				}
+			}
+		}
+	}()
+}
 
 func InitWhatsApp() {
 	dbConnStr := os.Getenv("DATABASE_URL")
@@ -60,25 +103,7 @@ func InitWhatsApp() {
 	WAClient.AddEventHandler(eventHandler)
 
 	if WAClient.Store.ID == nil {
-		// No logged-in device, listen to QR code stream
-		qrChan, err := WAClient.GetQRChannel(context.Background())
-		if err != nil {
-			log.Printf("Failed to get QR channel: %v", err)
-			return
-		}
-
-		go func() {
-			for qr := range qrChan {
-				if qr.Event == "code" {
-					QRMutex.Lock()
-					LatestQR = qr.Code
-					QRMutex.Unlock()
-					fmt.Println("New WhatsApp QR code generated. Scan this in the frontend pairing screen.")
-				} else {
-					log.Printf("WhatsApp QR channel event: %s", qr.Event)
-				}
-			}
-		}()
+		StartQRStream()
 	} else {
 		IsConnected.Store(true)
 		fmt.Println("WhatsApp client is already authenticated and linked!")

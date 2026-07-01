@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"backend/services"
 )
@@ -17,7 +18,33 @@ var waPhoneRegex = regexp.MustCompile(`^\+?[\d]{7,15}$`)
 func GetWhatsAppQR(w http.ResponseWriter, r *http.Request) {
 	services.QRMutex.RLock()
 	qr := services.LatestQR
+	lastQRTime := services.LastQRTime
 	services.QRMutex.RUnlock()
+
+	// If not connected, not paired, and the QR stream loop has timed out or is stale
+	if !services.IsConnected.Load() && services.WAClient != nil && services.WAClient.Store.ID == nil {
+		if qr == "" || time.Since(lastQRTime) > 25*time.Second || !services.QRChannelActive.Load() {
+			log.Println("[WhatsApp] QR stream stale or inactive. Re-initializing whatsmeow QR channel...")
+			services.WAClient.Disconnect()
+			time.Sleep(100 * time.Millisecond) // brief pause to disconnect
+			services.StartQRStream()
+			err := services.WAClient.Connect()
+			if err != nil {
+				log.Printf("[WhatsApp] Connect error on QR refresh: %v", err)
+			}
+
+			// Block for up to 2 seconds to wait for a fresh QR to arrive in the stream
+			for i := 0; i < 20; i++ {
+				time.Sleep(100 * time.Millisecond)
+				services.QRMutex.RLock()
+				qr = services.LatestQR
+				services.QRMutex.RUnlock()
+				if qr != "" {
+					break
+				}
+			}
+		}
+	}
 
 	var status string
 	if services.IsConnected.Load() {
