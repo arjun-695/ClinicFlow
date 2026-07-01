@@ -75,7 +75,7 @@ function OnboardContent() {
 
 		setLoading(true);
 		try {
-			await fetchAPI("/api/auth/invite/accept", {
+			const resData = await fetchAPI("/api/auth/invite/accept", {
 				method: "POST",
 				body: JSON.stringify({
 					token,
@@ -88,6 +88,9 @@ function OnboardContent() {
 					specialization,
 				}),
 			});
+			if (resData.token) {
+				localStorage.setItem('auth_token', resData.token);
+			}
 			setSuccess("Registration completed successfully!");
 			setTimeout(() => {
 				router.push("/dashboard");

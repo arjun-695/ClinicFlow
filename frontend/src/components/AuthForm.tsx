@@ -96,6 +96,9 @@ export default function AuthForm({ variant }: Props) {
         });
         
         if (resData.user) {
+          if (resData.token) {
+            localStorage.setItem('auth_token', resData.token);
+          }
           router.replace("/dashboard");
         } else {
           setError("Failed to create account. Please try again.");
@@ -118,6 +121,9 @@ export default function AuthForm({ variant }: Props) {
         });
 
         if (resData.user) {
+          if (resData.token) {
+            localStorage.setItem('auth_token', resData.token);
+          }
           router.replace("/dashboard");
         } else {
           setError("Failed to sign in. Please try again.");

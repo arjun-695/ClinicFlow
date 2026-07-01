@@ -511,6 +511,18 @@ export default function Dashboard() {
 
   // --- Auth Check ---
   useEffect(() => {
+    // Check for token in URL (from Google OAuth redirect)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('token');
+      if (urlToken) {
+        localStorage.setItem('auth_token', urlToken);
+        // Remove token from URL for security
+        params.delete('token');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
     checkAuthSession();
   }, []);
 
@@ -526,10 +538,12 @@ export default function Dashboard() {
         }
       } else {
         setIsAuthenticated(false);
+        localStorage.removeItem('auth_token');
         router.replace("/signin");
       }
     } catch {
       setIsAuthenticated(false);
+      localStorage.removeItem('auth_token');
       router.replace("/signin");
     }
   };
@@ -1201,10 +1215,15 @@ export default function Dashboard() {
   const handleLogout = async () => {
     try {
       await fetchAPI("/api/auth/logout");
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('active_facility_id');
       setIsAuthenticated(false);
       router.replace("/");
     } catch (e) {
       console.error("Logout failed", e);
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('active_facility_id');
+      router.replace("/");
     }
   };
 

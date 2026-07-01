@@ -10,6 +10,12 @@ export async function fetchAPI(path: string, options: RequestInit = {}) {
   }
 
   if (typeof window !== 'undefined') {
+    // Send auth token from localStorage for cross-domain auth
+    const authToken = localStorage.getItem('auth_token');
+    if (authToken) {
+      headers.set('Authorization', `Bearer ${authToken}`);
+    }
+
     const activeFacilityId = localStorage.getItem('active_facility_id');
     if (activeFacilityId) {
       headers.set('X-Facility-ID', activeFacilityId);
@@ -17,7 +23,7 @@ export async function fetchAPI(path: string, options: RequestInit = {}) {
   }
 
   const mergedOptions: RequestInit = {
-    credentials: 'include', // Send cookies/session
+    credentials: 'include', // Send cookies/session (fallback for same-domain)
     ...options,
     headers,
   };

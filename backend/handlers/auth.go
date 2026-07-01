@@ -133,13 +133,25 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 // CheckSession returns the current user profile if authenticated
 func CheckSession(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("auth_session")
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "Unauthenticated"})
-		return
+	var token string
+
+	// 1. Try Authorization header first (for cross-domain token-based auth)
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		token = strings.TrimPrefix(authHeader, "Bearer ")
 	}
 
-	shopkeeperID, err := ValidateSessionToken(cookie.Value)
+	// 2. Fallback to auth_session cookie
+	if token == "" {
+		cookie, err := r.Cookie("auth_session")
+		if err != nil {
+			writeJSON(w, http.StatusOK, map[string]interface{}{"status": "Unauthenticated"})
+			return
+		}
+		token = cookie.Value
+	}
+
+	shopkeeperID, err := ValidateSessionToken(token)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "Unauthenticated"})
 		return
@@ -327,6 +339,7 @@ func Signup(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Account created successfully",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":          id,
 			"email":       input.Email,
@@ -399,6 +412,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Logged in successfully",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":          id,
 			"email":       input.Email,
@@ -626,8 +640,8 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 		SameSite: getSameSiteMode(),
 	})
 
-	// Redirect back to frontend dashboard
-	redirectURL := frontendOrigin + "/dashboard"
+	// Redirect back to frontend dashboard with token in URL for cross-domain auth
+	redirectURL := frontendOrigin + "/dashboard?token=" + url.QueryEscape(token)
 	http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 }
 
@@ -1059,6 +1073,7 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Staff registration completed successfully",
+		"token":   token,
 		"user": map[string]interface{}{
 			"id":          newUserID,
 			"email":       email,
