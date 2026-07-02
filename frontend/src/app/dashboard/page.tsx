@@ -1692,6 +1692,8 @@ export default function Dashboard() {
               patient_id: parseInt(billPatientId),
               patient_name: patientName,
               patient_phone: patientPhone,
+              patient_gender: patient ? patient.gender : "",
+              patient_age: patient ? patient.age : 0,
               doctor_id: 0,
               clinic_name: doctorInfo?.clinic_name || "ClinicFlow",
               description: billDesc,
@@ -1752,6 +1754,7 @@ export default function Dashboard() {
       loadRecentBills();
 
       if (res.bill_id) {
+        setActiveTab("patients");
         setViewState({ type: "bill", billId: res.bill_id });
       }
     } catch {
@@ -2413,7 +2416,7 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="text-sm font-semibold tracking-wider uppercase animate-pulse">
-          Loading ClinicFlow Profile...
+          Loading Clinically Profile...
         </div>
       </div>
     );
@@ -5369,7 +5372,10 @@ export default function Dashboard() {
                       recentBills.map((bill) => (
                         <div
                           key={bill.id}
-                          onClick={() => setViewState({ type: "bill", billId: bill.id })}
+                          onClick={() => {
+                            setActiveTab("patients");
+                            setViewState({ type: "bill", billId: bill.id });
+                          }}
                           className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
                         >
                           <div className="flex justify-between items-start">
@@ -5423,7 +5429,10 @@ export default function Dashboard() {
                           recentBills.map((bill) => (
                             <tr
                               key={bill.id}
-                              onClick={() => setViewState({ type: "bill", billId: bill.id })}
+                              onClick={() => {
+                                setActiveTab("patients");
+                                setViewState({ type: "bill", billId: bill.id });
+                              }}
                               className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
                             >
                               <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
@@ -6755,7 +6764,10 @@ export default function Dashboard() {
                               <tr
                                 key={bill.id}
                                 className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
-                                onClick={() => setViewState({ type: "bill", billId: bill.id })}
+                                onClick={() => {
+                                 setActiveTab("patients");
+                                 setViewState({ type: "bill", billId: bill.id });
+                               }}
                               >
                                 <td className="px-4 py-3 font-bold">#INV-{bill.id}</td>
                                 <td className="px-4 py-3 text-slate-400 max-w-xs truncate">{bill.description}</td>
@@ -7498,7 +7510,7 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
             Choose Your Portal Role
           </h1>
           <p className="text-sm text-slate-400 max-w-md mx-auto">
-            Welcome to ClinicFlow! Please select your system role to unlock custom workflows and tools.
+            Welcome to Clinically! Please select your system role to unlock custom workflows and tools.
           </p>
         </div>
 
@@ -7662,7 +7674,7 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
       </div>
 
       <footer className="text-center text-[10px] text-slate-600 mt-6">
-        &copy; {new Date().getFullYear()} ClinicFlow. Secure Patient EMR & Ledger.
+        &copy; {new Date().getFullYear()} Clinically. Secure Patient EMR & Ledger.
       </footer>
     </div>
   );

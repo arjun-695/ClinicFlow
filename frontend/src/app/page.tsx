@@ -169,16 +169,36 @@ export default function LandingPage() {
   );
 
   if (checkingAuth) {
+    const letters = "Clinically".split("");
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-4 text-slate-100">
-        <div className="relative flex items-center justify-center">
-          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-500 via-indigo-600 to-purple-600 flex items-center justify-center shadow-2xl animate-pulse">
-            <span className="font-extrabold text-xl text-white">KF</span>
-          </div>
-          <div className="absolute inset-0 rounded-3xl border border-indigo-500/30 scale-125 animate-ping opacity-20" />
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-6 text-slate-100">
+        <style>{`
+          @keyframes letter-bounce {
+            0%, 100% {
+              transform: translateY(0);
+            }
+            50% {
+              transform: translateY(-15px);
+            }
+          }
+          .bounce-letter {
+            display: inline-block;
+            animation: letter-bounce 1.2s infinite ease-in-out;
+          }
+        `}</style>
+        <div className="flex space-x-1 font-sans text-3xl font-black tracking-tight text-white">
+          {letters.map((letter, idx) => (
+            <span
+              key={idx}
+              className="bounce-letter text-indigo-400"
+              style={{ animationDelay: `${idx * 0.1}s` }}
+            >
+              {letter}
+            </span>
+          ))}
         </div>
-        <div className="text-sm font-medium text-slate-400 tracking-wider uppercase animate-pulse">
-          Syncing ClinicFlow...
+        <div className="text-[10px] font-bold text-slate-500 tracking-widest uppercase animate-pulse">
+          Syncing Portal...
         </div>
       </div>
     );
@@ -210,10 +230,10 @@ export default function LandingPage() {
         <header className="w-full max-w-6xl mx-auto px-6 py-6 flex items-center justify-between pointer-events-auto">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg transform transition hover:rotate-12 duration-300">
-              <span className="font-black text-white text-base">CF</span>
+              <span className="font-black text-white text-base">CL</span>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white tracking-tight">ClinicFlow</h3>
+              <h3 className="text-lg font-bold text-white tracking-tight">Clinically</h3>
               <p className="text-[9px] font-semibold text-indigo-400 tracking-wider uppercase">Patient EMR & Billing</p>
             </div>
           </div>
@@ -262,11 +282,11 @@ export default function LandingPage() {
               </div>
               
               <h1 className="text-4xl md:text-5xl font-extrabold leading-tight text-white tracking-tight">
-                Streamline Your <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-emerald-400">Clinic Practice</span> With ClinicFlow.
+                Streamline Your <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-emerald-400">Clinic Practice</span> With Clinically.
               </h1>
               
               <p className="text-sm text-slate-400 leading-relaxed max-w-md">
-                Ditch paper files and manual lookup. Focus on patient care while ClinicFlow handles appointment scheduling, digital prescriptions, and automatic WhatsApp invoice delivery.
+                Ditch paper files and manual lookup. Focus on patient care while Clinically handles appointment scheduling, digital prescriptions, and automatic WhatsApp invoice delivery.
               </p>
 
               <div className="flex items-center space-x-4 pt-2">
@@ -635,7 +655,7 @@ export default function LandingPage() {
 
         {/* Fixed Footer */}
         <footer className="w-full max-w-6xl mx-auto px-6 py-4 flex items-center justify-between text-[11px] text-slate-500 pointer-events-auto">
-          <span>&copy; {new Date().getFullYear()} ClinicFlow</span>
+          <span>&copy; {new Date().getFullYear()} Clinically</span>
           <div className="flex items-center space-x-3">
             <span className="flex items-center space-x-1">
               <Shield className="w-3.5 h-3.5 text-indigo-400" />

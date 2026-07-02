@@ -152,7 +152,7 @@ export default function AuthForm({ variant }: Props) {
             <p className="text-sm text-slate-400">
               {variant === "signup" 
                 ? "Start managing your clinic practice today."
-                : "Sign in to continue to your ClinicFlow portal."}
+                : "Sign in to continue to your Clinically portal."}
             </p>
           </div>
 

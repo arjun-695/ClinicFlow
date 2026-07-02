@@ -22,8 +22,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ClinicFlow — Clinical Patient Management & EMR",
-  description: "Simplify your clinic operations with ClinicFlow. Track patient histories, manage appointments, and handle billing with ease.",
+  title: "Clinically — Clinical Patient Management & EMR",
+  description: "Simplify your clinic operations with Clinically. Track patient histories, manage appointments, and handle billing with ease.",
 };
 
 export default function RootLayout({

@@ -11,7 +11,7 @@ export default function LandingPage() {
         <section className="grid gap-8 md:grid-cols-2 items-center">
           <div>
             <h1 className="text-4xl md:text-5xl font-extrabold leading-tight">
-              ClinicFlow — Simple, secure patient records and EMR for doctors
+              Clinically — Simple, secure patient records and EMR for doctors
             </h1>
             <p className="mt-4 text-slate-400 max-w-xl">
               Track patient files, manage appointments, log billing, and send
@@ -74,7 +74,7 @@ export default function LandingPage() {
         <section className="mt-16 bg-slate-900/40 border border-slate-800 rounded-2xl p-6">
           <h3 className="text-xl font-semibold">Built for doctors</h3>
           <p className="mt-3 text-slate-400">
-            ClinicFlow focuses on fast workflows: quick register patients, immediate
+            Clinically focuses on fast workflows: quick register patients, immediate
             billing, and clear outstanding balances. Export statements as PDF or
             notify patients via WhatsApp.
           </p>

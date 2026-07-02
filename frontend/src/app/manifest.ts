@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'ClinicFlow EMR & Patient Ledger',
-    short_name: 'ClinicFlow',
+    name: 'Clinically EMR & Patient Ledger',
+    short_name: 'Clinically',
     description: 'Clinical Patient Management & Electronic Medical Records (EMR) Platform.',
     start_url: '/',
     display: 'standalone',

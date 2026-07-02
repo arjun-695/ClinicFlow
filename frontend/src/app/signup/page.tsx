@@ -22,7 +22,7 @@ export default function SignUpPage() {
       </main>
 
       <footer className="w-full text-center py-6 text-xs text-slate-600 relative z-10">
-        &copy; {new Date().getFullYear()} ClinicFlow. Secure Patient EMR & Ledger.
+        &copy; {new Date().getFullYear()} Clinically. Secure Patient EMR & Ledger.
       </footer>
     </div>
   );

@@ -8,10 +8,10 @@ export default function HeaderSimple() {
     <header className="w-full max-w-5xl mx-auto px-6 py-6 flex items-center justify-between">
       <div className="flex items-center space-x-3">
         <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-md">
-          <span className="font-bold text-white">CF</span>
+          <span className="font-bold text-white">CL</span>
         </div>
         <div>
-          <h3 className="text-lg font-semibold">ClinicFlow</h3>
+          <h3 className="text-lg font-semibold">Clinically</h3>
           <p className="text-xs text-slate-400">Patient EMR & Billing</p>
         </div>
       </div>
