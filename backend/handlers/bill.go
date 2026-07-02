@@ -807,6 +807,15 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 	go func(fID int) {
 		tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
+		// Fetch latest prescription amount paid for this patient
+		var rxAmountPaid float64
+		_ = db.Pool.QueryRow(context.Background(), `
+			SELECT COALESCE(amount_paid, 0.0) 
+			FROM prescriptions 
+			WHERE patient_id = $1 
+			ORDER BY created_at DESC LIMIT 1
+		`, b.PatientID).Scan(&rxAmountPaid)
+
 		// Build payment details string
 		paymentDetails := ""
 		totalPaid := b.TotalAmount - b.RemainingAmount
@@ -817,6 +826,9 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 				payMode = "CASH"
 			}
 			paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", totalPaid, payMode)
+		}
+		if rxAmountPaid > 0 {
+			paymentDetails += fmt.Sprintf("Prescription Upfront Paid: ₹%.2f\n", rxAmountPaid)
 		}
 
 		// Build items list

@@ -674,40 +674,45 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Prescription not found or unauthorized"})
 		return
 	}
-
 	activeFacID, _ := GetActiveFacilityID(r, doctorID)
+	facID := activeFacID
+	if rxFacilityID != nil {
+		facID = *rxFacilityID
+	}
+	var facType string
+	err = db.Pool.QueryRow(ctx, "SELECT type FROM facilities WHERE id = $1", facID).Scan(&facType)
+	if err != nil {
+		facType = "CLINIC"
+	}
 
 	// Process prescription PDF if uploaded
 	fileRx, fileHeaderRx, errRx := r.FormFile("prescription")
 	if errRx == nil {
 		defer fileRx.Close()
-		fileBytesRx, errRead := io.ReadAll(fileRx)
-		if errRead == nil {
-			// Send prescription WhatsApp notification asynchronously
-			go func(fID int) {
-				tmpl := GetTemplateForDoctor(context.Background(), doctorID, "prescription_notification")
-				msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
-				replacer := strings.NewReplacer(
-					"{patient_name}", pName,
-					"{doctor_name}", docName,
-					"{clinic_name}", clinicName,
-					"{diagnosis}", diagnosis,
-					"{notes}", notes,
-				)
-				messageText := replacer.Replace(msgTemplate)
+		if facType == "CLINIC" {
+			fileBytesRx, errRead := io.ReadAll(fileRx)
+			if errRead == nil {
+				// Send prescription WhatsApp notification asynchronously (Only in CLINIC mode)
+				go func(fID int) {
+					tmpl := GetTemplateForDoctor(context.Background(), doctorID, "prescription_notification")
+					msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+					replacer := strings.NewReplacer(
+						"{patient_name}", pName,
+						"{doctor_name}", docName,
+						"{clinic_name}", clinicName,
+						"{diagnosis}", diagnosis,
+						"{notes}", notes,
+					)
+					messageText := replacer.Replace(msgTemplate)
 
-				facID := fID
-				if rxFacilityID != nil {
-					facID = *rxFacilityID
-				}
-
-				errSend := services.SendWhatsAppWithAttachment(facID, pPhone, messageText, fileBytesRx, fileHeaderRx.Filename, "application/pdf")
-				if errSend != nil {
-					log.Printf("WhatsApp prescription dispatch failed for Patient %s (%s): %v", pName, pPhone, errSend)
-				}
-			}(activeFacID)
-		} else {
-			log.Printf("UploadPrescriptionAndBillPDF prescription read error: %v", errRead)
+					errSend := services.SendWhatsAppWithAttachment(fID, pPhone, messageText, fileBytesRx, fileHeaderRx.Filename, "application/pdf")
+					if errSend != nil {
+						log.Printf("WhatsApp prescription dispatch failed for Patient %s (%s): %v", pName, pPhone, errSend)
+					}
+				}(facID)
+			} else {
+				log.Printf("UploadPrescriptionAndBillPDF prescription read error: %v", errRead)
+			}
 		}
 	}
 
@@ -732,97 +737,98 @@ func UploadPrescriptionAndBillPDF(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 
-					// Dispatch bill WhatsApp notification asynchronously
-					go func(fID int) {
-						var b BillSummary
-						var billFacilityID *int
-						queryBill := `
-							SELECT b.id, b.patient_id, b.description, b.total_amount, b.remaining_amount, b.status, b.created_at, b.notified, b.facility_id
-							FROM bills b
-							WHERE b.id = $1
-						`
-						errQueryBill := db.Pool.QueryRow(context.Background(), queryBill, billID).Scan(
-							&b.ID, &b.PatientID, &b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.CreatedAt, &b.Notified, &billFacilityID,
-						)
-						if errQueryBill != nil {
-							log.Printf("UploadPrescriptionAndBillPDF queryBill error: %v", errQueryBill)
-							return
-						}
+					// Dispatch bill WhatsApp notification asynchronously (Only in CLINIC mode)
+					if facType == "CLINIC" {
+						go func(fID int) {
+							var b BillSummary
+							var billFacilityID *int
+							queryBill := `
+								SELECT b.id, b.patient_id, b.description, b.total_amount, b.remaining_amount, b.status, b.created_at, b.notified, b.facility_id
+								FROM bills b
+								WHERE b.id = $1
+							`
+							errQueryBill := db.Pool.QueryRow(context.Background(), queryBill, billID).Scan(
+								&b.ID, &b.PatientID, &b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.CreatedAt, &b.Notified, &billFacilityID,
+							)
+							if errQueryBill != nil {
+								log.Printf("UploadPrescriptionAndBillPDF queryBill error: %v", errQueryBill)
+								return
+							}
 
-						// Load bill items
-						rowsItems, errItems := db.Pool.Query(context.Background(), `
-							SELECT item_name, quantity, unit_price, dosage FROM bill_items WHERE bill_id = $1 ORDER BY id ASC
-						`, billID)
-						itemsList := ""
-						if errItems == nil {
-							defer rowsItems.Close()
-							i := 1
-							for rowsItems.Next() {
-								var item struct {
-									ItemName  string
-									Quantity  int
-									UnitPrice float64
-									Dosage    string
-								}
-								if errScan := rowsItems.Scan(&item.ItemName, &item.Quantity, &item.UnitPrice, &item.Dosage); errScan == nil {
-									dosageStr := ""
-									if item.Dosage != "" {
-										dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
+							// Load bill items
+							rowsItems, errItems := db.Pool.Query(context.Background(), `
+								SELECT item_name, quantity, unit_price, dosage FROM bill_items WHERE bill_id = $1 ORDER BY id ASC
+							`, billID)
+							itemsList := ""
+							if errItems == nil {
+								defer rowsItems.Close()
+								i := 1
+								for rowsItems.Next() {
+									var item struct {
+										ItemName  string
+										Quantity  int
+										UnitPrice float64
+										Dosage    string
 									}
-									itemsList += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit%s\n", i, item.ItemName, item.Quantity, item.UnitPrice, dosageStr)
-									i++
+									if errScan := rowsItems.Scan(&item.ItemName, &item.Quantity, &item.UnitPrice, &item.Dosage); errScan == nil {
+										dosageStr := ""
+										if item.Dosage != "" {
+											dosageStr = fmt.Sprintf(" [%s]", item.Dosage)
+										}
+										itemsList += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit%s\n", i, item.ItemName, item.Quantity, item.UnitPrice, dosageStr)
+										i++
+									}
 								}
 							}
-						}
 
-						tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
+							tmpl := GetTemplateForDoctor(context.Background(), doctorID, "bill_notification")
 
-						paymentDetails := ""
-						totalPaid := b.TotalAmount - b.RemainingAmount
-						if totalPaid > 0 {
-							var payMode string
-							_ = db.Pool.QueryRow(context.Background(), "SELECT payment_mode FROM payments WHERE bill_id = $1 ORDER BY payment_date DESC LIMIT 1", billID).Scan(&payMode)
-							if payMode == "" {
-								payMode = "CASH"
+							paymentDetails := ""
+							totalPaid := b.TotalAmount - b.RemainingAmount
+							if totalPaid > 0 {
+								var payMode string
+								_ = db.Pool.QueryRow(context.Background(), "SELECT payment_mode FROM payments WHERE bill_id = $1 ORDER BY payment_date DESC LIMIT 1", billID).Scan(&payMode)
+								if payMode == "" {
+									payMode = "CASH"
+								}
+								paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", totalPaid, payMode)
 							}
-							paymentDetails = fmt.Sprintf("Amount Paid: ₹%.2f (%s)\n", totalPaid, payMode)
-						}
 
-						appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
-						if appURL == "" {
-							appURL = "http://localhost:3000"
-						}
-						billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
+							appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+							if appURL == "" {
+								appURL = "http://localhost:3000"
+							}
+							billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
 
-						msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
-						replacer := strings.NewReplacer(
-							"{patient_name}", pName,
-							"{total_amount}", fmt.Sprintf("%.2f", b.TotalAmount),
-							"{clinic_name}", clinicName,
-							"{payment_details}", paymentDetails,
-							"{remaining_amount}", fmt.Sprintf("%.2f", b.RemainingAmount),
-							"{items_list}", itemsList,
-							"{bill_link}", billLink,
-							"{description}", b.Description,
-						)
-						messageText := replacer.Replace(msgTemplate)
+							msgTemplate := tmpl.Greeting + "\n\n" + tmpl.Body + "\n\n" + tmpl.Footer
+							replacer := strings.NewReplacer(
+								"{patient_name}", pName,
+								"{total_amount}", fmt.Sprintf("%.2f", b.TotalAmount),
+								"{clinic_name}", clinicName,
+								"{payment_details}", paymentDetails,
+								"{remaining_amount}", fmt.Sprintf("%.2f", b.RemainingAmount),
+								"{items_list}", itemsList,
+								"{bill_link}", billLink,
+								"{description}", b.Description,
+							)
+							messageText := replacer.Replace(msgTemplate)
 
-						facID := fID
-						if billFacilityID != nil {
-							facID = *billFacilityID
-						}
+							destFacID := fID
+							if billFacilityID != nil {
+								destFacID = *billFacilityID
+							}
 
-						errSendBill := services.SendWhatsAppWithAttachment(facID, pPhone, messageText, fileBytesBill, fileHeaderBill.Filename, "application/pdf")
-						if errSendBill != nil {
-							log.Printf("WhatsApp bill dispatch failed (UploadPrescriptionAndBillPDF) for Patient %s (%s): %v", pName, pPhone, errSendBill)
-						} else {
-							_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
-						}
-					}(activeFacID)
+							errSendBill := services.SendWhatsAppWithAttachment(destFacID, pPhone, messageText, fileBytesBill, fileHeaderBill.Filename, "application/pdf")
+							if errSendBill != nil {
+								log.Printf("WhatsApp bill dispatch failed (UploadPrescriptionAndBillPDF) for Patient %s (%s): %v", pName, pPhone, errSendBill)
+							} else {
+								_, _ = db.Pool.Exec(context.Background(), "UPDATE bills SET notified = TRUE WHERE id = $1", billID)
+							}
+						}(facID)
+					}
 				}
 			}
 		}
 	}
-
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Prescription and Bill documents processed successfully"})
 }
