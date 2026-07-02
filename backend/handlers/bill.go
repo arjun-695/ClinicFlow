@@ -162,7 +162,7 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 		Name  string
 		Phone string
 	}
-	err = db.Pool.QueryRow(ctx, "SELECT name, phone FROM patients WHERE id = $1 AND doctor_id = $2 AND facility_id = $3", patientID, doctorID, facilityID).Scan(&pt.Name, &pt.Phone)
+	err = db.Pool.QueryRow(ctx, "SELECT name, phone FROM patients WHERE id = $1 AND facility_id = $2", patientID, facilityID).Scan(&pt.Name, &pt.Phone)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Patient not found"})
 		return
@@ -692,6 +692,12 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	activeFacID, err := GetActiveFacilityID(r, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	ctx := r.Context()
 
 	// Fetch bill and patient details to verify ownership and construct the message
@@ -704,9 +710,9 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		LEFT JOIN users d ON b.doctor_id = d.id
-		WHERE b.id = $1 AND p.doctor_id = $2
+		WHERE b.id = $1 AND b.facility_id = $2
 	`
-	err = db.Pool.QueryRow(ctx, queryBill, billID, doctorID).Scan(
+	err = db.Pool.QueryRow(ctx, queryBill, billID, activeFacID).Scan(
 		&b.ID, &b.PatientID, &b.PatientName, &b.PatientPhone, &b.DoctorID, &b.ClinicName,
 		&b.Description, &b.TotalAmount, &b.RemainingAmount, &b.Status, &b.PromisedDueDate, &b.InvoiceURL, &b.CreatedAt, &b.Notified,
 		&b.FacilityID,
@@ -800,8 +806,6 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 			Dosage:    item.Dosage,
 		})
 	}
-
-	activeFacID, _ := GetActiveFacilityID(r, doctorID)
 
 	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
 	go func(fID int) {
