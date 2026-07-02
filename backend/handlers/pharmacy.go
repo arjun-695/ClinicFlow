@@ -1,14 +1,17 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"backend/db"
+	"backend/services"
 )
 
 type DispensingRecord struct {
@@ -108,7 +111,8 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 // Restricts to PHARMACIST role.
 func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		PrescriptionID int `json:"prescription_id"`
+		PrescriptionID int     `json:"prescription_id"`
+		AmountPaid     float64 `json:"amount_paid"`
 		Items          []struct {
 			PrescriptionItemID int     `json:"prescription_item_id"`
 			MedicineID         *int    `json:"medicine_id"`
@@ -275,14 +279,26 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	// 3. Auto-generate Bill Invoice
 	var billID int
 	description := fmt.Sprintf("Pharmacy Invoice — Rx #%d", input.PrescriptionID)
+	
+	remainingAmount := grandTotal - input.AmountPaid
+	var billStatus string
+	if remainingAmount <= 0 {
+		billStatus = "SETTLED"
+		remainingAmount = 0
+	} else if input.AmountPaid > 0 {
+		billStatus = "PARTIALLY_PAID"
+	} else {
+		billStatus = "PENDING"
+	}
+
 	billQuery := `
 		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, facility_id, promised_due_date, created_at)
-		VALUES ($1, $2, $3, $4, $4, 'PENDING', $5, $6, now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
 		RETURNING id
 	`
 	// Promise due date defaults to 7 days from now
 	promisedDate := time.Now().AddDate(0, 0, 7)
-	err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, facilityID, promisedDate).Scan(&billID)
+	err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, remainingAmount, billStatus, facilityID, promisedDate).Scan(&billID)
 	if err != nil {
 		log.Printf("DispensePrescription create bill error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to auto-generate bill"})
@@ -302,7 +318,20 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Link dispensing record to the bill
+	// 4. Log co-payment record if AmountPaid > 0
+	if input.AmountPaid > 0 {
+		_, err = tx.Exec(r.Context(), `
+			INSERT INTO payments (bill_id, amount_paid, payment_mode, remarks, payment_date)
+			VALUES ($1, $2, 'CASH', 'Upfront co-payment during dispensing', now())
+		`, billID, input.AmountPaid)
+		if err != nil {
+			log.Printf("DispensePrescription create payment error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to log dispensing co-payment"})
+			return
+		}
+	}
+
+	// 5. Link dispensing record to the bill
 	_, err = tx.Exec(r.Context(), "UPDATE dispensing_records SET bill_id = $1 WHERE id = $2", billID, dispensingID)
 	if err != nil {
 		log.Printf("DispensePrescription update bill_id link error: %v", err)
@@ -310,7 +339,7 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Update Prescription Status
+	// 6. Update Prescription Status
 	newRxStatus := "dispensed"
 	if !isFullyDispensed {
 		newRxStatus = "partially_dispensed"
@@ -328,8 +357,52 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Invalidate cache
+	// Invalidate caches (Both detail and list, facility-wide)
 	db.InvalidateCache(r.Context(), "patient:detail:*:"+strconv.Itoa(patientID))
+	db.InvalidateCache(r.Context(), "patients:list:*:"+strconv.Itoa(facilityID)+":*")
+
+	// Dispatch WhatsApp message separately (asynchronously)
+	go func(fID int) {
+		var pName, pPhone string
+		_ = db.Pool.QueryRow(context.Background(), "SELECT name, phone FROM patients WHERE id = $1", patientID).Scan(&pName, &pPhone)
+		if pPhone == "" {
+			return
+		}
+
+		var clinicName string
+		_ = db.Pool.QueryRow(context.Background(), "SELECT clinic_name FROM users WHERE id = $1", doctorID).Scan(&clinicName)
+		if clinicName == "" {
+			clinicName = "Clinically"
+		}
+
+		appURL := os.Getenv("WEBAUTHN_RP_ORIGIN")
+		if appURL == "" {
+			appURL = "http://localhost:3000"
+		}
+		billLink := fmt.Sprintf("%s/dashboard?view=bill&id=%d", appURL, billID)
+
+		itemsStr := ""
+		for idx, it := range invoiceItems {
+			itemsStr += fmt.Sprintf("%d. %s (Qty: %d) - ₹%.2f/unit\n", idx+1, it.Name, it.Quantity, it.UnitPrice)
+		}
+
+		messageText := fmt.Sprintf(
+			"Dear %s,\n\nYour pharmacy bill for prescription #%d has been generated at *%s*.\n\n*Medicines Dispensed:*\n%s\nTotal Amount: *₹%.2f*\nAmount Paid: ₹%.2f\nRemaining Balance: *₹%.2f*\n\nView invoice & download receipt here:\n%s",
+			pName,
+			input.PrescriptionID,
+			clinicName,
+			itemsStr,
+			grandTotal,
+			input.AmountPaid,
+			remainingAmount,
+			billLink,
+		)
+
+		errSend := services.SendWhatsApp(fID, pPhone, messageText)
+		if errSend != nil {
+			log.Printf("WhatsApp pharmacy bill dispatch failed for Patient %s (%s): %v", pName, pPhone, errSend)
+		}
+	}(facilityID)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"dispensing_id": dispensingID,

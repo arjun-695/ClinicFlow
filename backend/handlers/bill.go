@@ -303,8 +303,8 @@ func CreateBill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Invalidate caches
-	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(patientID))
-	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(doctorID)+":*")
+	db.InvalidateCache(ctx, "patient:detail:*:"+strconv.Itoa(patientID))
+	db.InvalidateCache(ctx, "patients:list:*:"+strconv.Itoa(facilityID)+":*")
 
 	// Dispatch WhatsApp Message (Asynchronously to avoid blocking client response)
 	skipWhatsApp := r.FormValue("skip_whatsapp") == "true"
@@ -884,8 +884,8 @@ func UploadInvoice(w http.ResponseWriter, r *http.Request) {
 	}(activeFacID)
 
 	// Invalidate caches
-	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(doctorID)+":"+strconv.Itoa(b.PatientID))
-	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(doctorID)+":*")
+	db.InvalidateCache(ctx, "patient:detail:*:"+strconv.Itoa(b.PatientID))
+	db.InvalidateCache(ctx, "patients:list:*:"+strconv.Itoa(activeFacID)+":*")
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success":     true,

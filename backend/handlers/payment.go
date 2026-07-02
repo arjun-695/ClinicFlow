@@ -285,8 +285,8 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Invalidate caches
-	db.InvalidateCache(ctx, "patient:detail:"+strconv.Itoa(shopkeeperID)+":"+strconv.Itoa(cc.PatientID))
-	db.InvalidateCache(ctx, "patients:list:"+strconv.Itoa(shopkeeperID)+":*")
+	db.InvalidateCache(ctx, "patient:detail:*:"+strconv.Itoa(cc.PatientID))
+	db.InvalidateCache(ctx, "patients:list:*:"+strconv.Itoa(facilityID)+":*")
 
 	var facID int
 	if cc.FacilityID != nil {

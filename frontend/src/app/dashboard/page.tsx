@@ -345,6 +345,7 @@ export default function Dashboard() {
   const [pendingPrescriptions, setPendingPrescriptions] = useState<any[]>([]);
   const [activeRxToDispense, setActiveRxToDispense] = useState<any | null>(null);
   const [dispenseItems, setDispenseItems] = useState<any[]>([]);
+  const [dispenseAmountPaid, setDispenseAmountPaid] = useState("");
   const [expandedRxId, setExpandedRxId] = useState<number | null>(null);
 
   // 2. Appointment Form
@@ -1304,6 +1305,7 @@ export default function Dashboard() {
         method: "POST",
         body: JSON.stringify({
           prescription_id: activeRxToDispense.id,
+          amount_paid: parseFloat(dispenseAmountPaid) || 0,
           items: dispenseItems.map(item => ({
             prescription_item_id: item.prescription_item_id,
             medicine_id: item.medicine_id,
@@ -1317,6 +1319,7 @@ export default function Dashboard() {
       setToast({ message: "Medication dispensed and bill generated!", type: "success" });
       setActiveRxToDispense(null);
       setDispenseItems([]);
+      setDispenseAmountPaid("");
       loadPendingPrescriptions();
       loadRecentBills();
       loadPrescriptions();
@@ -5117,6 +5120,22 @@ export default function Dashboard() {
                               </span>
                             </div>
 
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (INR)</label>
+                              <input
+                                type="text"
+                                placeholder="0.00"
+                                value={dispenseAmountPaid}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
+                                    setDispenseAmountPaid(val);
+                                  }
+                                }}
+                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-center"
+                              />
+                            </div>
+
                             <button
                               type="submit"
                               disabled={isSubmitting}
@@ -5314,27 +5333,16 @@ export default function Dashboard() {
                             </div>
                           </div>
 
-                          {/* Upfront Payment Remarks & File attachment */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Remarks / Log Note</label>
-                              <input
-                                type="text"
-                                placeholder="Remarks"
-                                value={billPayRemarks}
-                                onChange={(e) => setBillPayRemarks(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Upload Receipt Slip (Image/PDF)</label>
-                              <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={(e) => setBillFile(e.target.files?.[0] || null)}
-                                className="w-full mt-1 text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-semibold file:bg-indigo-500/10 file:text-indigo-500 hover:file:bg-indigo-500/20"
-                              />
-                            </div>
+                          {/* Upfront Payment Remarks */}
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">Remarks / Log Note</label>
+                            <input
+                              type="text"
+                              placeholder="Remarks"
+                              value={billPayRemarks}
+                              onChange={(e) => setBillPayRemarks(e.target.value)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
                           </div>
 
                           <div className="flex space-x-2 pt-2 text-xs">
