@@ -169,6 +169,12 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	facilityID, err := GetActiveFacilityID(r, shopkeeperID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
 	ctx := r.Context()
 
 	// 1. Begin Database Transaction
@@ -200,10 +206,10 @@ func LogPayment(w http.ResponseWriter, r *http.Request) {
 		FROM bills b
 		JOIN patients p ON b.patient_id = p.id
 		LEFT JOIN users d ON b.doctor_id = d.id
-		WHERE b.id = $1 AND p.doctor_id = $2 
+		WHERE b.id = $1 AND b.facility_id = $2 
 		FOR UPDATE OF b
 	`
-	err = tx.QueryRow(ctx, querySelect, input.BillID, shopkeeperID).Scan(
+	err = tx.QueryRow(ctx, querySelect, input.BillID, facilityID).Scan(
 		&cc.ID,
 		&cc.PatientID,
 		&cc.RemainingAmount,
