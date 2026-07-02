@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"backend/db"
 )
 
@@ -27,6 +29,7 @@ type QueueEntry struct {
 	ConsultationStart     *time.Time `json:"consultation_start_time"`
 	ConsultationEnd       *time.Time `json:"consultation_end_time"`
 	EstimatedWaitMinutes  int        `json:"estimated_wait_minutes"`
+	DoctorName            string     `json:"doctor_name,omitempty"`
 }
 
 // WebSocket / SSE connection management
@@ -341,17 +344,49 @@ func ListQueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `
-		SELECT q.id, q.doctor_id, q.patient_id, p.name, p.phone, q.encounter_id, 
-		       q.status, q.queue_order, q.check_in_time, q.consultation_start_time, 
-		       q.consultation_end_time, q.estimated_wait_minutes
-		FROM queue_entries q
-		JOIN patients p ON q.patient_id = p.id
-		WHERE q.doctor_id = $1 AND q.facility_id = $2 AND q.check_in_time > CURRENT_DATE
-		  AND q.status IN ('WAITING', 'IN_CONSULTATION')
-		ORDER BY q.queue_order ASC
-	`
-	rows, err := db.Pool.Query(r.Context(), query, doctorID, facilityID)
+	// Check if the queried doctorID actually has the role DOCTOR
+	var isDoc bool
+	err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND role = 'DOCTOR')", doctorID).Scan(&isDoc)
+	if err != nil {
+		isDoc = false
+	}
+
+	var rows pgx.Rows // Wait, let's use the standard interface if needed, or query directly.
+	// Oh, db.Pool.Query returns pgx.Rows. We need to import it or declare it as pgx.Rows.
+	// Wait, is "github.com/jackc/pgx/v5" imported? Let's check imports or just assign directly.
+	// If we just assign directly to rows, err := db.Pool.Query(...) we don't need to declare rows beforehand.
+	// Let's do that!
+	var query string
+	var queryArgs []interface{}
+	if isDoc {
+		query = `
+			SELECT q.id, q.doctor_id, q.patient_id, p.name, p.phone, q.encounter_id, 
+			       q.status, q.queue_order, q.check_in_time, q.consultation_start_time, 
+			       q.consultation_end_time, q.estimated_wait_minutes, d.name as doctor_name
+			FROM queue_entries q
+			JOIN patients p ON q.patient_id = p.id
+			JOIN users d ON q.doctor_id = d.id
+			WHERE q.doctor_id = $1 AND q.facility_id = $2 AND q.check_in_time > CURRENT_DATE
+			  AND q.status IN ('WAITING', 'IN_CONSULTATION')
+			ORDER BY q.queue_order ASC
+		`
+		queryArgs = []interface{}{doctorID, facilityID}
+	} else {
+		query = `
+			SELECT q.id, q.doctor_id, q.patient_id, p.name, p.phone, q.encounter_id, 
+			       q.status, q.queue_order, q.check_in_time, q.consultation_start_time, 
+			       q.consultation_end_time, q.estimated_wait_minutes, d.name as doctor_name
+			FROM queue_entries q
+			JOIN patients p ON q.patient_id = p.id
+			JOIN users d ON q.doctor_id = d.id
+			WHERE q.facility_id = $1 AND q.check_in_time > CURRENT_DATE
+			  AND q.status IN ('WAITING', 'IN_CONSULTATION')
+			ORDER BY q.queue_order ASC
+		`
+		queryArgs = []interface{}{facilityID}
+	}
+
+	rows, err = db.Pool.Query(r.Context(), query, queryArgs...)
 	if err != nil {
 		log.Printf("ListQueue query error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to fetch queue list"})
@@ -365,10 +400,10 @@ func ListQueue(w http.ResponseWriter, r *http.Request) {
 		err = rows.Scan(
 			&q.ID, &q.DoctorID, &q.PatientID, &q.PatientName, &q.PatientPhone, &q.EncounterID,
 			&q.Status, &q.QueueOrder, &q.CheckInTime, &q.ConsultationStart,
-			&q.ConsultationEnd, &q.EstimatedWaitMinutes,
+			&q.ConsultationEnd, &q.EstimatedWaitMinutes, &q.DoctorName,
 		)
 		if err == nil {
-			q.EstimatedWaitMinutes = CalculateWaitTime(r.Context(), doctorID, facilityID, q.QueueOrder)
+			q.EstimatedWaitMinutes = CalculateWaitTime(r.Context(), q.DoctorID, facilityID, q.QueueOrder)
 			entries = append(entries, q)
 		}
 	}

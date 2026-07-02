@@ -60,13 +60,15 @@ type PrescriptionItem struct {
 }
 
 type PrescriptionSummary struct {
-	ID          int                `json:"id"`
-	Diagnosis   string             `json:"diagnosis"`
-	Notes       string             `json:"notes"`
-	Status      string             `json:"status"`
-	CreatedAt   time.Time          `json:"created_at"`
-	LabRequests []string           `json:"lab_requests,omitempty"`
-	Items       []PrescriptionItem `json:"items,omitempty"`
+	ID                  int                `json:"id"`
+	Diagnosis           string             `json:"diagnosis"`
+	Notes               string             `json:"notes"`
+	Status              string             `json:"status"`
+	CreatedAt           time.Time          `json:"created_at"`
+	LabRequests         []string           `json:"lab_requests,omitempty"`
+	Items               []PrescriptionItem `json:"items,omitempty"`
+	ConsultationCharges float64            `json:"consultation_charges"`
+	AmountPaid          float64            `json:"amount_paid"`
 }
 
 // CreatePatient handles patient creation
@@ -496,7 +498,7 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 
 	// Load prescriptions list
 	queryRxs := `
-		SELECT id, diagnosis, notes, status, created_at
+		SELECT id, diagnosis, notes, status, created_at, consultation_charges, amount_paid
 		FROM prescriptions
 		WHERE patient_id = $1
 		ORDER BY created_at DESC
@@ -512,7 +514,7 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 	rxsList := []PrescriptionSummary{}
 	for rowsRxs.Next() {
 		var rx PrescriptionSummary
-		err := rowsRxs.Scan(&rx.ID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt)
+		err := rowsRxs.Scan(&rx.ID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt, &rx.ConsultationCharges, &rx.AmountPaid)
 		if err != nil {
 			log.Printf("GetPatient prescription scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

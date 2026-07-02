@@ -811,6 +811,47 @@ export default function Dashboard() {
     }
   }, [viewState, isAuthenticated]);
 
+  // Load patient's latest prescription charges and pre-populate consultation fee when billPatientId changes
+  useEffect(() => {
+    if (!billPatientId) return;
+    const fetchPatientData = async () => {
+      try {
+        const data = await fetchAPI(`/api/patients/detail?id=${billPatientId}`);
+        if (data && data.prescriptions && data.prescriptions.length > 0) {
+          // Find the latest prescription
+          const latestRx = data.prescriptions[0];
+          // Pre-populate diagnosis/bill name
+          if (latestRx.diagnosis) {
+            setBillDesc(latestRx.diagnosis);
+          }
+          // Pre-populate consultation fee row
+          const consultationFee = latestRx.consultation_charges || 0;
+          if (consultationFee > 0) {
+            setBillItems([
+              { item_name: "Consultation Fee (from Rx)", quantity: 1, unit_price: consultationFee, dosage: "" }
+            ]);
+            // If they also paid some amount upfront at prescription time
+            if (latestRx.amount_paid > 0) {
+              setBillAmountPaid(latestRx.amount_paid.toString());
+            } else {
+              setBillAmountPaid("");
+            }
+          } else {
+            setBillItems([{ item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+            setBillAmountPaid("");
+          }
+        } else {
+          setBillDesc("");
+          setBillItems([{ item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+          setBillAmountPaid("");
+        }
+      } catch (err) {
+        console.error("Failed to load patient prescriptions for billing", err);
+      }
+    };
+    fetchPatientData();
+  }, [billPatientId]);
+
   // --- API Loaders ---
   const loadQueue = async (docId?: number) => {
     try {
@@ -1333,7 +1374,7 @@ export default function Dashboard() {
           })),
           lab_requests: activeLabRequests,
           visit_charges: rxVisitCharges ? parseFloat(rxVisitCharges) : 0,
-          amount_paid: rxAmountPaid ? parseFloat(rxAmountPaid) : 0
+          amount_paid: isClinicMode && rxAmountPaid ? parseFloat(rxAmountPaid) : 0
         })
       });
 
@@ -3062,9 +3103,16 @@ export default function Dashboard() {
                             <div className="flex justify-between items-start">
                               <div className="flex items-center space-x-2">
                                 <span className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-black flex items-center justify-center text-zinc-950 dark:text-zinc-50">{idx + 1}</span>
-                                <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                                  {entry.patient_name} {isUserOwn && <span className="text-[9px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
-                                </span>
+                                <div>
+                                  <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                                    {entry.patient_name} {isUserOwn && <span className="text-[9px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
+                                  </span>
+                                  {entry.doctor_name && (
+                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                      Assigned: Dr. {entry.doctor_name}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                               <span className={cn(
                                 "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold",
@@ -3196,7 +3244,14 @@ export default function Dashboard() {
                               >
                                 <td className="px-6 py-4 text-sm font-black">{idx + 1}</td>
                                 <td className="px-6 py-4 text-sm">
-                                  {entry.patient_name} {isUserOwn && <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
+                                  <div className="font-bold text-zinc-900 dark:text-zinc-100">
+                                    {entry.patient_name} {isUserOwn && <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
+                                  </div>
+                                  {entry.doctor_name && (
+                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                      Assigned: Dr. {entry.doctor_name}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-6 py-4 text-slate-500">{new Date(entry.check_in_time).toLocaleTimeString()}</td>
                                 <td className="px-6 py-4 text-indigo-500 font-bold">{entry.status === "IN_CONSULTATION" ? "In Consult" : `${entry.estimated_wait_minutes} mins`}</td>
@@ -4183,7 +4238,10 @@ export default function Dashboard() {
                              </div>
 
                             {(doctorInfo?.role === "DOCTOR" || doctorInfo?.role === "HOSPITAL_ADMIN") && (
-                              <div className="grid grid-cols-2 gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl">
+                              <div className={cn(
+                                "grid gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl",
+                                isClinicMode ? "grid-cols-2" : "grid-cols-1"
+                              )}>
                                 <div>
                                   <label className="text-[10px] font-bold uppercase text-slate-400">Total Charges (₹)</label>
                                   <input
@@ -4195,23 +4253,27 @@ export default function Dashboard() {
                                     className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
                                   />
                                 </div>
-                                <div>
-                                  <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (₹)</label>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    placeholder="e.g. 300"
-                                    value={rxAmountPaid}
-                                    onChange={(e) => setRxAmountPaid(e.target.value)}
-                                    className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div className="col-span-2 flex justify-between items-center text-[10px] font-bold text-slate-500 mt-1">
-                                  <span>Calculated Due Balance:</span>
-                                  <span className="text-xs text-indigo-500">
-                                    ₹{Math.max(0, (parseFloat(rxVisitCharges) || 0) - (parseFloat(rxAmountPaid) || 0)).toFixed(2)}
-                                  </span>
-                                </div>
+                                {isClinicMode && (
+                                  <>
+                                    <div>
+                                      <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (₹)</label>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        placeholder="e.g. 300"
+                                        value={rxAmountPaid}
+                                        onChange={(e) => setRxAmountPaid(e.target.value)}
+                                        className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                      />
+                                    </div>
+                                    <div className="col-span-2 flex justify-between items-center text-[10px] font-bold text-slate-500 mt-1">
+                                      <span>Calculated Due Balance:</span>
+                                      <span className="text-xs text-indigo-500">
+                                        ₹{Math.max(0, (parseFloat(rxVisitCharges) || 0) - (parseFloat(rxAmountPaid) || 0)).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
 
@@ -4530,6 +4592,7 @@ export default function Dashboard() {
                           <th className="px-6 py-4">Prescription ID</th>
                           <th className="px-6 py-4">Patient Name</th>
                           <th className="px-6 py-4">Diagnosis</th>
+                          <th className="px-6 py-4">Consultation Charges</th>
                           <th className="px-6 py-4">Written By</th>
                           <th className="px-6 py-4">Date</th>
                           <th className="px-6 py-4 text-right">Status</th>
@@ -4553,6 +4616,7 @@ export default function Dashboard() {
                                   </div>
                                 )}
                               </td>
+                              <td className="px-6 py-4 font-bold text-indigo-500">₹{rx.consultation_charges?.toFixed(2) || "0.00"}</td>
                               <td className="px-6 py-4 text-slate-500 dark:text-slate-400">Dr. {rx.doctor_name}</td>
                               <td className="px-6 py-4 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
                               <td className="px-6 py-4 text-right">
@@ -5103,11 +5167,11 @@ export default function Dashboard() {
                   <h2 className="text-xl font-black">Clinic Billings</h2>
                   <FloatingPanelRoot isOpen={isCreateBillOpen} onOpenChange={setIsCreateBillOpen}>
                     <FloatingPanelTrigger
-                      title="Generate Bill & Prescription"
+                      title="Generate Bill"
                       className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
                     >
                       <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Compose Bill & Prescription</span>
+                      <span>Compose Bill</span>
                     </FloatingPanelTrigger>
                     <FloatingPanelContent className="w-80 sm:w-[32rem] max-h-[80vh] overflow-y-auto text-left">
                       <FloatingPanelBody>
@@ -5145,14 +5209,14 @@ export default function Dashboard() {
                           {/* Multiple Items Composer */}
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
-                              <span className="text-[10px] font-bold uppercase text-slate-400">Bill Items / Medicines</span>
+                              <span className="text-[10px] font-bold uppercase text-slate-400">Bill Items / Other Entries</span>
                               <button
                                 type="button"
                                 onClick={addBillItemRow}
                                 className="flex items-center space-x-1.5 text-indigo-500 hover:text-indigo-600 text-[10px] font-bold cursor-pointer"
                               >
                                 <PlusCircle className="w-3.5 h-3.5" />
-                                <span>Add Item</span>
+                                <span>Add Entry</span>
                               </button>
                             </div>
 
@@ -5160,54 +5224,15 @@ export default function Dashboard() {
                               {billItems.map((item, idx) => (
                                 <div key={idx} className="flex flex-col sm:flex-row gap-2.5 items-end sm:items-center bg-[var(--nav-bg)] p-3 rounded-2xl border border-[var(--border)]">
                                   <div className="w-full sm:flex-1 relative">
-                                    <label className="text-[8px] font-bold uppercase text-slate-400">Item Name</label>
+                                    <label className="text-[8px] font-bold uppercase text-slate-400">Entry / Item Name</label>
                                     <input
                                       type="text"
                                       required
-                                      placeholder="Medicine name or Consultation Fee"
+                                      placeholder="e.g. Consultation Fee, Lab Test, Procedure"
                                       value={item.item_name}
                                       onChange={(e) => handleBillItemChange(idx, "item_name", e.target.value)}
-                                      onFocus={() => setFocusedMedIndex(idx)}
-                                      onBlur={() => {
-                                        // Delay slightly to let standard click / mousedown on dropdown run
-                                        setTimeout(() => {
-                                          setFocusedMedIndex(null);
-                                        }, 200);
-                                      }}
                                       className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
                                     />
-                                    {focusedMedIndex === idx && item.item_name.trim().length > 0 && (() => {
-                                      const query = item.item_name.toLowerCase();
-                                      const matches = medicines.filter(m => m.name.toLowerCase().includes(query)).slice(0, 5);
-                                      if (matches.length === 0) return null;
-                                      return (
-                                        <div className="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg divide-y divide-[var(--border)]">
-                                          {matches.map((med) => (
-                                            <div
-                                              key={med.id}
-                                              onMouseDown={(e) => {
-                                                e.preventDefault(); // Prevents immediate input blur
-                                                const updated = [...billItems];
-                                                updated[idx].item_name = med.name;
-                                                updated[idx].unit_price = med.price;
-                                                setBillItems(updated);
-                                                setFocusedMedIndex(null);
-                                              }}
-                                              className="px-3 py-2 text-xs hover:bg-[var(--card-hover)] cursor-pointer flex justify-between items-center transition-colors duration-150"
-                                            >
-                                              <span className="font-semibold text-[var(--foreground)]">{med.name}</span>
-                                              <div className="flex items-center space-x-2 text-[10px] text-slate-400">
-                                                <span className="font-bold text-indigo-500">₹{med.price.toFixed(2)}</span>
-                                                <span>•</span>
-                                                <span className={med.stock > 0 ? "text-emerald-500 font-medium" : "text-red-500 font-medium"}>
-                                                  {med.stock > 0 ? `Stock: ${med.stock}` : "Out of stock"}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      );
-                                    })()}
                                   </div>
                                   <div className="w-20">
                                     <label className="text-[8px] font-bold uppercase text-slate-400">Qty</label>
@@ -5219,7 +5244,7 @@ export default function Dashboard() {
                                       className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
                                     />
                                   </div>
-                                  <div className="w-24">
+                                  <div className="w-28">
                                     <label className="text-[8px] font-bold uppercase text-slate-400">Price (INR)</label>
                                     <input
                                       type="number"
@@ -5227,16 +5252,6 @@ export default function Dashboard() {
                                       required
                                       value={item.unit_price || ""}
                                       onChange={(e) => handleBillItemChange(idx, "unit_price", e.target.value)}
-                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                    />
-                                  </div>
-                                  <div className="w-28">
-                                    <label className="text-[8px] font-bold uppercase text-slate-400">Dosage</label>
-                                    <input
-                                      type="text"
-                                      placeholder="e.g. 1-0-1"
-                                      value={item.dosage}
-                                      onChange={(e) => handleBillItemChange(idx, "dosage", e.target.value)}
                                       className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
                                     />
                                   </div>
@@ -6840,6 +6855,19 @@ export default function Dashboard() {
                                   <tr className="bg-slate-50/50 dark:bg-slate-900/30">
                                     <td colSpan={4} className="px-6 py-4 border-b border-[var(--border)]">
                                       <div className="space-y-3.5 text-xs text-slate-600 dark:text-slate-300">
+                                        {/* Consultation Charges */}
+                                        <div className="flex justify-between items-center bg-indigo-500/5 border border-indigo-500/10 p-3 rounded-2xl">
+                                          <div>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block">Consultation Fee / Visit Charges:</span>
+                                            <span className="text-xs text-slate-500">Specified by Doctor on prescription creation</span>
+                                          </div>
+                                          <div className="text-right font-mono">
+                                            <span className="text-sm font-black text-indigo-500">₹{rx.consultation_charges?.toFixed(2) || "0.00"}</span>
+                                            {rx.amount_paid > 0 && (
+                                              <span className="block text-[10px] text-emerald-500 font-bold mt-0.5">Paid: ₹{rx.amount_paid.toFixed(2)}</span>
+                                            )}
+                                          </div>
+                                        </div>
                                         {/* Notes Section */}
                                         {rx.notes && (
                                           <div>

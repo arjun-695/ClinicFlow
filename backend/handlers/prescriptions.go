@@ -30,19 +30,21 @@ type RxItem struct {
 }
 
 type Prescription struct {
-	ID            int       `json:"id"`
-	FacilityID    int       `json:"facility_id"`
-	PatientID     int       `json:"patient_id"`
-	PatientName   string    `json:"patient_name"`
-	DoctorID      int       `json:"doctor_id"`
-	DoctorName    string    `json:"doctor_name"`
-	AppointmentID *int      `json:"appointment_id"`
-	Diagnosis     string    `json:"diagnosis"`
-	Notes         string    `json:"notes"`
-	Status        string    `json:"status"` // active, dispensed, partially_dispensed, cancelled
-	CreatedAt     time.Time `json:"created_at"`
-	Items         []RxItem  `json:"items,omitempty"`
-	LabRequests   []string  `json:"lab_requests,omitempty"`
+	ID                  int       `json:"id"`
+	FacilityID          int       `json:"facility_id"`
+	PatientID           int       `json:"patient_id"`
+	PatientName         string    `json:"patient_name"`
+	DoctorID            int       `json:"doctor_id"`
+	DoctorName          string    `json:"doctor_name"`
+	AppointmentID       *int      `json:"appointment_id"`
+	Diagnosis           string    `json:"diagnosis"`
+	Notes               string    `json:"notes"`
+	Status              string    `json:"status"` // active, dispensed, partially_dispensed, cancelled
+	CreatedAt           time.Time `json:"created_at"`
+	Items               []RxItem  `json:"items,omitempty"`
+	LabRequests         []string  `json:"lab_requests,omitempty"`
+	ConsultationCharges float64   `json:"consultation_charges"`
+	AmountPaid          float64   `json:"amount_paid"`
 }
 
 // CreatePrescription handles writing a new prescription.
@@ -89,6 +91,13 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch facility type to check if HOSPITAL mode
+	var facType string
+	err = db.Pool.QueryRow(r.Context(), "SELECT type FROM facilities WHERE id = $1", facilityID).Scan(&facType)
+	if err == nil && facType == "HOSPITAL" {
+		input.AmountPaid = nil
+	}
+
 	// Verify doctor is assigned to this patient
 	var isAssigned bool
 	err = db.Pool.QueryRow(r.Context(), `
@@ -111,12 +120,21 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 	var rxID int
 	var status string
 	var createdAt time.Time
+	visitCharges := 0.0
+	if input.VisitCharges != nil {
+		visitCharges = *input.VisitCharges
+	}
+	amountPaidRx := 0.0
+	if input.AmountPaid != nil {
+		amountPaidRx = *input.AmountPaid
+	}
+
 	rxQuery := `
-		INSERT INTO prescriptions (facility_id, patient_id, doctor_id, appointment_id, diagnosis, notes, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'active')
+		INSERT INTO prescriptions (facility_id, patient_id, doctor_id, appointment_id, diagnosis, notes, status, consultation_charges, amount_paid)
+		VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8)
 		RETURNING id, status, created_at
 	`
-	err = tx.QueryRow(r.Context(), rxQuery, facilityID, input.PatientID, doctorID, input.AppointmentID, input.Diagnosis, input.Notes).Scan(&rxID, &status, &createdAt)
+	err = tx.QueryRow(r.Context(), rxQuery, facilityID, input.PatientID, doctorID, input.AppointmentID, input.Diagnosis, input.Notes, visitCharges, amountPaidRx).Scan(&rxID, &status, &createdAt)
 	if err != nil {
 		log.Printf("CreatePrescription insert prescription error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save prescription header"})
@@ -270,7 +288,8 @@ func ListPrescriptions(w http.ResponseWriter, r *http.Request) {
 		// Only prescriptions created by this doctor in the current facility
 		query = `
 			SELECT rx.id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
-			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
+			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at,
+			       rx.consultation_charges, rx.amount_paid
 			FROM prescriptions rx
 			JOIN patients p ON rx.patient_id = p.id
 			JOIN users u ON rx.doctor_id = u.id
@@ -283,7 +302,8 @@ func ListPrescriptions(w http.ResponseWriter, r *http.Request) {
 		// All active/partially_dispensed prescriptions for the facility (the dispensing work queue)
 		query = `
 			SELECT rx.id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
-			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
+			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at,
+			       rx.consultation_charges, rx.amount_paid
 			FROM prescriptions rx
 			JOIN patients p ON rx.patient_id = p.id
 			JOIN users u ON rx.doctor_id = u.id
@@ -296,7 +316,8 @@ func ListPrescriptions(w http.ResponseWriter, r *http.Request) {
 		// Admin sees everything
 		query = `
 			SELECT rx.id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
-			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
+			       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at,
+			       rx.consultation_charges, rx.amount_paid
 			FROM prescriptions rx
 			JOIN patients p ON rx.patient_id = p.id
 			JOIN users u ON rx.doctor_id = u.id
@@ -317,7 +338,7 @@ func ListPrescriptions(w http.ResponseWriter, r *http.Request) {
 	prescriptions := []Prescription{}
 	for rows.Next() {
 		var rx Prescription
-		err := rows.Scan(&rx.ID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt)
+		err := rows.Scan(&rx.ID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt, &rx.ConsultationCharges, &rx.AmountPaid)
 		if err != nil {
 			log.Printf("ListPrescriptions scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to read database records"})
@@ -394,14 +415,15 @@ func GetPrescription(w http.ResponseWriter, r *http.Request) {
 	var rx Prescription
 	rxQuery := `
 		SELECT rx.id, rx.facility_id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
-		       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
+		       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at,
+		       rx.consultation_charges, rx.amount_paid
 		FROM prescriptions rx
 		JOIN patients p ON rx.patient_id = p.id
 		JOIN users u ON rx.doctor_id = u.id
 		WHERE rx.id = $1 AND rx.facility_id = $2
 	`
 	err = db.Pool.QueryRow(r.Context(), rxQuery, rxID, facilityID).Scan(
-		&rx.ID, &rx.FacilityID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt,
+		&rx.ID, &rx.FacilityID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt, &rx.ConsultationCharges, &rx.AmountPaid,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Prescription not found"})
