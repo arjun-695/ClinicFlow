@@ -11,6 +11,45 @@ Start-Process powershell -ArgumentList "-NoExit", "-File", ".\start_db.ps1" -Win
 Write-Host "Waiting for database to initialize..." -ForegroundColor Yellow
 Start-Sleep -Seconds 3
 
+# 1.5 Run Database Migrations
+Write-Host "Checking for database connection to run migrations..." -ForegroundColor Blue
+$envFile = "$PSScriptRoot\backend\.env"
+if (Test-Path $envFile) {
+    $dbUrlLine = Get-Content $envFile | Where-Object { $_ -match "^DATABASE_URL=" }
+    if ($dbUrlLine) {
+        $dbUrl = $dbUrlLine.Split("=", 2)[1].Trim()
+        Write-Host "Executing migration_indexing.sql against database..." -ForegroundColor Blue
+        # Resolve psql.exe path
+        $psqlPath = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
+        if (Test-Path $psqlPath) {
+            & $psqlPath -d $dbUrl -f "$PSScriptRoot\migration_indexing.sql"
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully applied migration_indexing.sql!" -ForegroundColor Green
+            } else {
+                Write-Warning "Migration execution failed with exit code $LASTEXITCODE."
+            }
+        } else {
+            # Try path-based lookup
+            $psqlCmd = Get-Command psql -ErrorAction SilentlyContinue
+            if ($psqlCmd) {
+                & psql -d $dbUrl -f "$PSScriptRoot\migration_indexing.sql"
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Successfully applied migration_indexing.sql!" -ForegroundColor Green
+                } else {
+                    Write-Warning "Migration execution failed with exit code $LASTEXITCODE."
+                }
+            } else {
+                Write-Warning "psql.exe not found at '$psqlPath' or in PATH. Please run migration_indexing.sql manually."
+            }
+        }
+    } else {
+        Write-Warning "DATABASE_URL not found in '$envFile'. Skipping migration execution."
+    }
+} else {
+    Write-Warning "'$envFile' file not found. Skipping migration execution."
+}
+
+
 # 2. Start Go Backend (whatsmeow + REST API)
 Write-Host "Step 2: Launching Go REST API backend..." -ForegroundColor Blue
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "go run ." -WorkingDirectory "$PSScriptRoot\backend" -WindowStyle Normal
