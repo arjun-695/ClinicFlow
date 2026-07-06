@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"backend/db"
+	"golang.org/x/sync/errgroup"
 )
 
 type DataPoint struct {
@@ -44,12 +45,6 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY d ORDER BY d ASC
 	`
-	weeklyPoints, err := queryDataPoints(ctx, queryWeekly, doctorID, facilityID)
-	if err != nil {
-		log.Printf("GetAnalytics weekly error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
-		return
-	}
 
 	// 2. Monthly Treated Patients (Completed Patients in past 12 months)
 	queryMonthly := `
@@ -58,12 +53,6 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN appointments a ON DATE_TRUNC('month', a.appointment_date) = DATE_TRUNC('month', m) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY m ORDER BY m ASC
 	`
-	monthlyPoints, err := queryDataPoints(ctx, queryMonthly, doctorID, facilityID)
-	if err != nil {
-		log.Printf("GetAnalytics monthly error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
-		return
-	}
 
 	// 3. Yearly Treated Patients (Completed Patients in past 5 years)
 	queryYearly := `
@@ -72,12 +61,6 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN appointments a ON DATE_TRUNC('year', a.appointment_date) = DATE_TRUNC('year', y) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
 		GROUP BY y ORDER BY y ASC
 	`
-	yearlyPoints, err := queryDataPoints(ctx, queryYearly, doctorID, facilityID)
-	if err != nil {
-		log.Printf("GetAnalytics yearly error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
-		return
-	}
 
 	// 4. Daily Revenue (Sum of Bills created in past 30 days)
 	queryRevenue := `
@@ -86,12 +69,6 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN bills b ON DATE(b.created_at) = DATE(d) AND b.doctor_id = $1 AND b.facility_id = $2
 		GROUP BY d ORDER BY d ASC
 	`
-	revenuePoints, err := queryDataPoints(ctx, queryRevenue, doctorID, facilityID)
-	if err != nil {
-		log.Printf("GetAnalytics revenue error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
-		return
-	}
 
 	// 5. Future Appointments Density (Count of Pending appointments in next 14 days)
 	queryAppts := `
@@ -100,9 +77,57 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'PENDING'
 		GROUP BY d ORDER BY d ASC
 	`
-	apptPoints, err := queryDataPoints(ctx, queryAppts, doctorID, facilityID)
-	if err != nil {
-		log.Printf("GetAnalytics future appts error: %v", err)
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	var weeklyPoints, monthlyPoints, yearlyPoints, revenuePoints, apptPoints []DataPoint
+
+	g.Go(func() error {
+		var err error
+		weeklyPoints, err = queryDataPoints(gCtx, queryWeekly, doctorID, facilityID)
+		if err != nil {
+			log.Printf("GetAnalytics weekly error: %v", err)
+		}
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		monthlyPoints, err = queryDataPoints(gCtx, queryMonthly, doctorID, facilityID)
+		if err != nil {
+			log.Printf("GetAnalytics monthly error: %v", err)
+		}
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		yearlyPoints, err = queryDataPoints(gCtx, queryYearly, doctorID, facilityID)
+		if err != nil {
+			log.Printf("GetAnalytics yearly error: %v", err)
+		}
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		revenuePoints, err = queryDataPoints(gCtx, queryRevenue, doctorID, facilityID)
+		if err != nil {
+			log.Printf("GetAnalytics revenue error: %v", err)
+		}
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		apptPoints, err = queryDataPoints(gCtx, queryAppts, doctorID, facilityID)
+		if err != nil {
+			log.Printf("GetAnalytics future appts error: %v", err)
+		}
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 		return
 	}

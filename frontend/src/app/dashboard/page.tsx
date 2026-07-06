@@ -36,22 +36,25 @@ import {
   AlertTriangle
 } from "lucide-react";
 import { fetchAPI, API_URL } from "../../utils/api";
-import { ThemeToggleButton } from "../../components/ui/theme-toggle";
 import { cn } from "../../utils/cn";
-import { jsPDF } from "jspdf";
-import QRCode from "qrcode";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import useMeasure from "react-use-measure";
-import {
-  FloatingPanelRoot,
-  FloatingPanelTrigger,
-  FloatingPanelContent,
-  FloatingPanelBody,
-  FloatingPanelFooter,
-  FloatingPanelCloseButton,
-  FloatingPanelSubmitButton,
-} from "../../components/ui/floating-panel";
+import dynamic from "next/dynamic";
+
+const ThemeToggleButton = dynamic(() => import("../../components/ui/theme-toggle").then(mod => mod.ThemeToggleButton), { ssr: false });
+
+const FloatingPanelRoot = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelRoot), { ssr: false });
+const FloatingPanelTrigger = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelTrigger), { ssr: false });
+const FloatingPanelContent = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelContent), { ssr: false });
+const FloatingPanelBody = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelBody), { ssr: false });
+const FloatingPanelFooter = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelFooter), { ssr: false });
+const FloatingPanelCloseButton = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelCloseButton), { ssr: false });
+const FloatingPanelSubmitButton = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelSubmitButton), { ssr: false });
+
+const TabTransition = dynamic(() => import("../../components/ui/tab-transition"), { ssr: false });
+const WhatsAppPanel = dynamic(() => import("./components/WhatsAppPanel"), { ssr: false });
+const QueuePanel = dynamic(() => import("./components/QueuePanel"), { ssr: false });
+const TabBubble = dynamic(() => import("../../components/ui/tab-bubble"), { ssr: false });
 
 const COMMON_MEDICINES = [
   "Paracetamol 500mg",
@@ -355,8 +358,6 @@ export default function Dashboard() {
   const [apptDate, setApptDate] = useState("");
   const [apptReason, setApptReason] = useState("");
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
-  const [checkinDoctorId, setCheckinDoctorId] = useState("");
-
   // Slot Configurator state
   const [configDoctorId, setConfigDoctorId] = useState("");
   const [configWeeklyAvail, setConfigWeeklyAvail] = useState<any[]>(
@@ -439,16 +440,6 @@ export default function Dashboard() {
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
   const [templateSaving, setTemplateSaving] = useState(false);
 
-  // WhatsApp QR
-  const [waStatus, setWaStatus] = useState<"CONNECTED" | "DISCONNECTED" | "INITIALIZING">("INITIALIZING");
-  const [waQR, setWaQR] = useState("");
-  const [waConnectedPhone, setWaConnectedPhone] = useState("");
-  const [qrDataUrl, setQrDataUrl] = useState("");
-  const [pairPhone, setPairPhone] = useState("");
-  const [pairPhoneCode, setPairPhoneCode] = useState("+91");
-  const [pairCode, setPairCode] = useState("");
-  const [isPairing, setIsPairing] = useState(false);
-
   // Chart Timeframe Selection
   const [patientTimeframe, setPatientTimeframe] = useState<"weekly" | "monthly" | "yearly">("weekly");
   const [hoveredData, setHoveredData] = useState<{ label: string; value: number; x: number; y: number } | null>(null);
@@ -464,11 +455,6 @@ export default function Dashboard() {
   const [newWorkspaceType, setNewWorkspaceType] = useState<"CLINIC" | "HOSPITAL">("CLINIC");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // New Features States (Queue, Labs, Vitals, Staff Onboarding)
-  const [queueEntries, setQueueEntries] = useState<any[]>([]);
-  const [checkinPatientId, setCheckinPatientId] = useState("");
-  const [checkinReason, setCheckinReason] = useState("");
-  
   const [labRequests, setLabRequests] = useState<any[]>([]);
   const [newLabPatientId, setNewLabPatientId] = useState("");
   const [newLabTestName, setNewLabTestName] = useState("");
@@ -716,10 +702,8 @@ export default function Dashboard() {
           loadPendingPrescriptions();
         }
         loadAnalytics();
-        loadWhatsAppStatus();
         loadRecentBills();
         loadWhatsAppTemplates();
-        loadQueue();
         loadStaff();
       }
     }
@@ -740,67 +724,6 @@ export default function Dashboard() {
       }
     }
   }, [activeTab, doctorInfo, isAuthenticated]);
-
-  // SSE Queue Stream Connection
-  useEffect(() => {
-    let ev: EventSource | null = null;
-    let targetDoctorId: number | null = null;
-
-    if (doctorInfo) {
-      if (doctorInfo.role === "USER" && ownPatientProfile?.patient?.doctor_id) {
-        targetDoctorId = ownPatientProfile.patient.doctor_id;
-      } else if (doctorInfo.role !== "USER") {
-        targetDoctorId = doctorInfo.id;
-      }
-    }
-
-    if (isAuthenticated && targetDoctorId) {
-      const url = `${API_URL}/api/queue/stream?doctor_id=${targetDoctorId}`;
-      ev = new EventSource(url, { withCredentials: true });
-      
-      ev.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.event === "queue_update" || data.event === "update") {
-            if (doctorInfo?.role === "USER") {
-              loadOwnPatientProfile();
-            } else {
-              loadQueue(targetDoctorId);
-            }
-          }
-        } catch (err) {
-          // Ignore
-        }
-      };
-    }
-
-    return () => {
-      if (ev) {
-        ev.close();
-      }
-    };
-  }, [isAuthenticated, doctorInfo, ownPatientProfile?.patient?.doctor_id]);
-
-  // Refresh QR
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
-    if (isAuthenticated && activeTab === "whatsapp" && waStatus !== "CONNECTED") {
-      loadWhatsAppStatus();
-      interval = setInterval(loadWhatsAppStatus, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [isAuthenticated, activeTab, waStatus]);
-
-  // Convert QR text to dataURL
-  useEffect(() => {
-    if (waQR) {
-      QRCode.toDataURL(waQR, { width: 220, margin: 1 })
-        .then(setQrDataUrl)
-        .catch(() => setQrDataUrl(""));
-    } else {
-      setQrDataUrl("");
-    }
-  }, [waQR]);
 
   // Keep details updated
   useEffect(() => {
@@ -854,20 +777,6 @@ export default function Dashboard() {
   }, [billPatientId]);
 
   // --- API Loaders ---
-  const loadQueue = async (docId?: number) => {
-    try {
-      let targetId = docId || doctorInfo?.id;
-      if (doctorInfo?.role === "USER") {
-        targetId = docId || (checkinDoctorId ? parseInt(checkinDoctorId) : 0) || ownPatientProfile?.patient?.doctor_id;
-      }
-      if (!targetId) return;
-      const data = await fetchAPI(`/api/queue?doctor_id=${targetId}`);
-      setQueueEntries(data || []);
-    } catch (e) {
-      console.error("Failed to load queue", e);
-    }
-  };
-
   const loadVitals = async (ptId: number) => {
     try {
       const data = await fetchAPI(`/api/vitals?patient_id=${ptId}`);
@@ -907,7 +816,6 @@ export default function Dashboard() {
       if (data?.patient?.id) {
         loadVitals(data.patient.id);
         loadLabRequests(data.patient.id);
-        loadQueue(data.patient.doctor_id);
       }
     } catch (e) {
       console.error("Failed to load patient profile", e);
@@ -1052,17 +960,6 @@ export default function Dashboard() {
       setStaffList(data || []);
     } catch (e) {
       console.error("Failed to load staff list", e);
-    }
-  };
-
-  const loadWhatsAppStatus = async () => {
-    try {
-      const data = await fetchAPI("/api/whatsapp/qr");
-      setWaStatus(data.status);
-      setWaQR(data.qr || "");
-      setWaConnectedPhone(data.phone || "");
-    } catch (e) {
-      console.error("Failed to load WhatsApp Status", e);
     }
   };
 
@@ -1405,7 +1302,7 @@ export default function Dashboard() {
             pulse: rxPulse || "",
             temp: rxTemp || ""
           };
-          const rxDoc = buildPrescriptionPDF(rxDetail);
+          const rxDoc = await buildPrescriptionPDF(rxDetail);
           const rxBlob = rxDoc.output("blob");
 
           const uploadForm = new FormData();
@@ -1443,7 +1340,7 @@ export default function Dashboard() {
                 { id: 0, contract_id: res.bill_id, amount_paid: parseFloat(rxAmountPaid), payment_mode: "CASH", remarks: "Paid on visit", payment_date: new Date().toISOString() }
               ] : []
             };
-            const billDoc = buildInvoicePDF(billDetail);
+            const billDoc = await buildInvoicePDF(billDetail);
             const billBlob = billDoc.output("blob");
             uploadForm.append("bill_id", res.bill_id.toString());
             uploadForm.append("invoice", billBlob, `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`);
@@ -1726,7 +1623,7 @@ export default function Dashboard() {
             }] : []
           };
 
-          const doc = buildInvoicePDF(detail);
+          const doc = await buildInvoicePDF(detail);
           const pdfBlob = doc.output("blob");
 
           const uploadForm = new FormData();
@@ -1829,43 +1726,8 @@ export default function Dashboard() {
     }
   };
 
-  const handleWhatsAppPairing = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const combinedPhone = getCombinedPhone(pairPhoneCode, pairPhone);
-    if (!pairPhone) return;
-    setIsPairing(true);
-
-    try {
-      const data = await fetchAPI("/api/whatsapp/pair-phone", {
-        method: "POST",
-        body: JSON.stringify({ phone: combinedPhone })
-      });
-      setPairCode(data.pairing_code);
-      setToast({ message: "Pairing code generated! Link it on WhatsApp.", type: "success" });
-    } catch (e: any) {
-      setToast({ message: e.message || "Failed to initiate phone pairing", type: "error" });
-    } finally {
-      setIsPairing(false);
-    }
-  };
-
-  const handleWhatsAppDisconnect = async () => {
-    if (!window.confirm("Are you sure you want to disconnect WhatsApp? This will log out the linked device and stop sending automated notifications.")) {
-      return;
-    }
-    try {
-      await fetchAPI("/api/whatsapp/disconnect", {
-        method: "POST"
-      });
-      setToast({ message: "WhatsApp client disconnected successfully", type: "success" });
-      setWaConnectedPhone("");
-      loadWhatsAppStatus();
-    } catch (e: any) {
-      setToast({ message: e.message || "Failed to disconnect WhatsApp", type: "error" });
-    }
-  };
-
-  const buildPrescriptionPDF = (rx: any): jsPDF => {
+  const buildPrescriptionPDF = async (rx: any): Promise<any> => {
+    const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
     
     // Draw top header box
@@ -2060,7 +1922,8 @@ export default function Dashboard() {
     return doc;
   };
 
-  const buildInvoicePDF = (detail: BillDetail): jsPDF => {
+  const buildInvoicePDF = async (detail: BillDetail): Promise<any> => {
+    const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
     const { bill, items, payments } = detail;
     
@@ -2230,8 +2093,8 @@ export default function Dashboard() {
     return doc;
   };
 
-  const generateInvoicePDF = (detail: BillDetail) => {
-    const doc = buildInvoicePDF(detail);
+  const generateInvoicePDF = async (detail: BillDetail) => {
+    const doc = await buildInvoicePDF(detail);
     doc.save(`Invoice_${detail.bill.patient_name.replace(/\s+/g, "_")}_${detail.bill.id}.pdf`);
   };
 
@@ -2648,13 +2511,7 @@ export default function Dashboard() {
                       : "text-slate-600 dark:text-slate-400 hover:bg-slate-950/5 dark:hover:bg-white/10 hover:text-[var(--foreground)]"
                   }`}
                 >
-                  {isActive && (
-                    <motion.span
-                      layoutId="activeTabBubble"
-                      className="absolute inset-0 z-0 bg-indigo-600 rounded-xl"
-                      transition={{ type: "spring", bounce: 0.15, duration: 0.38 }}
-                    />
-                  )}
+                  {isActive && <TabBubble />}
                   <Icon className="relative z-10 w-4 h-4" />
                   <span className="relative z-10">{tab.label}</span>
                 </button>
@@ -2740,44 +2597,18 @@ export default function Dashboard() {
         {/* VIEW: List vs Detail */}
         {viewState.type === "list" ? (
           <div className={`relative ${isTransitioning ? "overflow-hidden" : ""}`}>
-            <MotionConfig transition={{ duration: 0.4, type: "spring", bounce: 0.15 }}>
-              <motion.div
-                className="relative w-full"
-                animate={{ height: contentBounds.height || "auto" }}
-                transition={{ duration: 0.35, ease: "easeInOut" }}
-              >
-                <div ref={contentRef}>
-                  <AnimatePresence initial={false} custom={direction} mode="popLayout">
-                    <motion.div
-                      key={activeTab}
-                      custom={direction}
-                      variants={{
-                        initial: (direction: number) => ({
-                          x: direction > 0 ? 300 : -300,
-                          opacity: 0,
-                          filter: "blur(4px)",
-                        }),
-                        active: {
-                          x: 0,
-                          opacity: 1,
-                          filter: "blur(0px)",
-                        },
-                        exit: (direction: number) => ({
-                          x: direction > 0 ? -300 : 300,
-                          opacity: 0,
-                          filter: "blur(4px)",
-                        }),
-                      }}
-                      initial="initial"
-                      animate="active"
-                      exit="exit"
-                      onAnimationStart={() => setIsTransitioning(true)}
-                      onAnimationComplete={(definition) => {
-                        if (definition === "active") {
-                          setIsTransitioning(false);
-                        }
-                      }}
-                    >
+            <TabTransition
+              activeTab={activeTab}
+              direction={direction}
+              contentBoundsHeight={contentBounds.height || "auto"}
+              contentRef={contentRef}
+              onAnimationStart={() => setIsTransitioning(true)}
+              onAnimationComplete={(definition) => {
+                if (definition === "active") {
+                  setIsTransitioning(false);
+                }
+              }}
+            >
                       {/* TABS INNER PAGES */}
 
             {activeTab === "staff" && (
@@ -2981,390 +2812,15 @@ export default function Dashboard() {
             )}
 
             {activeTab === "queue" && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <h2 className="text-xl font-black">Clinic Queue Board</h2>
-                    <p className="text-xs text-slate-400">Track and manage checked-in patients in real-time.</p>
-                  </div>
-                  <FloatingPanelRoot isOpen={isCheckInOpen} onOpenChange={setIsCheckInOpen}>
-                    <FloatingPanelTrigger
-                      title={doctorInfo?.role === "USER" ? "Check In to Queue" : "Check In Patient"}
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>{doctorInfo?.role === "USER" ? "Check In to Queue" : "Check In Patient"}</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (doctorInfo?.role !== "USER" && !checkinPatientId) {
-                            setToast({ message: "Please select a patient", type: "error" });
-                            return;
-                          }
-                          if (doctorInfo?.role !== "DOCTOR" && !checkinDoctorId) {
-                            setToast({ message: "Please select a doctor", type: "error" });
-                            return;
-                          }
-                          setIsSubmitting(true);
-                          try {
-                            await fetchAPI("/api/queue/checkin", {
-                              method: "POST",
-                              body: JSON.stringify({
-                                patient_id: doctorInfo?.role === "USER" ? 0 : parseInt(checkinPatientId),
-                                doctor_id: doctorInfo?.role === "DOCTOR" ? 0 : parseInt(checkinDoctorId),
-                                reason: checkinReason
-                              })
-                            });
-                            setToast({ message: "Checked in successfully!", type: "success" });
-                            setCheckinPatientId("");
-                            setCheckinReason("");
-                            setIsCheckInOpen(false);
-                            loadQueue();
-                          } catch (err: any) {
-                            setToast({ message: err.message || "Check-in failed", type: "error" });
-                          } finally {
-                            setIsSubmitting(false);
-                          }
-                        }} className="space-y-4 text-xs text-[var(--foreground)]">
-                          {doctorInfo?.role !== "USER" && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Checked-In Patient</label>
-                              <select
-                                required
-                                value={checkinPatientId}
-                                onChange={(e) => setCheckinPatientId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          {doctorInfo?.role !== "DOCTOR" && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
-                              <select
-                                required
-                                value={checkinDoctorId}
-                                onChange={(e) => setCheckinDoctorId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Doctor --</option>
-                                {facilityDoctors.map((doc) => (
-                                  <option key={doc.id} value={doc.id}>
-                                    Dr. {doc.name} ({doc.specialization || "General"})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Consultation Reason / Check-in Notes</label>
-                            <input
-                              type="text"
-                              placeholder="e.g. Fever, Follow-up"
-                              value={checkinReason}
-                              onChange={(e) => setCheckinReason(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Check In"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                {/* Queue Table */}
-                {/* Queue Table */}
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  {/* Mobile Card List View for Queue */}
-                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
-                    {queueEntries.length > 0 ? (
-                      queueEntries.map((entry, idx) => {
-                        const isUserOwn = doctorInfo?.role === "USER" && entry.patient_phone === doctorInfo.phone;
-                        return (
-                          <div
-                            key={entry.id}
-                            className={cn(
-                              "p-4 hover:bg-[var(--accent)] transition space-y-3",
-                              isUserOwn ? "bg-indigo-500/5 font-semibold" : ""
-                            )}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="flex items-center space-x-2">
-                                <span className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-xs font-black flex items-center justify-center text-zinc-950 dark:text-zinc-50">{idx + 1}</span>
-                                <div>
-                                  <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                                    {entry.patient_name} {isUserOwn && <span className="text-[9px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
-                                  </span>
-                                  {entry.doctor_name && (
-                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                      Assigned: Dr. {entry.doctor_name}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <span className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold",
-                                entry.status === "IN_CONSULTATION" ? "bg-amber-500/10 text-amber-500" : "bg-indigo-500/10 text-indigo-500"
-                              )}>
-                                {entry.status}
-                              </span>
-                            </div>
-                            
-                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-                              <span>Check-in: {new Date(entry.check_in_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                              <span className="text-indigo-500 font-bold">{entry.status === "IN_CONSULTATION" ? "In Consult" : `${entry.estimated_wait_minutes} mins`}</span>
-                            </div>
-
-                            {doctorInfo?.role !== "USER" && (
-                              <div className="flex justify-end items-center gap-2 pt-1">
-                                {entry.status === "WAITING" && (
-                                  <button
-                                    onClick={async () => {
-                                      await fetchAPI("/api/queue/status", {
-                                        method: "PUT",
-                                        body: JSON.stringify({ entry_id: entry.id, status: "IN_CONSULTATION" })
-                                      });
-                                      loadQueue();
-                                    }}
-                                    className="px-3 py-1.5 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
-                                  >
-                                    Call Patient
-                                  </button>
-                                )}
-                                {entry.status === "IN_CONSULTATION" && (
-                                  <button
-                                    onClick={async () => {
-                                      await fetchAPI("/api/queue/status", {
-                                        method: "PUT",
-                                        body: JSON.stringify({ entry_id: entry.id, status: "COMPLETED" })
-                                      });
-                                      loadQueue();
-                                    }}
-                                    className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
-                                  >
-                                    Complete Consult
-                                  </button>
-                                )}
-                                {entry.status === "WAITING" && (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      disabled={idx === 0 || queueEntries[idx - 1].status !== "WAITING"}
-                                      onClick={async () => {
-                                        const updated = [...queueEntries];
-                                        const temp = updated[idx].queue_order;
-                                        updated[idx].queue_order = updated[idx - 1].queue_order;
-                                        updated[idx - 1].queue_order = temp;
-                                        await fetchAPI("/api/queue/reorder", {
-                                          method: "PUT",
-                                          body: JSON.stringify({
-                                            orders: [
-                                              { id: updated[idx].id, queue_order: updated[idx].queue_order },
-                                              { id: updated[idx - 1].id, queue_order: updated[idx - 1].queue_order }
-                                            ]
-                                          })
-                                        });
-                                        loadQueue();
-                                      }}
-                                      className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
-                                    >
-                                      <ChevronUp className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      disabled={idx === queueEntries.length - 1 || queueEntries[idx + 1].status !== "WAITING"}
-                                      onClick={async () => {
-                                        const updated = [...queueEntries];
-                                        const temp = updated[idx].queue_order;
-                                        updated[idx].queue_order = updated[idx + 1].queue_order;
-                                        updated[idx + 1].queue_order = temp;
-                                        await fetchAPI("/api/queue/reorder", {
-                                          method: "PUT",
-                                          body: JSON.stringify({
-                                            orders: [
-                                              { id: updated[idx].id, queue_order: updated[idx].queue_order },
-                                              { id: updated[idx + 1].id, queue_order: updated[idx + 1].queue_order }
-                                            ]
-                                          })
-                                        });
-                                        loadQueue();
-                                      }}
-                                      className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
-                                    >
-                                      <ChevronDown className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="p-8 text-center text-slate-400 font-semibold">
-                        No patients currently checked in today.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Position</th>
-                          <th className="px-6 py-4">Patient Name</th>
-                          <th className="px-6 py-4">Check-in Time</th>
-                          <th className="px-6 py-4">Est. Wait Time</th>
-                          <th className="px-6 py-4">Status</th>
-                          {doctorInfo?.role !== "USER" && <th className="px-6 py-4 text-right">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {queueEntries.length > 0 ? (
-                          queueEntries.map((entry, idx) => {
-                            const isUserOwn = doctorInfo?.role === "USER" && entry.patient_phone === doctorInfo.phone;
-                            return (
-                              <tr
-                                key={entry.id}
-                                className={cn(
-                                  "border-b border-[var(--border)] hover:bg-table-row-hover transition",
-                                  isUserOwn ? "bg-indigo-500/5 font-semibold" : ""
-                                )}
-                              >
-                                <td className="px-6 py-4 text-sm font-black">{idx + 1}</td>
-                                <td className="px-6 py-4 text-sm">
-                                  <div className="font-bold text-zinc-900 dark:text-zinc-100">
-                                    {entry.patient_name} {isUserOwn && <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full ml-1">You</span>}
-                                  </div>
-                                  {entry.doctor_name && (
-                                    <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                                      Assigned: Dr. {entry.doctor_name}
-                                    </div>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 text-slate-500">{new Date(entry.check_in_time).toLocaleTimeString()}</td>
-                                <td className="px-6 py-4 text-indigo-500 font-bold">{entry.status === "IN_CONSULTATION" ? "In Consult" : `${entry.estimated_wait_minutes} mins`}</td>
-                                <td className="px-6 py-4">
-                                  <span className={cn(
-                                    "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold",
-                                    entry.status === "IN_CONSULTATION" ? "bg-amber-500/10 text-amber-500" : "bg-indigo-500/10 text-indigo-500"
-                                  )}>
-                                    {entry.status}
-                                  </span>
-                                </td>
-                                {doctorInfo?.role !== "USER" && (
-                                  <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
-                                    {entry.status === "WAITING" && (
-                                      <button
-                                        onClick={async () => {
-                                          await fetchAPI("/api/queue/status", {
-                                            method: "PUT",
-                                            body: JSON.stringify({ entry_id: entry.id, status: "IN_CONSULTATION" })
-                                          });
-                                          loadQueue();
-                                        }}
-                                        className="px-3 py-1.5 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
-                                      >
-                                        Call Patient
-                                      </button>
-                                    )}
-                                    {entry.status === "IN_CONSULTATION" && (
-                                      <button
-                                        onClick={async () => {
-                                          await fetchAPI("/api/queue/status", {
-                                            method: "PUT",
-                                            body: JSON.stringify({ entry_id: entry.id, status: "COMPLETED" })
-                                          });
-                                          loadQueue();
-                                        }}
-                                        className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition cursor-pointer"
-                                      >
-                                        Complete Consult
-                                      </button>
-                                    )}
-                                    {/* Reordering Controls */}
-                                    {entry.status === "WAITING" && (
-                                      <div className="flex items-center gap-1">
-                                        <button
-                                          disabled={idx === 0 || queueEntries[idx - 1].status !== "WAITING"}
-                                          onClick={async () => {
-                                            const updated = [...queueEntries];
-                                            const temp = updated[idx].queue_order;
-                                            updated[idx].queue_order = updated[idx - 1].queue_order;
-                                            updated[idx - 1].queue_order = temp;
-                                            await fetchAPI("/api/queue/reorder", {
-                                              method: "PUT",
-                                              body: JSON.stringify({
-                                                orders: [
-                                                  { id: updated[idx].id, queue_order: updated[idx].queue_order },
-                                                  { id: updated[idx - 1].id, queue_order: updated[idx - 1].queue_order }
-                                                ]
-                                              })
-                                            });
-                                            loadQueue();
-                                          }}
-                                          className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
-                                        >
-                                          <ChevronUp className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                          disabled={idx === queueEntries.length - 1 || queueEntries[idx + 1].status !== "WAITING"}
-                                          onClick={async () => {
-                                            const updated = [...queueEntries];
-                                            const temp = updated[idx].queue_order;
-                                            updated[idx].queue_order = updated[idx + 1].queue_order;
-                                            updated[idx + 1].queue_order = temp;
-                                            await fetchAPI("/api/queue/reorder", {
-                                              method: "PUT",
-                                              body: JSON.stringify({
-                                                orders: [
-                                                  { id: updated[idx].id, queue_order: updated[idx].queue_order },
-                                                  { id: updated[idx + 1].id, queue_order: updated[idx + 1].queue_order }
-                                                ]
-                                              })
-                                            });
-                                            loadQueue();
-                                          }}
-                                          className="p-1 border border-[var(--border)] rounded-lg hover:bg-[var(--card-hover)] text-slate-400 disabled:opacity-30"
-                                        >
-                                          <ChevronDown className="w-3.5 h-3.5" />
-                                        </button>
-                                      </div>
-                                    )}
-                                  </td>
-                                )}
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={doctorInfo?.role === "USER" ? 5 : 6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              No patients currently checked in today.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
+              <QueuePanel
+                doctorInfo={doctorInfo}
+                patients={patients}
+                facilityDoctors={facilityDoctors}
+                setToast={setToast}
+                isAuthenticated={isAuthenticated}
+                ownPatientProfile={ownPatientProfile}
+                loadOwnPatientProfile={loadOwnPatientProfile}
+              />
             )}
 
             {activeTab === "vitals" && (
@@ -5863,141 +5319,7 @@ export default function Dashboard() {
             {/* TAB: WHATSAPP LINKING */}
             {activeTab === "whatsapp" && (
               <div className="max-w-xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-6">
-                <div className="text-center space-y-2">
-                  <Smartphone className="w-12 h-12 text-indigo-500 mx-auto" />
-                  <h2 className="text-xl font-black">WhatsApp Device Linking</h2>
-                  <p className="text-xs text-slate-400">
-                    Connect your clinic WhatsApp account using whatsmeow QR code or pairing code. This enables instant bill slips dispatch.
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center space-x-3 text-xs">
-                  <AlertCircle className="w-5 h-5 text-indigo-500 flex-shrink-0" />
-                  <div>
-                    <span className="font-bold">WhatsApp Client is: </span>
-                    <span
-                      className={`font-black uppercase ${
-                        waStatus === "CONNECTED" ? "text-emerald-500" : "text-amber-500 animate-pulse"
-                      }`}
-                    >
-                      {waStatus}
-                    </span>
-                  </div>
-                </div>
-
-                {waStatus !== "CONNECTED" && (
-                  <div className="space-y-6 border-t border-[var(--border)] pt-6">
-                    <div className="flex justify-center space-x-2 border border-[var(--border)] rounded-xl p-1 text-[10px] font-bold">
-                      <button
-                        onClick={() => {
-                          setPairCode("");
-                          loadWhatsAppStatus();
-                        }}
-                        className="flex-grow py-2 rounded-lg cursor-pointer bg-indigo-600 text-white"
-                      >
-                        Link via QR Code
-                      </button>
-                    </div>
-
-                    {/* QR Code Stream */}
-                    {qrDataUrl ? (
-                      <div className="flex flex-col items-center space-y-4">
-                        <div className="p-3 bg-white rounded-3xl shadow-md border border-slate-200">
-                          <img src={qrDataUrl} alt="WhatsApp Pairing QR" className="w-48 h-48" />
-                        </div>
-                        <p className="text-[10px] text-slate-400 text-center">
-                          Open WhatsApp on your phone → Linked Devices → Link a Device. Scan the QR code above.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="text-center text-xs text-slate-400 py-6 animate-pulse">
-                        Generating latest QR code pairing stream...
-                      </div>
-                    )}
-
-                    <div className="relative flex py-3 items-center">
-                      <div className="flex-grow border-t border-[var(--border)]"></div>
-                      <span className="flex-shrink mx-4 text-slate-400 text-[10px] uppercase font-bold">Or Link by phone number</span>
-                      <div className="flex-grow border-t border-[var(--border)]"></div>
-                    </div>
-
-                    {/* Phone Pairing Code */}
-                    <form onSubmit={handleWhatsAppPairing} className="space-y-3">
-                      <div>
-                        <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
-                        <div className="flex gap-2 mt-1">
-                          <div className="w-24 flex-shrink-0">
-                            <select
-                              value={pairPhoneCode}
-                              onChange={(e) => setPairPhoneCode(e.target.value)}
-                              className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
-                            >
-                              <option value="+91">🇮🇳 +91</option>
-                              <option value="+1">🇺🇸 +1</option>
-                              <option value="+44">🇬🇧 +44</option>
-                              <option value="+971">🇦🇪 +971</option>
-                              <option value="+61">🇦🇺 +61</option>
-                              <option value="+65">🇸🇬 +65</option>
-                              <option value="+86">🇨🇳 +86</option>
-                              <option value="+81">🇯🇵 +81</option>
-                              <option value="+49">🇩🇪 +49</option>
-                              <option value="+33">🇫🇷 +33</option>
-                              <option value="+7">🇷🇺 +7</option>
-                              <option value="+92">🇵🇰 +92</option>
-                              <option value="+880">🇧🇩 +880</option>
-                              <option value="+977">🇳🇵 +977</option>
-                              <option value="+94">🇱🇰 +94</option>
-                            </select>
-                          </div>
-                          <input
-                            type="text"
-                            placeholder="e.g. 9999999999"
-                            value={pairPhone}
-                            onChange={(e) => setPairPhone(e.target.value)}
-                            className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none text-xs h-[34px]"
-                          />
-                        </div>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isPairing}
-                        className="w-full py-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-black font-bold rounded-2xl text-xs hover:opacity-90 transition cursor-pointer"
-                      >
-                        {isPairing ? "Generating pairing code..." : "Generate Pairing Code"}
-                      </button>
-                    </form>
-
-                    {pairCode && (
-                      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 text-center space-y-2">
-                        <span className="text-[9px] uppercase font-bold text-emerald-500">Your Link Code</span>
-                        <div className="text-3xl font-black tracking-widest text-emerald-500">{pairCode}</div>
-                        <p className="text-[10px] text-slate-400">
-                          Enter this pairing code in WhatsApp Linked Devices → Link with Phone Number.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {waStatus === "CONNECTED" && (
-                  <div className="text-center py-6 text-xs text-slate-400 space-y-4 border border-[var(--border)] rounded-3xl bg-[var(--card)] p-6">
-                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2 animate-bounce" />
-                    <div>
-                      <p className="font-bold text-slate-800 dark:text-slate-200">WhatsApp Client is Connected!</p>
-                      {waConnectedPhone && (
-                        <p className="text-[10px] text-slate-400 mt-1 font-mono">
-                          Logged in with: <strong className="text-emerald-500 font-bold">+{waConnectedPhone}</strong>
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      onClick={handleWhatsAppDisconnect}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer border-none outline-none"
-                    >
-                      Disconnect WhatsApp
-                    </button>
-                  </div>
-                )}
+                <WhatsAppPanel setToast={setToast} />
 
                 {/* Message Templates Section */}
                 <div className="border-t border-[var(--border)] pt-6 mt-6 space-y-4">
@@ -6636,11 +5958,7 @@ export default function Dashboard() {
                 </FloatingPanelRoot>
               </div>
             )}
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
-              </motion.div>
-            </MotionConfig>
+            </TabTransition>
           </div>
         ) : viewState.type === "patient" ? (
           /* VIEW: PATIENT DETAILS */

@@ -369,6 +369,7 @@ func ListQueue(w http.ResponseWriter, r *http.Request) {
 			WHERE q.doctor_id = $1 AND q.facility_id = $2 AND q.check_in_time > CURRENT_DATE
 			  AND q.status IN ('WAITING', 'IN_CONSULTATION')
 			ORDER BY q.queue_order ASC
+			LIMIT 300
 		`
 		queryArgs = []interface{}{doctorID, facilityID}
 	} else {
@@ -382,6 +383,7 @@ func ListQueue(w http.ResponseWriter, r *http.Request) {
 			WHERE q.facility_id = $1 AND q.check_in_time > CURRENT_DATE
 			  AND q.status IN ('WAITING', 'IN_CONSULTATION')
 			ORDER BY q.queue_order ASC
+			LIMIT 300
 		`
 		queryArgs = []interface{}{facilityID}
 	}
@@ -403,9 +405,47 @@ func ListQueue(w http.ResponseWriter, r *http.Request) {
 			&q.ConsultationEnd, &q.EstimatedWaitMinutes, &q.DoctorName,
 		)
 		if err == nil {
-			q.EstimatedWaitMinutes = CalculateWaitTime(r.Context(), q.DoctorID, facilityID, q.QueueOrder)
 			entries = append(entries, q)
 		}
+	}
+
+	// Optimize in-memory wait time calculations to prevent sequential DB queries (N+1)
+	avgMinutesMap := make(map[int]float64)
+	patientsAheadMap := make(map[int]int)
+	for i := range entries {
+		docID := entries[i].DoctorID
+
+		avgMin, exists := avgMinutesMap[docID]
+		if !exists {
+			limitQuery := `
+				WITH last_completed AS (
+					SELECT consultation_start_time, consultation_end_time 
+					FROM queue_entries 
+					WHERE doctor_id = $1 AND facility_id = $2
+					  AND status = 'COMPLETED' 
+					  AND consultation_start_time IS NOT NULL 
+					  AND consultation_end_time IS NOT NULL
+					  ORDER BY consultation_end_time DESC 
+					  LIMIT 5
+				)
+				SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (consultation_end_time - consultation_start_time))/60), 15.0)
+				FROM last_completed
+			`
+			err := db.Pool.QueryRow(r.Context(), limitQuery, docID, facilityID).Scan(&avgMin)
+			if err != nil {
+				avgMin = 15.0
+			}
+			avgMinutesMap[docID] = avgMin
+		}
+
+		countAhead := patientsAheadMap[docID]
+		patientsAheadMap[docID]++
+
+		estimated := int(float64(countAhead) * avgMin)
+		if estimated < 0 {
+			estimated = 0
+		}
+		entries[i].EstimatedWaitMinutes = estimated
 	}
 
 	writeJSON(w, http.StatusOK, entries)

@@ -55,6 +55,8 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, offset := parsePagination(r)
+
 	query := `
 		SELECT rx.id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
 		       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
@@ -63,8 +65,9 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 		JOIN users u ON rx.doctor_id = u.id
 		WHERE rx.facility_id = $1 AND rx.status IN ('active', 'partially_dispensed')
 		ORDER BY rx.created_at ASC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, facilityID)
+	rows, err := db.Pool.Query(r.Context(), query, facilityID, limit, offset)
 	if err != nil {
 		log.Printf("ListPendingPrescriptions query error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to query pending prescriptions"})
@@ -279,7 +282,7 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	// 3. Auto-generate Bill Invoice
 	var billID int
 	description := fmt.Sprintf("Pharmacy Invoice — Rx #%d", input.PrescriptionID)
-	
+
 	remainingAmount := grandTotal - input.AmountPaid
 	var billStatus string
 	if remainingAmount <= 0 {

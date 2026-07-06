@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,20 +28,19 @@ import (
 
 // --- Rate Limiter ---
 type visitor struct {
+	mu       sync.Mutex
 	tokens   float64
 	lastSeen time.Time
 }
 
 type rateLimiter struct {
-	mu       sync.Mutex
-	visitors map[string]*visitor
+	visitors sync.Map
 	rate     float64 // tokens per second
 	burst    float64 // max tokens
 }
 
-func newRateLimiter(requestsPerMinute float64) *rateLimiter {
+func newRateLimiter(ctx context.Context, requestsPerMinute float64) *rateLimiter {
 	rl := &rateLimiter{
-		visitors: make(map[string]*visitor),
 		rate:     requestsPerMinute / 60.0,
 		burst:    requestsPerMinute,
 	}
@@ -48,28 +48,41 @@ func newRateLimiter(requestsPerMinute float64) *rateLimiter {
 	go func() {
 		ticker := time.NewTicker(3 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			rl.mu.Lock()
-			for ip, v := range rl.visitors {
-				if time.Since(v.lastSeen) > 5*time.Minute {
-					delete(rl.visitors, ip)
-				}
+		for {
+			select {
+			case <-ticker.C:
+				rl.visitors.Range(func(key, val interface{}) bool {
+					v := val.(*visitor)
+					v.mu.Lock()
+					lastSeen := v.lastSeen
+					v.mu.Unlock()
+					if time.Since(lastSeen) > 5*time.Minute {
+						rl.visitors.Delete(key)
+					}
+					return true
+				})
+			case <-ctx.Done():
+				log.Println("Stopping rate limiter cleanup goroutine...")
+				return
 			}
-			rl.mu.Unlock()
 		}
 	}()
 	return rl
 }
 
 func (rl *rateLimiter) allow(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+	val, loaded := rl.visitors.LoadOrStore(ip, &visitor{
+		tokens:   rl.burst - 1,
+		lastSeen: time.Now(),
+	})
+	v := val.(*visitor)
 
-	v, exists := rl.visitors[ip]
-	if !exists {
-		rl.visitors[ip] = &visitor{tokens: rl.burst - 1, lastSeen: time.Now()}
+	if !loaded {
 		return true
 	}
+
+	v.mu.Lock()
+	defer v.mu.Unlock()
 
 	// Refill tokens based on elapsed time
 	elapsed := time.Since(v.lastSeen).Seconds()
@@ -87,8 +100,8 @@ func (rl *rateLimiter) allow(ip string) bool {
 }
 
 var (
-	generalLimiter  = newRateLimiter(100) // 100 req/min
-	whatsappLimiter = newRateLimiter(5)   // 5 req/min for WhatsApp send
+	generalLimiter  *rateLimiter
+	whatsappLimiter *rateLimiter
 )
 
 // --- Auth Middleware ---
@@ -126,9 +139,22 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Verify user still exists in the database (handles truncated/reset database state)
+		// Optimize using Redis cache with a short TTL (e.g. 5 minutes)
+		cacheKey := "user:exists:" + strconv.Itoa(shopkeeperID)
 		var exists bool
-		err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", shopkeeperID).Scan(&exists)
-		if err != nil || !exists {
+		cached := db.GetCache(r.Context(), cacheKey, &exists)
+		if !cached {
+			err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)", shopkeeperID).Scan(&exists)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
+				return
+			}
+			db.SetCache(r.Context(), cacheKey, exists, 5*time.Minute)
+		}
+
+		if !exists {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(map[string]string{"error": "Session expired or invalid"})
@@ -200,6 +226,11 @@ func main() {
 	// Start Background Cron Notification Worker
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Initialize rate limiters with server context for clean shutdown
+	generalLimiter = newRateLimiter(ctx, 100)
+	whatsappLimiter = newRateLimiter(ctx, 5)
+
 	worker.StartWorker(ctx)
 
 	// Set up router

@@ -15,6 +15,12 @@ import (
 	"backend/services"
 )
 
+type Template struct {
+	Greeting string
+	Body     string
+	Footer   string
+}
+
 // StartWorker runs the background cron checker loop
 func StartWorker(ctx context.Context) {
 	if strings.ToLower(os.Getenv("DISABLE_NOTIFICATION_WORKER")) == "true" {
@@ -34,20 +40,25 @@ func StartWorker(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[Worker] PANIC recovered: %v", r)
-			}
-			ticker.Stop()
-		}()
+		defer ticker.Stop()
+
+		// Safe check wrapper with per-invocation panic recovery
+		safeRunCycle := func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[Worker] PANIC recovered in runNotificationCycle: %v", r)
+				}
+			}()
+			runNotificationCycle(ctx)
+		}
 
 		// Run immediate check on start
-		runNotificationCycle(ctx)
+		safeRunCycle()
 
 		for {
 			select {
 			case <-ticker.C:
-				runNotificationCycle(ctx)
+				safeRunCycle()
 			case <-ctx.Done():
 				log.Println("Stopping background notification worker...")
 				return
@@ -125,18 +136,47 @@ func checkCustomerPromises(ctx context.Context) error {
 		duePromises = append(duePromises, p)
 	}
 
+	// Prefetch templates to avoid N+1 lookups
+	doctorIDsMap := make(map[int]bool)
+	var doctorIDs []int
+	for _, p := range duePromises {
+		if !doctorIDsMap[p.DoctorID] {
+			doctorIDsMap[p.DoctorID] = true
+			doctorIDs = append(doctorIDs, p.DoctorID)
+		}
+	}
+
+	templatesMap := make(map[int]Template)
+	if len(doctorIDs) > 0 {
+		rowsTmpl, err := db.Pool.Query(ctx, `
+			SELECT doctor_id, greeting, body, footer 
+			FROM whatsapp_templates 
+			WHERE template_key = 'overdue_reminder' AND doctor_id = ANY($1)
+		`, doctorIDs)
+		if err == nil {
+			defer rowsTmpl.Close()
+			for rowsTmpl.Next() {
+				var docID int
+				var t Template
+				if errScan := rowsTmpl.Scan(&docID, &t.Greeting, &t.Body, &t.Footer); errScan == nil {
+					templatesMap[docID] = t
+				}
+			}
+		}
+	}
+
 	for _, p := range duePromises {
 		clinicName := p.ClinicName
 		if clinicName == "" {
 			clinicName = "Our Clinic"
 		}
 		
-		// Try to load custom template
+		// Try to load custom template in-memory
+		tmpl, exists := templatesMap[p.DoctorID]
 		var greeting, body, footer string
-		err := db.Pool.QueryRow(ctx, 
-			"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'overdue_reminder'",
-			p.DoctorID).Scan(&greeting, &body, &footer)
-		if err != nil {
+		if exists {
+			greeting, body, footer = tmpl.Greeting, tmpl.Body, tmpl.Footer
+		} else {
 			// Use defaults
 			greeting = "Dear {patient_name},"
 			body = "This is a friendly reminder from {clinic_name} that an outstanding balance of ₹{remaining_amount} is due for your bill ({description})."
@@ -266,16 +306,46 @@ func checkRescheduleQueue(ctx context.Context) error {
 		}
 		rows.Close()
 
+		// Prefetch templates to avoid N+1 lookups
+		doctorIDsMap := make(map[int]bool)
+		var doctorIDs []int
+		for _, a := range alerts {
+			if !doctorIDsMap[a.DoctorID] {
+				doctorIDsMap[a.DoctorID] = true
+				doctorIDs = append(doctorIDs, a.DoctorID)
+			}
+		}
+		templatesMap := make(map[int]Template)
+		if len(doctorIDs) > 0 {
+			rowsTmpl, err := db.Pool.Query(ctx, `
+				SELECT doctor_id, greeting, body, footer 
+				FROM whatsapp_templates 
+				WHERE template_key = 'doctor_unavailable' AND doctor_id = ANY($1)
+			`, doctorIDs)
+			if err == nil {
+				defer rowsTmpl.Close()
+				for rowsTmpl.Next() {
+					var docID int
+					var t Template
+					if errScan := rowsTmpl.Scan(&docID, &t.Greeting, &t.Body, &t.Footer); errScan == nil {
+						templatesMap[docID] = t
+					}
+				}
+			}
+		}
+
 		for _, a := range alerts {
 			clinic := a.ClinicName
 			if clinic == "" {
 				clinic = "ClinicFlow"
 			}
+			
+			// Load custom template in-memory
+			tmpl, exists := templatesMap[a.DoctorID]
 			var greeting, body, footer string
-			errTemplate := db.Pool.QueryRow(ctx, 
-				"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'doctor_unavailable'",
-				a.DoctorID).Scan(&greeting, &body, &footer)
-			if errTemplate != nil {
+			if exists {
+				greeting, body, footer = tmpl.Greeting, tmpl.Body, tmpl.Footer
+			} else {
 				greeting = "Dear {patient_name},"
 				body = "We regret to inform you that Dr. {doctor_name} is unavailable on {original_date}. Your appointment #APP-{appointment_id} is in our rescheduling queue, and we will update you with new details shortly."
 				footer = "Thank you for your understanding. - {clinic_name}"
@@ -342,16 +412,46 @@ func checkRescheduleQueue(ctx context.Context) error {
 		}
 		rowsResched.Close()
 
+		// Prefetch templates to avoid N+1 lookups
+		doctorIDsMap := make(map[int]bool)
+		var doctorIDs []int
+		for _, a := range alerts {
+			if !doctorIDsMap[a.DoctorID] {
+				doctorIDsMap[a.DoctorID] = true
+				doctorIDs = append(doctorIDs, a.DoctorID)
+			}
+		}
+		templatesMap := make(map[int]Template)
+		if len(doctorIDs) > 0 {
+			rowsTmpl, err := db.Pool.Query(ctx, `
+				SELECT doctor_id, greeting, body, footer 
+				FROM whatsapp_templates 
+				WHERE template_key = 'appointment_rescheduled' AND doctor_id = ANY($1)
+			`, doctorIDs)
+			if err == nil {
+				defer rowsTmpl.Close()
+				for rowsTmpl.Next() {
+					var docID int
+					var t Template
+					if errScan := rowsTmpl.Scan(&docID, &t.Greeting, &t.Body, &t.Footer); errScan == nil {
+						templatesMap[docID] = t
+					}
+				}
+			}
+		}
+
 		for _, a := range alerts {
 			clinic := a.ClinicName
 			if clinic == "" {
 				clinic = "ClinicFlow"
 			}
+			
+			// Load custom template in-memory
+			tmpl, exists := templatesMap[a.DoctorID]
 			var greeting, body, footer string
-			errTemplate := db.Pool.QueryRow(ctx, 
-				"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'appointment_rescheduled'",
-				a.DoctorID).Scan(&greeting, &body, &footer)
-			if errTemplate != nil {
+			if exists {
+				greeting, body, footer = tmpl.Greeting, tmpl.Body, tmpl.Footer
+			} else {
 				greeting = "Dear {patient_name},"
 				body = "Your appointment #APP-{appointment_id} with Dr. {doctor_name} originally on {original_date} has been successfully rescheduled.\n\n*New Details:*\n*Date:* {new_date}\n*Time:* {new_time}"
 				footer = "Thank you. - {clinic_name}"
@@ -433,18 +533,47 @@ func checkRecurringPaymentReminders(ctx context.Context) error {
 		appURL = "http://localhost:3000"
 	}
 
+	// Prefetch templates to avoid N+1 lookups
+	doctorIDsMap := make(map[int]bool)
+	var doctorIDs []int
+	for _, r := range reminders {
+		if !doctorIDsMap[r.DoctorID] {
+			doctorIDsMap[r.DoctorID] = true
+			doctorIDs = append(doctorIDs, r.DoctorID)
+		}
+	}
+
+	templatesMap := make(map[int]Template)
+	if len(doctorIDs) > 0 {
+		rowsTmpl, err := db.Pool.Query(ctx, `
+			SELECT doctor_id, greeting, body, footer 
+			FROM whatsapp_templates 
+			WHERE template_key = 'overdue_reminder' AND doctor_id = ANY($1)
+		`, doctorIDs)
+		if err == nil {
+			defer rowsTmpl.Close()
+			for rowsTmpl.Next() {
+				var docID int
+				var t Template
+				if errScan := rowsTmpl.Scan(&docID, &t.Greeting, &t.Body, &t.Footer); errScan == nil {
+					templatesMap[docID] = t
+				}
+			}
+		}
+	}
+
 	for _, r := range reminders {
 		clinicName := r.ClinicName
 		if clinicName == "" {
 			clinicName = "Our Clinic"
 		}
 
-		// Try to load custom template
+		// Try to load custom template in-memory
+		tmpl, exists := templatesMap[r.DoctorID]
 		var greeting, body, footer string
-		err := db.Pool.QueryRow(ctx, 
-			"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'overdue_reminder'",
-			r.DoctorID).Scan(&greeting, &body, &footer)
-		if err != nil {
+		if exists {
+			greeting, body, footer = tmpl.Greeting, tmpl.Body, tmpl.Footer
+		} else {
 			// Use defaults
 			greeting = "Dear {patient_name},"
 			body = "This is a friendly reminder from {clinic_name} that an outstanding balance of ₹{remaining_amount} is due for your bill ({description})."
@@ -527,18 +656,47 @@ func checkAppointmentReminders(ctx context.Context) error {
 		reminders = append(reminders, a)
 	}
 
+	// Prefetch templates to avoid N+1 lookups
+	doctorIDsMap := make(map[int]bool)
+	var doctorIDs []int
+	for _, a := range reminders {
+		if !doctorIDsMap[a.DoctorID] {
+			doctorIDsMap[a.DoctorID] = true
+			doctorIDs = append(doctorIDs, a.DoctorID)
+		}
+	}
+
+	templatesMap := make(map[int]Template)
+	if len(doctorIDs) > 0 {
+		rowsTmpl, err := db.Pool.Query(ctx, `
+			SELECT doctor_id, greeting, body, footer 
+			FROM whatsapp_templates 
+			WHERE template_key = 'appointment_reminder' AND doctor_id = ANY($1)
+		`, doctorIDs)
+		if err == nil {
+			defer rowsTmpl.Close()
+			for rowsTmpl.Next() {
+				var docID int
+				var t Template
+				if errScan := rowsTmpl.Scan(&docID, &t.Greeting, &t.Body, &t.Footer); errScan == nil {
+					templatesMap[docID] = t
+				}
+			}
+		}
+	}
+
 	for _, a := range reminders {
 		clinicName := a.ClinicName
 		if clinicName == "" {
 			clinicName = "Our Clinic"
 		}
 
-		// Try to load custom template
+		// Try to load custom template in-memory
+		tmpl, exists := templatesMap[a.DoctorID]
 		var greeting, body, footer string
-		err := db.Pool.QueryRow(ctx, 
-			"SELECT greeting, body, footer FROM whatsapp_templates WHERE doctor_id = $1 AND template_key = 'appointment_reminder'",
-			a.DoctorID).Scan(&greeting, &body, &footer)
-		if err != nil {
+		if exists {
+			greeting, body, footer = tmpl.Greeting, tmpl.Body, tmpl.Footer
+		} else {
 			// Use defaults
 			greeting = "Dear {patient_name},"
 			body = "This is a reminder that you have an upcoming appointment with Dr. {doctor_name} at *{clinic_name}*.\n\n*Time:* {appointment_time}\n*Reason:* {reason}"

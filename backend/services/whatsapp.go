@@ -37,6 +37,7 @@ var (
 	WhatsAppStatesMutex sync.RWMutex
 	container           *sqlstore.Container
 	clientLog           waLog.Logger
+	sendSemaphore       = make(chan struct{}, 5) // Cap concurrent outbound sends to 5
 )
 
 func GetWhatsAppState(facilityID int) *FacilityWhatsAppState {
@@ -142,7 +143,7 @@ func InitWhatsApp() {
 	// whatsmeow requires its own logging system
 	dbLog := waLog.Stdout("Database", "OFF", true)
 	clientLog = waLog.Stdout("Client", "OFF", true)
-	
+
 	// Initialize sqlstore using postgres driver with background context
 	container, err = sqlstore.New(context.Background(), "postgres", dbConnStr, dbLog)
 	if err != nil {
@@ -257,6 +258,17 @@ func eventHandler(facilityID int, client *whatsmeow.Client, evt interface{}) {
 
 // SendWhatsApp sends a WhatsApp text message using the specified facility's client connection
 func SendWhatsApp(facilityID int, phone string, message string) error {
+	// Acquire semaphore with a bounded timeout to fail fast if queue is full
+	acquireCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	select {
+	case sendSemaphore <- struct{}{}:
+		cancel()
+		defer func() { <-sendSemaphore }()
+	case <-acquireCtx.Done():
+		cancel()
+		return fmt.Errorf("semaphore acquire timeout: send queue is full")
+	}
+
 	state := GetWhatsAppState(facilityID)
 	if state.Client == nil {
 		return fmt.Errorf("whatsapp client is not initialized for this facility")
@@ -301,6 +313,17 @@ func SendWhatsApp(facilityID int, phone string, message string) error {
 
 // SendWhatsAppWithAttachment uploads the provided file to WhatsApp and sends it as a document or image message with a caption
 func SendWhatsAppWithAttachment(facilityID int, phone string, message string, fileBytes []byte, filename string, mimeType string) error {
+	// Acquire semaphore with a bounded timeout to fail fast if queue is full
+	acquireCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	select {
+	case sendSemaphore <- struct{}{}:
+		cancel()
+		defer func() { <-sendSemaphore }()
+	case <-acquireCtx.Done():
+		cancel()
+		return fmt.Errorf("semaphore acquire timeout: send queue is full")
+	}
+
 	state := GetWhatsAppState(facilityID)
 	if state.Client == nil {
 		return fmt.Errorf("whatsapp client is not initialized for this facility")

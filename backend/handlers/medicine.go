@@ -88,13 +88,16 @@ func ListMedicines(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, offset := parsePagination(r)
+
 	query := `
 		SELECT id, doctor_id, name, stock, price, created_at, facility_id
 		FROM medicines
 		WHERE facility_id = $1
 		ORDER BY name ASC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, facilityID)
+	rows, err := db.Pool.Query(r.Context(), query, facilityID, limit, offset)
 	if err != nil {
 		log.Printf("ListMedicines DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})

@@ -150,6 +150,8 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limit, offset := parsePagination(r)
+
 	var query string
 	var rows interface {
 		Next() bool
@@ -173,8 +175,9 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 			LEFT JOIN lab_reports rep ON rep.lab_request_id = lr.id
 			WHERE lr.patient_id = $1
 			ORDER BY lr.requested_date DESC
+			LIMIT $2 OFFSET $3
 		`
-		rows, err = db.Pool.Query(r.Context(), query, patientID)
+		rows, err = db.Pool.Query(r.Context(), query, patientID, limit, offset)
 	} else {
 		query = `
 			SELECT lr.id, lr.patient_id, p.name as patient_name, lr.doctor_id, u.name as doctor_name,
@@ -186,8 +189,9 @@ func ListLabRequests(w http.ResponseWriter, r *http.Request) {
 			LEFT JOIN lab_reports rep ON rep.lab_request_id = lr.id
 			WHERE lr.patient_id = $1 AND lr.doctor_id = $2
 			ORDER BY lr.requested_date DESC
+			LIMIT $3 OFFSET $4
 		`
-		rows, err = db.Pool.Query(r.Context(), query, patientID, doctorID)
+		rows, err = db.Pool.Query(r.Context(), query, patientID, doctorID, limit, offset)
 	}
 	if err != nil {
 		log.Printf("ListLabRequests query error: %v", err)

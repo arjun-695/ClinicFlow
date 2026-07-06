@@ -154,14 +154,35 @@ func ListFacilityStaff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit := 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset := 0
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
 	query := `
 		SELECT u.id, u.name, u.email, u.phone, uf.role, u.specialization, u.location
 		FROM users u
 		JOIN user_facilities uf ON u.id = uf.user_id
 		WHERE uf.facility_id = $1
 		ORDER BY u.name ASC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := db.Pool.Query(r.Context(), query, facilityID)
+	rows, err := db.Pool.Query(r.Context(), query, facilityID, limit, offset)
 	if err != nil {
 		log.Printf("ListFacilityStaff DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -229,6 +250,7 @@ func DeleteFacilityStaff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Invalidate role cache and profile cache for the deleted user
+	db.InvalidateCache(r.Context(), "user:exists:"+strconv.Itoa(staffID))
 	db.InvalidateCache(r.Context(), "user:role:"+strconv.Itoa(staffID))
 	db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(staffID)+":*")
 

@@ -65,3 +65,29 @@ func GetActiveFacilityID(r *http.Request, userID int) (int, error) {
 	}
 	return firstFacilityID, nil
 }
+
+// parsePagination extracts and validates limit and offset from query parameters.
+// Default limit is 50, max is 100. Default offset is 0.
+func parsePagination(r *http.Request) (limit, offset int) {
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	limit = 50
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	offset = 0
+	if offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	return limit, offset
+}
