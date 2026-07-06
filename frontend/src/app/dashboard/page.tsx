@@ -33,7 +33,7 @@ import {
   ChevronUp,
   RotateCcw,
   Settings,
-  AlertTriangle
+  AlertTriangle,
 } from "lucide-react";
 import { fetchAPI, API_URL } from "../../utils/api";
 import { cn } from "../../utils/cn";
@@ -41,20 +41,77 @@ import { useRouter } from "next/navigation";
 import useMeasure from "react-use-measure";
 import dynamic from "next/dynamic";
 
-const ThemeToggleButton = dynamic(() => import("../../components/ui/theme-toggle").then(mod => mod.ThemeToggleButton), { ssr: false });
+const ThemeToggleButton = dynamic(
+  () =>
+    import("../../components/ui/theme-toggle").then(
+      (mod) => mod.ThemeToggleButton,
+    ),
+  { ssr: false },
+);
 
-const FloatingPanelRoot = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelRoot), { ssr: false });
-const FloatingPanelTrigger = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelTrigger), { ssr: false });
-const FloatingPanelContent = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelContent), { ssr: false });
-const FloatingPanelBody = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelBody), { ssr: false });
-const FloatingPanelFooter = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelFooter), { ssr: false });
-const FloatingPanelCloseButton = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelCloseButton), { ssr: false });
-const FloatingPanelSubmitButton = dynamic(() => import("../../components/ui/floating-panel").then(mod => mod.FloatingPanelSubmitButton), { ssr: false });
+const FloatingPanelRoot = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelRoot,
+    ),
+  { ssr: false },
+);
+const FloatingPanelTrigger = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelTrigger,
+    ),
+  { ssr: false },
+);
+const FloatingPanelContent = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelContent,
+    ),
+  { ssr: false },
+);
+const FloatingPanelBody = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelBody,
+    ),
+  { ssr: false },
+);
+const FloatingPanelFooter = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelFooter,
+    ),
+  { ssr: false },
+);
+const FloatingPanelCloseButton = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelCloseButton,
+    ),
+  { ssr: false },
+);
+const FloatingPanelSubmitButton = dynamic(
+  () =>
+    import("../../components/ui/floating-panel").then(
+      (mod) => mod.FloatingPanelSubmitButton,
+    ),
+  { ssr: false },
+);
 
-const TabTransition = dynamic(() => import("../../components/ui/tab-transition"), { ssr: false });
-const WhatsAppPanel = dynamic(() => import("./components/WhatsAppPanel"), { ssr: false });
-const QueuePanel = dynamic(() => import("./components/QueuePanel"), { ssr: false });
-const TabBubble = dynamic(() => import("../../components/ui/tab-bubble"), { ssr: false });
+const TabTransition = dynamic(
+  () => import("../../components/ui/tab-transition"),
+  { ssr: false },
+);
+const WhatsAppPanel = dynamic(() => import("./components/WhatsAppPanel"), {
+  ssr: false,
+});
+const QueuePanel = dynamic(() => import("./components/QueuePanel"), {
+  ssr: false,
+});
+const TabBubble = dynamic(() => import("../../components/ui/tab-bubble"), {
+  ssr: false,
+});
 
 const COMMON_MEDICINES = [
   "Paracetamol 500mg",
@@ -207,10 +264,29 @@ interface PatientDetail {
   prescriptions?: any[];
 }
 
+interface BillPrescriptionItem {
+  medicine_name: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  quantity: number;
+  instructions: string;
+}
+
+interface BillPrescriptionDetail {
+  id: number;
+  diagnosis: string;
+  notes: string;
+  created_at: string;
+  items: BillPrescriptionItem[];
+  lab_requests: string[];
+}
+
 interface BillDetail {
   bill: Bill;
   items: BillItem[];
   payments: Payment[];
+  prescription?: BillPrescriptionDetail;
 }
 
 interface DataPoint {
@@ -232,10 +308,14 @@ function checkBPRange(bp: string): [boolean, string] {
   const systolic = parseInt(parts[0].trim());
   const diastolic = parseInt(parts[1].trim());
   if (isNaN(systolic) || isNaN(diastolic)) return [false, ""];
-  if (systolic > 140) return [true, `High Systolic Blood Pressure (${systolic} mmHg)`];
-  if (systolic < 90) return [true, `Low Systolic Blood Pressure (${systolic} mmHg)`];
-  if (diastolic > 90) return [true, `High Diastolic Blood Pressure (${diastolic} mmHg)`];
-  if (diastolic < 60) return [true, `Low Diastolic Blood Pressure (${diastolic} mmHg)`];
+  if (systolic > 140)
+    return [true, `High Systolic Blood Pressure (${systolic} mmHg)`];
+  if (systolic < 90)
+    return [true, `Low Systolic Blood Pressure (${systolic} mmHg)`];
+  if (diastolic > 90)
+    return [true, `High Diastolic Blood Pressure (${diastolic} mmHg)`];
+  if (diastolic < 60)
+    return [true, `Low Diastolic Blood Pressure (${diastolic} mmHg)`];
   return [false, ""];
 }
 
@@ -265,13 +345,28 @@ export default function Dashboard() {
     facilities?: { id: number; name: string; type: string; role: string }[];
   } | null>(null);
 
-  const isClinicMode = !doctorInfo || doctorInfo.facilities?.find(f => f.id === doctorInfo.active_facility_id)?.type !== "HOSPITAL";
+  const isClinicMode =
+    !doctorInfo ||
+    doctorInfo.facilities?.find((f) => f.id === doctorInfo.active_facility_id)
+      ?.type !== "HOSPITAL";
   const isDoctorInHospital = doctorInfo?.role === "DOCTOR" && !isClinicMode;
-
 
   // Tabs & Views
   const [activeTab, setActiveTab] = useState<
-    "patients" | "appointments" | "billing" | "medicines" | "analytics" | "whatsapp" | "staff" | "queue" | "vitals" | "labs" | "reschedule-queue" | "availability" | "prescriptions" | "pharmacy"
+    | "patients"
+    | "appointments"
+    | "billing"
+    | "medicines"
+    | "analytics"
+    | "whatsapp"
+    | "staff"
+    | "queue"
+    | "vitals"
+    | "labs"
+    | "reschedule-queue"
+    | "availability"
+    | "prescriptions"
+    | "pharmacy"
   >("patients");
   const [viewState, setViewState] = useState<ViewState>({ type: "list" });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -286,7 +381,9 @@ export default function Dashboard() {
       const facilityId = doctorInfo.active_facility_id || null;
       if (lastFacilityIdRef.current !== facilityId) {
         lastFacilityIdRef.current = facilityId;
-        const isHospital = doctorInfo.facilities?.find(f => f.id === facilityId)?.type === "HOSPITAL";
+        const isHospital =
+          doctorInfo.facilities?.find((f) => f.id === facilityId)?.type ===
+          "HOSPITAL";
         if (isHospital && doctorInfo.role === "DOCTOR") {
           setActiveTab("queue");
         }
@@ -309,8 +406,11 @@ export default function Dashboard() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
-  const [currentPatientData, setCurrentPatientData] = useState<PatientDetail | null>(null);
-  const [currentBillData, setCurrentBillData] = useState<BillDetail | null>(null);
+  const [currentPatientData, setCurrentPatientData] =
+    useState<PatientDetail | null>(null);
+  const [currentBillData, setCurrentBillData] = useState<BillDetail | null>(
+    null,
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals Open/Close
@@ -344,9 +444,21 @@ export default function Dashboard() {
   const [rxPulse, setRxPulse] = useState("");
   const [rxSpO2, setRxSpO2] = useState("");
   const [rxTemp, setRxTemp] = useState("");
-  const [rxItems, setRxItems] = useState<any[]>([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
+  const [rxItems, setRxItems] = useState<any[]>([
+    {
+      medicine_name: "",
+      medicine_id: null,
+      dosage: "",
+      frequency: "",
+      duration: "",
+      quantity: 1,
+      instructions: "",
+    },
+  ]);
   const [pendingPrescriptions, setPendingPrescriptions] = useState<any[]>([]);
-  const [activeRxToDispense, setActiveRxToDispense] = useState<any | null>(null);
+  const [activeRxToDispense, setActiveRxToDispense] = useState<any | null>(
+    null,
+  );
   const [dispenseItems, setDispenseItems] = useState<any[]>([]);
   const [dispenseAmountPaid, setDispenseAmountPaid] = useState("");
   const [expandedRxId, setExpandedRxId] = useState<number | null>(null);
@@ -367,8 +479,8 @@ export default function Dashboard() {
       end_time: "17:00",
       slot_duration_minutes: 60,
       max_patients_per_slot: 1,
-      is_active: false
-    }))
+      is_active: false,
+    })),
   );
   const [generateStartDate, setGenerateStartDate] = useState("");
   const [generateEndDate, setGenerateEndDate] = useState("");
@@ -379,7 +491,9 @@ export default function Dashboard() {
   const [unavailDate, setUnavailDate] = useState("");
   const [unavailReason, setUnavailReason] = useState("");
   const [rescheduleQueue, setRescheduleQueue] = useState<any[]>([]);
-  const [activeRescheduleItem, setActiveRescheduleItem] = useState<any | null>(null);
+  const [activeRescheduleItem, setActiveRescheduleItem] = useState<any | null>(
+    null,
+  );
   const [reschedNewSlotId, setReschedNewSlotId] = useState("");
   const [reschedDate, setReschedDate] = useState("");
   const [reschedSlots, setReschedSlots] = useState<any[]>([]);
@@ -389,16 +503,22 @@ export default function Dashboard() {
   const [billPatientId, setBillPatientId] = useState("");
   const [billDesc, setBillDesc] = useState("");
   const [billDueDate, setBillDueDate] = useState("");
-  const [billItems, setBillItems] = useState<BillItem[]>([{ item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+  const [billItems, setBillItems] = useState<BillItem[]>([
+    { item_name: "", quantity: 1, unit_price: 0, dosage: "" },
+  ]);
   const [focusedMedIndex, setFocusedMedIndex] = useState<number | null>(null);
   const [billAmountPaid, setBillAmountPaid] = useState("");
-  const [billPayMode, setBillPayMode] = useState<"CASH" | "ONLINE_UPI" | "BANK_TRANSFER">("CASH");
+  const [billPayMode, setBillPayMode] = useState<
+    "CASH" | "ONLINE_UPI" | "BANK_TRANSFER"
+  >("CASH");
   const [billPayRemarks, setBillPayRemarks] = useState("");
   const [billFile, setBillFile] = useState<File | null>(null);
 
   // 4. Log Payment Form
   const [payAmount, setPayAmount] = useState("");
-  const [payMode, setPayMode] = useState<"CASH" | "ONLINE_UPI" | "BANK_TRANSFER">("CASH");
+  const [payMode, setPayMode] = useState<
+    "CASH" | "ONLINE_UPI" | "BANK_TRANSFER"
+  >("CASH");
   const [payRemarks, setPayRemarks] = useState("");
 
   // 5. Medicine Form
@@ -408,7 +528,9 @@ export default function Dashboard() {
 
   // Pharmacy search/sort
   const [medSearchQuery, setMedSearchQuery] = useState("");
-  const [medSortBy, setMedSortBy] = useState<"name" | "stock" | "availability">("name");
+  const [medSortBy, setMedSortBy] = useState<"name" | "stock" | "availability">(
+    "name",
+  );
   const [medSortAsc, setMedSortAsc] = useState(true);
 
   // Medicine inline editing
@@ -430,7 +552,9 @@ export default function Dashboard() {
   const [editDoctorName, setEditDoctorName] = useState("");
 
   // WhatsApp templates
-  const [waTemplates, setWaTemplates] = useState<Record<string, { greeting: string; body: string; footer: string }>>({
+  const [waTemplates, setWaTemplates] = useState<
+    Record<string, { greeting: string; body: string; footer: string }>
+  >({
     bill_notification: { greeting: "", body: "", footer: "" },
     overdue_reminder: { greeting: "", body: "", footer: "" },
     prescription_notification: { greeting: "", body: "", footer: "" },
@@ -441,24 +565,38 @@ export default function Dashboard() {
   const [templateSaving, setTemplateSaving] = useState(false);
 
   // Chart Timeframe Selection
-  const [patientTimeframe, setPatientTimeframe] = useState<"weekly" | "monthly" | "yearly">("weekly");
-  const [hoveredData, setHoveredData] = useState<{ label: string; value: number; x: number; y: number } | null>(null);
+  const [patientTimeframe, setPatientTimeframe] = useState<
+    "weekly" | "monthly" | "yearly"
+  >("weekly");
+  const [hoveredData, setHoveredData] = useState<{
+    label: string;
+    value: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Toast
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Workspace Switcher & Creation States
   const [isFacilityDropdownOpen, setIsFacilityDropdownOpen] = useState(false);
   const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
-  const [newWorkspaceType, setNewWorkspaceType] = useState<"CLINIC" | "HOSPITAL">("CLINIC");
+  const [newWorkspaceType, setNewWorkspaceType] = useState<
+    "CLINIC" | "HOSPITAL"
+  >("CLINIC");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [labRequests, setLabRequests] = useState<any[]>([]);
   const [newLabPatientId, setNewLabPatientId] = useState("");
   const [newLabTestName, setNewLabTestName] = useState("");
-  const [uploadLabRequestId, setUploadLabRequestId] = useState<number | null>(null);
+  const [uploadLabRequestId, setUploadLabRequestId] = useState<number | null>(
+    null,
+  );
   const [uploadReportUrl, setUploadReportUrl] = useState("");
   const [uploadResultSummary, setUploadResultSummary] = useState("");
   const [isUploadLabOpen, setIsUploadLabOpen] = useState(false);
@@ -473,15 +611,21 @@ export default function Dashboard() {
   const [logSpO2, setLogSpO2] = useState("");
   const [logTemp, setLogTemp] = useState("");
   const [logEncounterId, setLogEncounterId] = useState("");
-  const [logCustomMetrics, setLogCustomMetrics] = useState<{ key: string; value: string }[]>([]);
-  const [rxLabRequests, setRxLabRequests] = useState<{ name: string; value: string }[]>([]);
+  const [logCustomMetrics, setLogCustomMetrics] = useState<
+    { key: string; value: string }[]
+  >([]);
+  const [rxLabRequests, setRxLabRequests] = useState<
+    { name: string; value: string }[]
+  >([]);
   const [isLogVitalsOpen, setIsLogVitalsOpen] = useState(false);
   const [vitalsPatientId, setVitalsPatientId] = useState("");
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [invitePhone, setInvitePhone] = useState("");
   const [invitePhoneCode, setInvitePhoneCode] = useState("+91");
-  const [inviteRole, setInviteRole] = useState<"DOCTOR" | "PHARMACIST">("DOCTOR");
+  const [inviteRole, setInviteRole] = useState<"DOCTOR" | "PHARMACIST">(
+    "DOCTOR",
+  );
   const [inviteLink, setInviteLink] = useState("");
   const [inviteOTP, setInviteOTP] = useState("");
   const [isInviteOpen, setIsInviteOpen] = useState(false);
@@ -518,15 +662,17 @@ export default function Dashboard() {
   // --- Auth Check ---
   useEffect(() => {
     // Check for token in URL (from Google OAuth redirect)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const urlToken = params.get('token');
+      const urlToken = params.get("token");
       if (urlToken) {
-        localStorage.setItem('auth_token', urlToken);
+        localStorage.setItem("auth_token", urlToken);
         // Remove token from URL for security
-        params.delete('token');
-        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
-        window.history.replaceState({}, '', newUrl);
+        params.delete("token");
+        const newUrl =
+          window.location.pathname +
+          (params.toString() ? "?" + params.toString() : "");
+        window.history.replaceState({}, "", newUrl);
       }
     }
     checkAuthSession();
@@ -534,22 +680,24 @@ export default function Dashboard() {
 
   const checkAuthSession = async () => {
     try {
-
       const data = await fetchAPI("/api/auth/session");
       if (data.status === "Authenticated") {
         setIsAuthenticated(true);
         setDoctorInfo(data.user);
         if (data.user.active_facility_id) {
-          localStorage.setItem("active_facility_id", data.user.active_facility_id.toString());
+          localStorage.setItem(
+            "active_facility_id",
+            data.user.active_facility_id.toString(),
+          );
         }
       } else {
         setIsAuthenticated(false);
-        localStorage.removeItem('auth_token');
+        localStorage.removeItem("auth_token");
         router.replace("/signin");
       }
     } catch {
       setIsAuthenticated(false);
-      localStorage.removeItem('auth_token');
+      localStorage.removeItem("auth_token");
       router.replace("/signin");
     }
   };
@@ -568,9 +716,25 @@ export default function Dashboard() {
       const id = params.get("id");
 
       if (tab) {
-        const validTabs = ["patients", "appointments", "billing", "medicines", "analytics", "whatsapp", "staff", "queue", "vitals", "labs", "reschedule-queue", "availability", "prescriptions", "pharmacy"];
+        const validTabs = [
+          "patients",
+          "appointments",
+          "billing",
+          "medicines",
+          "analytics",
+          "whatsapp",
+          "staff",
+          "queue",
+          "vitals",
+          "labs",
+          "reschedule-queue",
+          "availability",
+          "prescriptions",
+          "pharmacy",
+        ];
         if (validTabs.includes(tab)) {
-          const isDoctorInHospital = doctorInfo?.role === "DOCTOR" && !isClinicMode;
+          const isDoctorInHospital =
+            doctorInfo?.role === "DOCTOR" && !isClinicMode;
           if (tab === "whatsapp" && isDoctorInHospital) {
             setActiveTab("patients");
           } else {
@@ -629,7 +793,10 @@ export default function Dashboard() {
     }
 
     const queryStr = `?${params.toString()}`;
-    if (window.location.search !== queryStr && urlSyncRef.current !== queryStr) {
+    if (
+      window.location.search !== queryStr &&
+      urlSyncRef.current !== queryStr
+    ) {
       urlSyncRef.current = queryStr;
       window.history.pushState({ tab: activeTab, viewState }, "", queryStr);
     }
@@ -638,7 +805,10 @@ export default function Dashboard() {
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsFacilityDropdownOpen(false);
       }
     }
@@ -678,10 +848,10 @@ export default function Dashboard() {
   // --- Load Data Hook ---
   useEffect(() => {
     if (isAuthenticated && doctorInfo) {
-      const needsSetup = 
-        doctorInfo.role === "DOCTOR" && 
-        !doctorInfo.specialization && 
-        !doctorInfo.location && 
+      const needsSetup =
+        doctorInfo.role === "DOCTOR" &&
+        !doctorInfo.specialization &&
+        !doctorInfo.location &&
         !doctorInfo.hospital_name;
 
       if (needsSetup) {
@@ -698,7 +868,10 @@ export default function Dashboard() {
         loadAppointments();
         loadMedicines();
         loadPrescriptions();
-        if (doctorInfo.role === "PHARMACIST" || doctorInfo.role === "HOSPITAL_ADMIN") {
+        if (
+          doctorInfo.role === "PHARMACIST" ||
+          doctorInfo.role === "HOSPITAL_ADMIN"
+        ) {
           loadPendingPrescriptions();
         }
         loadAnalytics();
@@ -712,7 +885,10 @@ export default function Dashboard() {
   // Reactively load slots/availability/reschedules when tabs change
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (activeTab === "reschedule-queue" && doctorInfo?.role === "HOSPITAL_ADMIN") {
+    if (
+      activeTab === "reschedule-queue" &&
+      doctorInfo?.role === "HOSPITAL_ADMIN"
+    ) {
       loadRescheduleQueue();
     }
     if (activeTab === "availability" && doctorInfo) {
@@ -752,7 +928,12 @@ export default function Dashboard() {
           const consultationFee = latestRx.consultation_charges || 0;
           if (consultationFee > 0) {
             setBillItems([
-              { item_name: "Consultation Fee (from Rx)", quantity: 1, unit_price: consultationFee, dosage: "" }
+              {
+                item_name: "Consultation Fee (from Rx)",
+                quantity: 1,
+                unit_price: consultationFee,
+                dosage: "",
+              },
             ]);
             // If they also paid some amount upfront at prescription time
             if (latestRx.amount_paid > 0) {
@@ -761,12 +942,16 @@ export default function Dashboard() {
               setBillAmountPaid("");
             }
           } else {
-            setBillItems([{ item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+            setBillItems([
+              { item_name: "", quantity: 1, unit_price: 0, dosage: "" },
+            ]);
             setBillAmountPaid("");
           }
         } else {
           setBillDesc("");
-          setBillItems([{ item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+          setBillItems([
+            { item_name: "", quantity: 1, unit_price: 0, dosage: "" },
+          ]);
           setBillAmountPaid("");
         }
       } catch (err) {
@@ -824,7 +1009,9 @@ export default function Dashboard() {
 
   const loadPatients = async () => {
     try {
-      const url = isDoctorInHospital ? "/api/patients?treated_only=true" : "/api/patients";
+      const url = isDoctorInHospital
+        ? "/api/patients?treated_only=true"
+        : "/api/patients";
       const data = await fetchAPI(url);
       setPatients(data || []);
     } catch (e) {
@@ -880,36 +1067,42 @@ export default function Dashboard() {
   const loadDoctorAvailability = async (docId: string) => {
     if (!docId) return;
     try {
-      const data = await fetchAPI(`/api/doctors/availability?doctor_id=${docId}`);
+      const data = await fetchAPI(
+        `/api/doctors/availability?doctor_id=${docId}`,
+      );
       if (data && data.length > 0) {
         const newAvail = Array.from({ length: 7 }, (_, i) => {
           const matched = data.find((d: any) => d.day_of_week === i);
-          return matched ? {
-            day_of_week: i,
-            start_time: matched.start_time.substring(0, 5),
-            end_time: matched.end_time.substring(0, 5),
-            slot_duration_minutes: matched.slot_duration_minutes,
-            max_patients_per_slot: matched.max_patients_per_slot,
-            is_active: matched.is_active
-          } : {
+          return matched
+            ? {
+                day_of_week: i,
+                start_time: matched.start_time.substring(0, 5),
+                end_time: matched.end_time.substring(0, 5),
+                slot_duration_minutes: matched.slot_duration_minutes,
+                max_patients_per_slot: matched.max_patients_per_slot,
+                is_active: matched.is_active,
+              }
+            : {
+                day_of_week: i,
+                start_time: "09:00",
+                end_time: "17:00",
+                slot_duration_minutes: 60,
+                max_patients_per_slot: 1,
+                is_active: false,
+              };
+        });
+        setConfigWeeklyAvail(newAvail);
+      } else {
+        setConfigWeeklyAvail(
+          Array.from({ length: 7 }, (_, i) => ({
             day_of_week: i,
             start_time: "09:00",
             end_time: "17:00",
             slot_duration_minutes: 60,
             max_patients_per_slot: 1,
-            is_active: false
-          };
-        });
-        setConfigWeeklyAvail(newAvail);
-      } else {
-        setConfigWeeklyAvail(Array.from({ length: 7 }, (_, i) => ({
-          day_of_week: i,
-          start_time: "09:00",
-          end_time: "17:00",
-          slot_duration_minutes: 60,
-          max_patients_per_slot: 1,
-          is_active: false
-        })));
+            is_active: false,
+          })),
+        );
       }
     } catch (e) {
       console.error("Failed to load availability", e);
@@ -970,7 +1163,7 @@ export default function Dashboard() {
         patient: data.patient,
         contracts: data.contracts || [],
         appointments: data.appointments || [],
-        prescriptions: data.prescriptions || []
+        prescriptions: data.prescriptions || [],
       });
     } catch {
       setToast({ message: "Failed to load patient profile", type: "error" });
@@ -985,7 +1178,10 @@ export default function Dashboard() {
     } catch {
       setToast({ message: "Failed to load invoice details", type: "error" });
       if (currentPatientData) {
-        setViewState({ type: "patient", patientId: currentPatientData.patient.id });
+        setViewState({
+          type: "patient",
+          patientId: currentPatientData.patient.id,
+        });
       } else {
         setViewState({ type: "list" });
       }
@@ -996,9 +1192,11 @@ export default function Dashboard() {
   const loadRecentBills = async (search = "", offset = 0, append = false) => {
     setBillsLoading(true);
     try {
-      const data = await fetchAPI(`/api/bills?search=${encodeURIComponent(search)}&offset=${offset}&limit=20`);
+      const data = await fetchAPI(
+        `/api/bills?search=${encodeURIComponent(search)}&offset=${offset}&limit=20`,
+      );
       if (append) {
-        setRecentBills(prev => [...prev, ...(data.bills || [])]);
+        setRecentBills((prev) => [...prev, ...(data.bills || [])]);
       } else {
         setRecentBills(data.bills || []);
       }
@@ -1063,11 +1261,15 @@ export default function Dashboard() {
           phone: "",
         }),
       });
-      setDoctorInfo(prev => prev ? {
-        ...prev,
-        name: editDoctorName.trim(),
-        clinic_name: editClinicName.trim() || "My Clinic",
-      } : null);
+      setDoctorInfo((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: editDoctorName.trim(),
+              clinic_name: editClinicName.trim() || "My Clinic",
+            }
+          : null,
+      );
       setIsEditingProfile(false);
       setToast({ message: "Profile updated successfully", type: "success" });
     } catch {
@@ -1112,7 +1314,10 @@ export default function Dashboard() {
       await checkAuthSession();
     } catch (err: any) {
       console.error("Failed to create workspace", err);
-      setToast({ message: err.message || "Failed to create workspace", type: "error" });
+      setToast({
+        message: err.message || "Failed to create workspace",
+        type: "error",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -1179,14 +1384,14 @@ export default function Dashboard() {
   const handleLogout = async () => {
     try {
       await fetchAPI("/api/auth/logout");
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('active_facility_id');
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("active_facility_id");
       setIsAuthenticated(false);
       router.replace("/");
     } catch (e) {
       console.error("Logout failed", e);
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('active_facility_id');
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("active_facility_id");
       router.replace("/");
     }
   };
@@ -1203,17 +1408,20 @@ export default function Dashboard() {
         body: JSON.stringify({
           prescription_id: activeRxToDispense.id,
           amount_paid: parseFloat(dispenseAmountPaid) || 0,
-          items: dispenseItems.map(item => ({
+          items: dispenseItems.map((item) => ({
             prescription_item_id: item.prescription_item_id,
             medicine_id: item.medicine_id,
             tablets_given: parseInt(item.tablets_given) || 0,
             cost_per_tablet: parseFloat(item.cost_per_tablet) || 0,
             is_nil: item.is_nil,
-            nil_reason: item.nil_reason
-          }))
-        })
+            nil_reason: item.nil_reason,
+          })),
+        }),
       });
-      setToast({ message: "Medication dispensed and bill generated!", type: "success" });
+      setToast({
+        message: "Medication dispensed and bill generated!",
+        type: "success",
+      });
       setActiveRxToDispense(null);
       setDispenseItems([]);
       setDispenseAmountPaid("");
@@ -1225,7 +1433,10 @@ export default function Dashboard() {
         loadPatientDetails(currentPatientData.patient.id);
       }
     } catch (e: any) {
-      setToast({ message: e.message || "Failed to dispense medication", type: "error" });
+      setToast({
+        message: e.message || "Failed to dispense medication",
+        type: "error",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -1234,11 +1445,23 @@ export default function Dashboard() {
   const handleAddPrescription = async (e: React.FormEvent) => {
     e.preventDefault();
     const activeLabRequests = rxLabRequests
-      .filter(l => l.name.trim() !== "")
-      .map(l => l.value.trim() !== "" ? `${l.name.trim()}: ${l.value.trim()}` : l.name.trim());
-    const activeMedItems = rxItems.filter(item => item.medicine_name.trim() !== "");
-    if (!rxPatientId || (activeMedItems.length === 0 && activeLabRequests.length === 0)) {
-      setToast({ message: "Please add at least one medicine or one lab request", type: "error" });
+      .filter((l) => l.name.trim() !== "")
+      .map((l) =>
+        l.value.trim() !== ""
+          ? `${l.name.trim()}: ${l.value.trim()}`
+          : l.name.trim(),
+      );
+    const activeMedItems = rxItems.filter(
+      (item) => item.medicine_name.trim() !== "",
+    );
+    if (
+      !rxPatientId ||
+      (activeMedItems.length === 0 && activeLabRequests.length === 0)
+    ) {
+      setToast({
+        message: "Please add at least one medicine or one lab request",
+        type: "error",
+      });
       return;
     }
 
@@ -1250,7 +1473,7 @@ export default function Dashboard() {
       if (seenLabs.has(normalized)) {
         setToast({
           message: `Duplicate lab request name "${test.name}" detected! Please use descriptive, distinct names (e.g., "X-Ray Chest" and "X-Ray Spine") as identical names will be dropped.`,
-          type: "error"
+          type: "error",
         });
         return;
       }
@@ -1267,20 +1490,21 @@ export default function Dashboard() {
           patient_id: parseInt(rxPatientId),
           diagnosis: rxDiagnosis,
           notes: rxNotes,
-          items: activeMedItems.map(item => ({
+          items: activeMedItems.map((item) => ({
             ...item,
             quantity: parseInt(item.quantity) || 0,
-            medicine_id: item.medicine_id ? parseInt(item.medicine_id) : null
+            medicine_id: item.medicine_id ? parseInt(item.medicine_id) : null,
           })),
           lab_requests: activeLabRequests,
           visit_charges: rxVisitCharges ? parseFloat(rxVisitCharges) : 0,
-          amount_paid: isClinicMode && rxAmountPaid ? parseFloat(rxAmountPaid) : 0
-        })
+          amount_paid:
+            isClinicMode && rxAmountPaid ? parseFloat(rxAmountPaid) : 0,
+        }),
       });
 
       if (res.id) {
         try {
-          const patient = patients.find(p => p.id.toString() === rxPatientId);
+          const patient = patients.find((p) => p.id.toString() === rxPatientId);
           const patientName = patient ? patient.name : "Patient";
           const patientPhone = patient ? patient.phone : "";
           const patientGender = patient ? patient.gender : "";
@@ -1300,16 +1524,23 @@ export default function Dashboard() {
             weight: rxWeight || "",
             bp: rxBP || "",
             pulse: rxPulse || "",
-            temp: rxTemp || ""
+            temp: rxTemp || "",
           };
           const rxDoc = await buildPrescriptionPDF(rxDetail);
           const rxBlob = rxDoc.output("blob");
 
           const uploadForm = new FormData();
           uploadForm.append("prescription_id", res.id.toString());
-          uploadForm.append("prescription", rxBlob, `Prescription_${patientName.replace(/\s+/g, "_")}_${res.id}.pdf`);
+          uploadForm.append(
+            "prescription",
+            rxBlob,
+            `Prescription_${patientName.replace(/\s+/g, "_")}_${res.id}.pdf`,
+          );
 
           if (res.bill_id && rxVisitCharges) {
+            const chargesAmount = parseFloat(rxVisitCharges);
+            const paidAmount = rxAmountPaid ? parseFloat(rxAmountPaid) : 0;
+            const balance = Math.max(0, chargesAmount - paidAmount);
             const billDetail = {
               bill: {
                 id: res.bill_id,
@@ -1321,9 +1552,13 @@ export default function Dashboard() {
                 doctor_id: doctorInfo?.id || 0,
                 clinic_name: doctorInfo?.clinic_name || "ClinicFlow",
                 description: "Consultation / Visit Charges",
-                total_amount: parseFloat(rxVisitCharges),
-                remaining_amount: parseFloat(rxVisitCharges) - (rxAmountPaid ? parseFloat(rxAmountPaid) : 0),
-                status: ((parseFloat(rxVisitCharges) - (rxAmountPaid ? parseFloat(rxAmountPaid) : 0)) === 0 ? "SETTLED" : (rxAmountPaid ? "PARTIALLY_PAID" : "PENDING")) as "PENDING" | "PARTIALLY_PAID" | "SETTLED",
+                total_amount: chargesAmount,
+                remaining_amount: balance,
+                status: (balance <= 0
+                  ? "SETTLED"
+                  : paidAmount > 0
+                    ? "PARTIALLY_PAID"
+                    : "PENDING") as "PENDING" | "PARTIALLY_PAID" | "SETTLED",
                 promised_due_date: null,
                 invoice_url: null,
                 notified: false,
@@ -1331,27 +1566,49 @@ export default function Dashboard() {
                 weight: rxWeight || "",
                 bp: rxBP || "",
                 pulse: rxPulse || "",
-                temp: rxTemp || ""
+                temp: rxTemp || "",
               },
               items: [
-                { item_name: "Consultation Fee", quantity: 1, unit_price: parseFloat(rxVisitCharges), dosage: "" }
+                {
+                  item_name: "Consultation Fee",
+                  quantity: 1,
+                  unit_price: parseFloat(rxVisitCharges),
+                  dosage: "",
+                },
               ],
-              payments: rxAmountPaid && parseFloat(rxAmountPaid) > 0 ? [
-                { id: 0, contract_id: res.bill_id, amount_paid: parseFloat(rxAmountPaid), payment_mode: "CASH", remarks: "Paid on visit", payment_date: new Date().toISOString() }
-              ] : []
+              payments:
+                rxAmountPaid && parseFloat(rxAmountPaid) > 0
+                  ? [
+                      {
+                        id: 0,
+                        contract_id: res.bill_id,
+                        amount_paid: parseFloat(rxAmountPaid),
+                        payment_mode: "CASH",
+                        remarks: "Paid on visit",
+                        payment_date: new Date().toISOString(),
+                      },
+                    ]
+                  : [],
             };
             const billDoc = await buildInvoicePDF(billDetail);
             const billBlob = billDoc.output("blob");
             uploadForm.append("bill_id", res.bill_id.toString());
-            uploadForm.append("invoice", billBlob, `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`);
+            uploadForm.append(
+              "invoice",
+              billBlob,
+              `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`,
+            );
           }
 
           await fetchAPI("/api/prescriptions/upload-pdf", {
             method: "POST",
-            body: uploadForm
+            body: uploadForm,
           });
         } catch (uploadErr) {
-          console.error("Failed to generate/upload prescription/bill PDF documents:", uploadErr);
+          console.error(
+            "Failed to generate/upload prescription/bill PDF documents:",
+            uploadErr,
+          );
         }
       }
 
@@ -1366,18 +1623,25 @@ export default function Dashboard() {
               patient_id: savedPatientId,
               weight_kg: rxWeight ? parseFloat(rxWeight) : null,
               blood_pressure: rxBP || null,
-              heart_rate: rxHR ? parseInt(rxHR) : (rxPulse ? parseInt(rxPulse) : 0),
+              heart_rate: rxHR
+                ? parseInt(rxHR)
+                : rxPulse
+                  ? parseInt(rxPulse)
+                  : 0,
               pulse: rxPulse ? parseInt(rxPulse) : null,
               spo2: rxSpO2 ? parseInt(rxSpO2) : null,
-              temperature: rxTemp ? parseFloat(rxTemp) : null
-            })
+              temperature: rxTemp ? parseFloat(rxTemp) : null,
+            }),
           });
         } catch (vitalsErr) {
           console.error("Failed to log vitals from prescription:", vitalsErr);
         }
       }
 
-      setToast({ message: "Prescription written successfully", type: "success" });
+      setToast({
+        message: "Prescription written successfully",
+        type: "success",
+      });
       setRxPatientId("");
       setRxDiagnosis("");
       setRxNotes("");
@@ -1389,12 +1653,25 @@ export default function Dashboard() {
       setRxPulse("");
       setRxSpO2("");
       setRxTemp("");
-      setRxItems([{ medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }]);
+      setRxItems([
+        {
+          medicine_name: "",
+          medicine_id: null,
+          dosage: "",
+          frequency: "",
+          duration: "",
+          quantity: 1,
+          instructions: "",
+        },
+      ]);
       setRxLabRequests([]);
       setIsAddRxOpen(false);
       loadPrescriptions();
       loadPatients();
-      if (currentPatientData && currentPatientData.patient.id === savedPatientId) {
+      if (
+        currentPatientData &&
+        currentPatientData.patient.id === savedPatientId
+      ) {
         loadPatientDetails(savedPatientId);
       }
     } catch {
@@ -1421,8 +1698,8 @@ export default function Dashboard() {
           gender: newPtGender,
           age: parseInt(newPtAge) || 0,
           medical_history: newPtHistory,
-          doctor_ids: selectedDoctorIds
-        })
+          doctor_ids: selectedDoctorIds,
+        }),
       });
       setToast({ message: "Patient registered successfully", type: "success" });
       setNewPtName("");
@@ -1434,14 +1711,21 @@ export default function Dashboard() {
       setIsAddPatientOpen(false);
       loadPatients();
     } catch (e: any) {
-      setToast({ message: e.message || "Failed to register patient", type: "error" });
+      setToast({
+        message: e.message || "Failed to register patient",
+        type: "error",
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleDeletePatient = async (id: number) => {
-    if (!window.confirm("Are you sure you want to delete this patient? This will cascade and delete all associated records (appointments, prescriptions, vitals, etc.).")) {
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this patient? This will cascade and delete all associated records (appointments, prescriptions, vitals, etc.).",
+      )
+    ) {
       return;
     }
     try {
@@ -1451,22 +1735,35 @@ export default function Dashboard() {
       setToast({ message: "Patient deleted successfully", type: "success" });
       loadPatients();
     } catch (e: any) {
-      setToast({ message: e.message || "Failed to delete patient", type: "error" });
+      setToast({
+        message: e.message || "Failed to delete patient",
+        type: "error",
+      });
     }
   };
 
   const handleRemoveStaff = async (id: number) => {
-    if (!window.confirm("Are you sure you want to remove this staff member from this workspace? They will lose all access and visibility to this hospital/clinic workspace.")) {
+    if (
+      !window.confirm(
+        "Are you sure you want to remove this staff member from this workspace? They will lose all access and visibility to this hospital/clinic workspace.",
+      )
+    ) {
       return;
     }
     try {
       await fetchAPI(`/api/facilities/staff?id=${id}`, {
         method: "DELETE",
       });
-      setToast({ message: "Staff member removed from workspace successfully", type: "success" });
+      setToast({
+        message: "Staff member removed from workspace successfully",
+        type: "success",
+      });
       loadStaff();
     } catch (e: any) {
-      setToast({ message: e.message || "Failed to remove staff member", type: "error" });
+      setToast({
+        message: e.message || "Failed to remove staff member",
+        type: "error",
+      });
     }
   };
 
@@ -1489,10 +1786,13 @@ export default function Dashboard() {
         body: JSON.stringify({
           patient_id: apptPatientId ? parseInt(apptPatientId) : 0,
           slot_id: parseInt(apptSlotId),
-          reason: apptReason
-        })
+          reason: apptReason,
+        }),
       });
-      setToast({ message: "Appointment booked successfully!", type: "success" });
+      setToast({
+        message: "Appointment booked successfully!",
+        type: "success",
+      });
       setApptPatientId("");
       setApptDoctorId("");
       setApptSlotId("");
@@ -1503,7 +1803,10 @@ export default function Dashboard() {
       loadAppointments();
       loadAnalytics();
     } catch (err: any) {
-      setToast({ message: err.message || "Failed to book appointment", type: "error" });
+      setToast({
+        message: err.message || "Failed to book appointment",
+        type: "error",
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -1514,9 +1817,12 @@ export default function Dashboard() {
     try {
       await fetchAPI("/api/appointments/status", {
         method: "PUT",
-        body: JSON.stringify({ id, status: nextStatus })
+        body: JSON.stringify({ id, status: nextStatus }),
       });
-      setToast({ message: `Slot status updated to ${nextStatus}`, type: "success" });
+      setToast({
+        message: `Slot status updated to ${nextStatus}`,
+        type: "success",
+      });
       loadAppointments();
       loadAnalytics();
       if (viewState.type === "patient") {
@@ -1527,7 +1833,11 @@ export default function Dashboard() {
     }
   };
 
-  const handleBillItemChange = (index: number, field: keyof BillItem, value: any) => {
+  const handleBillItemChange = (
+    index: number,
+    field: keyof BillItem,
+    value: any,
+  ) => {
     const updated = [...billItems];
     if (field === "quantity") {
       updated[index].quantity = Math.max(1, parseInt(value) || 1);
@@ -1540,7 +1850,10 @@ export default function Dashboard() {
   };
 
   const addBillItemRow = () => {
-    setBillItems([...billItems, { item_name: "", quantity: 1, unit_price: 0, dosage: "" }]);
+    setBillItems([
+      ...billItems,
+      { item_name: "", quantity: 1, unit_price: 0, dosage: "" },
+    ]);
   };
 
   const removeBillItemRow = (index: number) => {
@@ -1550,7 +1863,10 @@ export default function Dashboard() {
   };
 
   const getBillTotal = () => {
-    return billItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+    return billItems.reduce(
+      (sum, item) => sum + item.quantity * item.unit_price,
+      0,
+    );
   };
 
   const handleCreateBill = async (e: React.FormEvent) => {
@@ -1578,12 +1894,14 @@ export default function Dashboard() {
 
       const res = await fetchAPI("/api/bills", {
         method: "POST",
-        body: formData
+        body: formData,
       });
 
       if (!billFile && res.bill_id) {
         try {
-          const patient = patients.find(p => p.id.toString() === billPatientId);
+          const patient = patients.find(
+            (p) => p.id.toString() === billPatientId,
+          );
           const patientName = patient ? patient.name : "Patient";
           const patientPhone = patient ? patient.phone : "";
           const detail: BillDetail = {
@@ -1603,7 +1921,7 @@ export default function Dashboard() {
               promised_due_date: billDueDate,
               invoice_url: null,
               created_at: res.created_at || new Date().toISOString(),
-              notified: false
+              notified: false,
             },
             items: billItems.map((item, index) => ({
               id: index,
@@ -1611,16 +1929,20 @@ export default function Dashboard() {
               item_name: item.item_name,
               quantity: item.quantity,
               unit_price: item.unit_price,
-              dosage: item.dosage
+              dosage: item.dosage,
             })),
-            payments: billAmountPaid ? [{
-              id: 0,
-              contract_id: res.bill_id,
-              amount_paid: parseFloat(billAmountPaid),
-              payment_mode: billPayMode,
-              remarks: billPayRemarks,
-              payment_date: res.created_at || new Date().toISOString()
-            }] : []
+            payments: billAmountPaid
+              ? [
+                  {
+                    id: 0,
+                    contract_id: res.bill_id,
+                    amount_paid: parseFloat(billAmountPaid),
+                    payment_mode: billPayMode,
+                    remarks: billPayRemarks,
+                    payment_date: res.created_at || new Date().toISOString(),
+                  },
+                ]
+              : [],
           };
 
           const doc = await buildInvoicePDF(detail);
@@ -1628,18 +1950,28 @@ export default function Dashboard() {
 
           const uploadForm = new FormData();
           uploadForm.append("bill_id", res.bill_id.toString());
-          uploadForm.append("invoice", pdfBlob, `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`);
+          uploadForm.append(
+            "invoice",
+            pdfBlob,
+            `Invoice_${patientName.replace(/\s+/g, "_")}_${res.bill_id}.pdf`,
+          );
 
           await fetchAPI("/api/bills/upload-invoice", {
             method: "POST",
-            body: uploadForm
+            body: uploadForm,
           });
         } catch (uploadErr) {
-          console.error("Failed to upload auto-generated invoice PDF:", uploadErr);
+          console.error(
+            "Failed to upload auto-generated invoice PDF:",
+            uploadErr,
+          );
         }
       }
 
-      setToast({ message: "Bill created and WhatsApp receipt sent successfully!", type: "success" });
+      setToast({
+        message: "Bill created and WhatsApp receipt sent successfully!",
+        type: "success",
+      });
       setBillPatientId("");
       setBillDesc("");
       setBillDueDate("");
@@ -1677,8 +2009,8 @@ export default function Dashboard() {
           contract_id: currentBillData.bill.id,
           amount_paid: parseFloat(payAmount),
           payment_mode: payMode,
-          remarks: payRemarks
-        })
+          remarks: payRemarks,
+        }),
       });
 
       setToast({ message: "Payment logged successfully", type: "success" });
@@ -1710,8 +2042,8 @@ export default function Dashboard() {
         body: JSON.stringify({
           name: medName,
           price: parseFloat(medPrice),
-          stock: parseInt(medStock) || 0
-        })
+          stock: parseInt(medStock) || 0,
+        }),
       });
       setToast({ message: "Medicine added to catalog", type: "success" });
       setMedName("");
@@ -1729,69 +2061,75 @@ export default function Dashboard() {
   const buildPrescriptionPDF = async (rx: any): Promise<any> => {
     const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
-    
+
     // Draw top header box
     doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.5);
     doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
-    
+
     // Hospital Name / Clinic Name
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(30, 41, 59);
-    doc.text(doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, { align: "center" });
-    
+    doc.text(doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, {
+      align: "center",
+    });
+
     // Row 1 metadata
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(71, 85, 105);
-    
-    const formattedDate = rx.created_at ? new Date(rx.created_at).toLocaleDateString() : new Date().toLocaleDateString();
-    
+
+    const formattedDate = rx.created_at
+      ? new Date(rx.created_at).toLocaleDateString()
+      : new Date().toLocaleDateString();
+
     doc.setFont("helvetica", "bold");
     doc.text("Name:", 20, 36);
     doc.setFont("helvetica", "normal");
     doc.text(rx.patient_name || "N/A", 35, 36);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Gender:", 90, 36);
     doc.setFont("helvetica", "normal");
     doc.text(rx.patient_gender || "N/A", 108, 36);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Date:", 145, 36);
     doc.setFont("helvetica", "normal");
     doc.text(formattedDate, 158, 36);
-    
+
     // Row 2 metadata
     doc.setFont("helvetica", "bold");
     doc.text("Age:", 20, 46);
     doc.setFont("helvetica", "normal");
     doc.text(rx.patient_age ? rx.patient_age.toString() : "N/A", 35, 46);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Weight:", 90, 46);
     doc.setFont("helvetica", "normal");
     doc.text(rx.weight ? `${rx.weight} kg` : "N/A", 108, 46);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("B/P:", 145, 46);
     doc.setFont("helvetica", "normal");
     doc.text(rx.bp || "N/A", 158, 46);
-    
+
     // Draw Left Box (Staff)
     doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
     doc.text("Staff:", 20, 70);
-    
+
     // List other doctors in the left column
     doc.setFontSize(9);
     let staffY = 78;
     const currentDoctorId = doctorInfo?.id;
-    const otherDocs = facilityDoctors.filter((doc: any) => doc.id !== currentDoctorId);
-    
+    const otherDocs = facilityDoctors.filter(
+      (doc: any) => doc.id !== currentDoctorId,
+    );
+
     if (otherDocs.length > 0) {
       otherDocs.forEach((d: any) => {
         if (staffY > 260) return; // Page boundary check
@@ -1802,10 +2140,13 @@ export default function Dashboard() {
           doc.text(line, 20, staffY);
           staffY += 4.5;
         });
-        
+
         doc.setFont("helvetica", "italic");
         doc.setTextColor(100, 116, 139);
-        const specLines = doc.splitTextToSize(d.specialization || "General Medicine", 45);
+        const specLines = doc.splitTextToSize(
+          d.specialization || "General Medicine",
+          45,
+        );
         specLines.forEach((line: string) => {
           doc.text(line, 20, staffY);
           staffY += 4.5;
@@ -1817,24 +2158,24 @@ export default function Dashboard() {
       doc.setTextColor(148, 163, 184);
       doc.text("No other doctors", 20, staffY);
     }
-    
+
     // Draw Right Box (Prescriptions)
     doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
     doc.text("Prescriptions:", 80, 70);
-    
+
     doc.setFontSize(10);
     let rxY = 78;
-    
+
     // Diagnosis
     doc.setFont("helvetica", "bold");
     doc.text("Diagnosis:", 80, rxY);
     doc.setFont("helvetica", "normal");
     doc.text(rx.diagnosis || "N/A", 105, rxY);
     rxY += 8;
-    
+
     // Vitals if present (Pulse, Temp, SpO2, Heart Rate)
     const hasVitals = rx.pulse || rx.temp || rx.spo2;
     if (hasVitals) {
@@ -1848,28 +2189,28 @@ export default function Dashboard() {
       doc.text(vitalsText, 95, rxY);
       rxY += 8;
     }
-    
+
     // Medicines List
     if (rx.items && rx.items.length > 0) {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(79, 70, 229);
       doc.text("Prescribed Medicines:", 80, rxY);
       rxY += 6;
-      
+
       rx.items.forEach((item: any, index: number) => {
         if (rxY > 255) return;
         doc.setFont("helvetica", "bold");
         doc.setTextColor(51, 65, 85);
         doc.text(`${index + 1}. ${item.medicine_name}`, 82, rxY);
         rxY += 5;
-        
+
         doc.setFont("helvetica", "normal");
         doc.setTextColor(71, 85, 105);
         doc.setFontSize(9);
         let detailText = `Dosage: ${item.dosage || "N/A"}  |  Freq: ${item.frequency || "N/A"}  |  Dur: ${item.duration || "N/A"}  |  Qty: ${item.quantity || 1}`;
         doc.text(detailText, 85, rxY);
         rxY += 4.5;
-        
+
         if (item.instructions) {
           doc.setFont("helvetica", "italic");
           doc.text(`Instructions: ${item.instructions}`, 85, rxY);
@@ -1880,7 +2221,7 @@ export default function Dashboard() {
       });
       rxY += 3;
     }
-    
+
     // Recommended Lab tests
     if (rx.lab_requests && rx.lab_requests.length > 0) {
       if (rxY < 255) {
@@ -1888,7 +2229,7 @@ export default function Dashboard() {
         doc.setTextColor(79, 70, 229);
         doc.text("Recommended Lab/Diagnostic Tests:", 80, rxY);
         rxY += 6;
-        
+
         doc.setFont("helvetica", "normal");
         doc.setTextColor(51, 65, 85);
         rx.lab_requests.forEach((test: string) => {
@@ -1899,7 +2240,7 @@ export default function Dashboard() {
         rxY += 3;
       }
     }
-    
+
     // Clinical Notes / Advice
     if (rx.notes) {
       if (rxY < 255) {
@@ -1907,7 +2248,7 @@ export default function Dashboard() {
         doc.setTextColor(79, 70, 229);
         doc.text("Clinical Notes / Advice:", 80, rxY);
         rxY += 6;
-        
+
         doc.setFont("helvetica", "normal");
         doc.setTextColor(51, 65, 85);
         const lines = doc.splitTextToSize(rx.notes, 110);
@@ -1918,77 +2259,86 @@ export default function Dashboard() {
         });
       }
     }
-    
+
     return doc;
   };
 
   const buildInvoicePDF = async (detail: BillDetail): Promise<any> => {
     const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
-    const { bill, items, payments } = detail;
-    
+    const { bill, items, payments, prescription } = detail;
+
     // Draw top header box
     doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.5);
     doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
-    
+
     // Hospital Name / Clinic Name
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(30, 41, 59);
-    doc.text(bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, { align: "center" });
-    
+    doc.text(
+      bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital",
+      105,
+      25,
+      { align: "center" },
+    );
+
     // Row 1 metadata
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(71, 85, 105);
-    
-    const formattedDate = bill.created_at ? new Date(bill.created_at).toLocaleDateString() : new Date().toLocaleDateString();
-    
+
+    const formattedDate = bill.created_at
+      ? new Date(bill.created_at).toLocaleDateString()
+      : new Date().toLocaleDateString();
+
     doc.setFont("helvetica", "bold");
     doc.text("Name:", 20, 36);
     doc.setFont("helvetica", "normal");
     doc.text(bill.patient_name || "N/A", 35, 36);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Gender:", 90, 36);
     doc.setFont("helvetica", "normal");
     doc.text(bill.patient_gender || "N/A", 108, 36);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Date:", 145, 36);
     doc.setFont("helvetica", "normal");
     doc.text(formattedDate, 158, 36);
-    
+
     // Row 2 metadata
     doc.setFont("helvetica", "bold");
     doc.text("Age:", 20, 46);
     doc.setFont("helvetica", "normal");
     doc.text(bill.patient_age ? bill.patient_age.toString() : "N/A", 35, 46);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("Weight:", 90, 46);
     doc.setFont("helvetica", "normal");
     doc.text(bill.weight ? `${bill.weight} kg` : "N/A", 108, 46);
-    
+
     doc.setFont("helvetica", "bold");
     doc.text("B/P:", 145, 46);
     doc.setFont("helvetica", "normal");
     doc.text(bill.bp || "N/A", 158, 46);
-    
+
     // Draw Left Box (Staff)
     doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
     doc.text("Staff:", 20, 70);
-    
+
     // List other doctors in the left column
     doc.setFontSize(9);
     let staffY = 78;
     const currentDoctorId = doctorInfo?.id;
-    const otherDocs = facilityDoctors.filter((doc: any) => doc.id !== currentDoctorId);
-    
+    const otherDocs = facilityDoctors.filter(
+      (doc: any) => doc.id !== currentDoctorId,
+    );
+
     if (otherDocs.length > 0) {
       otherDocs.forEach((d: any) => {
         if (staffY > 260) return;
@@ -1999,10 +2349,13 @@ export default function Dashboard() {
           doc.text(line, 20, staffY);
           staffY += 4.5;
         });
-        
+
         doc.setFont("helvetica", "italic");
         doc.setTextColor(100, 116, 139);
-        const specLines = doc.splitTextToSize(d.specialization || "General Medicine", 45);
+        const specLines = doc.splitTextToSize(
+          d.specialization || "General Medicine",
+          45,
+        );
         specLines.forEach((line: string) => {
           doc.text(line, 20, staffY);
           staffY += 4.5;
@@ -2014,24 +2367,24 @@ export default function Dashboard() {
       doc.setTextColor(148, 163, 184);
       doc.text("No other doctors", 20, staffY);
     }
-    
+
     // Draw Right Box (Billing)
     doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(30, 41, 59);
     doc.text("Billing Details:", 80, 70);
-    
+
     doc.setFontSize(10);
     let billY = 78;
-    
+
     // Invoice ID
     doc.setFont("helvetica", "bold");
     doc.text("Invoice ID:", 80, billY);
     doc.setFont("helvetica", "normal");
     doc.text(`#INV-${bill.id}`, 105, billY);
     billY += 8;
-    
+
     // Description
     if (bill.description) {
       doc.setFont("helvetica", "bold");
@@ -2040,14 +2393,14 @@ export default function Dashboard() {
       doc.text(bill.description, 105, billY);
       billY += 8;
     }
-    
+
     // Items List
     if (items && items.length > 0) {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(79, 70, 229);
       doc.text("Billing Items:", 80, billY);
       billY += 6;
-      
+
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(51, 65, 85);
@@ -2056,52 +2409,180 @@ export default function Dashboard() {
       doc.text("Subtotal", 165, billY);
       billY += 5;
       doc.line(80, billY - 1, 185, billY - 1);
-      
+      billY += 5;
+
       doc.setFont("helvetica", "normal");
       items.forEach((item: any) => {
         if (billY > 230) return;
         doc.text(item.item_name, 82, billY);
         doc.text(item.quantity.toString(), 142, billY);
-        doc.text(`Rs. ${(item.quantity * item.unit_price).toFixed(2)}`, 165, billY);
+        doc.text(
+          `Rs. ${(item.quantity * item.unit_price).toFixed(2)}`,
+          165,
+          billY,
+        );
         billY += 6;
       });
       billY += 4;
       doc.setFontSize(10);
     }
-    
+
     // Totals Box
     if (billY < 240) {
       doc.line(80, billY, 185, billY);
       billY += 6;
-      
+
       doc.setFont("helvetica", "bold");
       doc.setTextColor(51, 65, 85);
       doc.text("Total Amount:", 115, billY);
       doc.text(`Rs. ${bill.total_amount.toFixed(2)}`, 165, billY);
       billY += 6;
-      
+
       const totalPaid = bill.total_amount - bill.remaining_amount;
       doc.text("Amount Paid:", 115, billY);
       doc.text(`Rs. ${totalPaid.toFixed(2)}`, 165, billY);
       billY += 6;
-      
+
       doc.setTextColor(239, 68, 68);
       doc.text("Outstanding Dues:", 115, billY);
       doc.text(`Rs. ${bill.remaining_amount.toFixed(2)}`, 165, billY);
     }
-    
+
+    let isOnNewPage = false;
+    if (prescription) {
+      if (billY > 170) {
+        doc.addPage();
+        isOnNewPage = true;
+
+        // Draw header on page 2
+        doc.setDrawColor(148, 163, 184);
+        doc.setLineWidth(0.5);
+        doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.setTextColor(30, 41, 59);
+        doc.text(
+          bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital",
+          105,
+          25,
+          { align: "center" },
+        );
+
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(71, 85, 105);
+
+        const formattedDate = bill.created_at
+          ? new Date(bill.created_at).toLocaleDateString()
+          : new Date().toLocaleDateString();
+        doc.setFont("helvetica", "bold");
+        doc.text("Invoice ID:", 20, 36);
+        doc.setFont("helvetica", "normal");
+        doc.text(`#INV-${bill.id}`, 45, 36);
+
+        doc.setFont("helvetica", "bold");
+        doc.text("Date:", 145, 36);
+        doc.setFont("helvetica", "normal");
+        doc.text(formattedDate, 158, 36);
+
+        // Draw content box for prescription
+        doc.roundedRect(15, 62, 180, 215, 4, 4, "S");
+        billY = 70;
+      } else {
+        billY += 6;
+        doc.line(80, billY, 185, billY);
+        billY += 6;
+      }
+
+      const contentX = isOnNewPage ? 22 : 82;
+      const textValX = isOnNewPage ? 55 : 105;
+
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.setFontSize(11);
+      doc.text("Prescription Details:", isOnNewPage ? 20 : 80, billY);
+      billY += 6;
+
+      doc.setFontSize(9);
+      doc.setTextColor(51, 65, 85);
+
+      if (prescription.diagnosis) {
+        doc.setFont("helvetica", "bold");
+        doc.text("Diagnosis:", contentX, billY);
+        doc.setFont("helvetica", "normal");
+        doc.text(prescription.diagnosis, textValX, billY);
+        billY += 5;
+      }
+
+      if (prescription.notes) {
+        doc.setFont("helvetica", "bold");
+        doc.text("Doctor Notes:", contentX, billY);
+        doc.setFont("helvetica", "normal");
+        const notesLines = doc.splitTextToSize(
+          prescription.notes,
+          isOnNewPage ? 140 : 80,
+        );
+        notesLines.forEach((line: string) => {
+          if (billY > 260) return;
+          doc.text(line, textValX, billY);
+          billY += 4.5;
+        });
+      }
+
+      if (prescription.items && prescription.items.length > 0) {
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(79, 70, 229);
+        doc.text("Prescribed Medicines:", contentX, billY);
+        billY += 5;
+
+        doc.setTextColor(51, 65, 85);
+        prescription.items.forEach((med: any) => {
+          if (billY > 260) return;
+          doc.setFont("helvetica", "bold");
+          doc.text(med.medicine_name, contentX + 2, billY);
+          doc.setFont("helvetica", "normal");
+          let details = `${med.dosage} | ${med.frequency} | ${med.duration}`;
+          if (med.instructions) {
+            details += ` (${med.instructions})`;
+          }
+          doc.text(details, contentX + 2, billY + 4);
+          billY += 9;
+        });
+      }
+
+      if (prescription.lab_requests && prescription.lab_requests.length > 0) {
+        if (billY <= 260) {
+          doc.setFont("helvetica", "bold");
+          doc.setTextColor(79, 70, 229);
+          doc.text("Prescribed Tests:", contentX, billY);
+          billY += 5;
+
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(51, 65, 85);
+          prescription.lab_requests.forEach((test: string) => {
+            if (billY > 260) return;
+            doc.text(`• ${test}`, contentX + 2, billY);
+            billY += 4.5;
+          });
+        }
+      }
+    }
+
     return doc;
   };
 
   const generateInvoicePDF = async (detail: BillDetail) => {
     const doc = await buildInvoicePDF(detail);
-    doc.save(`Invoice_${detail.bill.patient_name.replace(/\s+/g, "_")}_${detail.bill.id}.pdf`);
+    doc.save(
+      `Invoice_${detail.bill.patient_name.replace(/\s+/g, "_")}_${detail.bill.id}.pdf`,
+    );
   };
 
   // --- SVG Charts Draw Helpers ---
   const renderHistogram = (dataPoints: DataPoint[]) => {
     if (!dataPoints || dataPoints.length === 0) return null;
-    const maxVal = Math.max(...dataPoints.map(d => d.value), 1);
+    const maxVal = Math.max(...dataPoints.map((d) => d.value), 1);
     const width = 500;
     const height = 200;
     const padding = 30;
@@ -2110,7 +2591,10 @@ export default function Dashboard() {
     const colWidth = chartW / dataPoints.length;
 
     return (
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full text-slate-400/50">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-full text-slate-400/50"
+      >
         <defs>
           <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="var(--chart-2)" stopOpacity="0.8" />
@@ -2123,8 +2607,24 @@ export default function Dashboard() {
           const gridVal = Math.round(maxVal * ratio);
           return (
             <g key={idx}>
-              <line x1={padding} y1={yPos} x2={width - padding} y2={yPos} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="3,3" />
-              <text x={padding - 5} y={yPos + 4} textAnchor="end" fontSize="9" className="fill-slate-500 dark:fill-white font-semibold">{gridVal}</text>
+              <line
+                x1={padding}
+                y1={yPos}
+                x2={width - padding}
+                y2={yPos}
+                stroke="currentColor"
+                strokeOpacity="0.1"
+                strokeDasharray="3,3"
+              />
+              <text
+                x={padding - 5}
+                y={yPos + 4}
+                textAnchor="end"
+                fontSize="9"
+                className="fill-slate-500 dark:fill-white font-semibold"
+              >
+                {gridVal}
+              </text>
             </g>
           );
         })}
@@ -2138,136 +2638,182 @@ export default function Dashboard() {
           return (
             <g key={idx} className="group cursor-pointer">
               <rect
-                 x={x}
-                 y={y}
-                 width={barW}
-                 height={Math.max(barH, 4)}
-                 rx="3"
-                 fill="url(#barGrad)"
-                 className="transition-all duration-300 hover:opacity-80"
-                 onMouseEnter={(e) => {
-                   const rect = e.currentTarget.getBoundingClientRect();
-                   setHoveredData({ label: dp.label, value: dp.value, x: rect.left + window.scrollX + barW / 2, y: rect.top + window.scrollY - 10 });
-                 }}
-                 onMouseLeave={() => setHoveredData(null)}
-               />
-               <text
-                 x={x + barW / 2}
-                 y={height - padding + 15}
-                 textAnchor="middle"
-                 fontSize="9"
-                 className="fill-slate-500 dark:fill-white font-semibold"
-               >
-                 {dp.label}
-               </text>
-             </g>
-           );
-         })}
-       </svg>
-     );
-   };
- 
-   const renderLineChart = (dataPoints: DataPoint[]) => {
-     if (!dataPoints || dataPoints.length === 0) return null;
-     const maxVal = Math.max(...dataPoints.map(d => d.value), 100);
-     const width = 500;
-     const height = 200;
-     const padding = 35;
-     const chartW = width - padding * 2;
-     const chartH = height - padding * 2;
-     const stepX = chartW / (dataPoints.length - 1 || 1);
- 
-     // Build Line Path
-     let pathD = "";
-     let areaD = `M ${padding} ${height - padding} `;
- 
-     dataPoints.forEach((dp, idx) => {
-       const cx = padding + idx * stepX;
-       const cy = height - padding - (dp.value / maxVal) * chartH;
-       if (idx === 0) {
-         pathD = `M ${cx} ${cy} `;
-       } else {
-         pathD += `L ${cx} ${cy} `;
-       }
-       areaD += `L ${cx} ${cy} `;
-     });
-     areaD += `L ${padding + (dataPoints.length - 1) * stepX} ${height - padding} Z`;
- 
-     return (
-       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full text-slate-400/50">
-         <defs>
-           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-             <stop offset="0%" stopColor="var(--chart-1)" stopOpacity="0.25" />
-             <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0.0" />
-           </linearGradient>
-         </defs>
-         {/* Y Axis Grid */}
-         {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
-           const yPos = padding + chartH * (1 - ratio);
-           const gridVal = Math.round(maxVal * ratio);
-           return (
-             <g key={idx}>
-               <line x1={padding} y1={yPos} x2={width - padding} y2={yPos} stroke="currentColor" strokeOpacity="0.1" />
-               <text x={padding - 8} y={yPos + 4} textAnchor="end" fontSize="9" className="fill-slate-500 dark:fill-white font-semibold">₹{gridVal.toLocaleString("en-IN")}</text>
-             </g>
-           );
-         })}
- 
-         {/* Shaded Area */}
-         <path d={areaD} fill="url(#areaGrad)" />
-         {/* Stroke Line */}
-         <path d={pathD} fill="none" stroke="var(--chart-1)" strokeWidth="2.5" strokeLinecap="round" />
- 
-         {/* Data points */}
-         {dataPoints.map((dp, idx) => {
-           const cx = padding + idx * stepX;
-           const cy = height - padding - (dp.value / maxVal) * chartH;
- 
-           // Only label occasional ticks on x axis if many data points
-           const showLabel = dataPoints.length <= 15 || idx % 4 === 0 || idx === dataPoints.length - 1;
- 
-           return (
-             <g key={idx} className="group">
-               <circle
-                 cx={cx}
-                 cy={cy}
-                 r="4.5"
-                 fill="var(--background)"
-                 stroke="var(--chart-1)"
-                 strokeWidth="2"
-                 className="cursor-pointer transition-all hover:r-6 hover:fill-[var(--chart-1)]"
-                 onMouseEnter={(e) => {
-                   const rect = e.currentTarget.getBoundingClientRect();
-                   setHoveredData({ label: dp.label, value: dp.value, x: rect.left + window.scrollX, y: rect.top + window.scrollY - 10 });
-                 }}
-                 onMouseLeave={() => setHoveredData(null)}
-               />
-               {showLabel && (
-                 <text x={cx} y={height - padding + 15} textAnchor="middle" fontSize="8" className="fill-slate-500 dark:fill-white font-semibold">
-                   {dp.label}
-                 </text>
-               )}
-             </g>
-           );
-         })}
-       </svg>
-     );
-   };
+                x={x}
+                y={y}
+                width={barW}
+                height={Math.max(barH, 4)}
+                rx="3"
+                fill="url(#barGrad)"
+                className="transition-all duration-300 hover:opacity-80"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHoveredData({
+                    label: dp.label,
+                    value: dp.value,
+                    x: rect.left + window.scrollX + barW / 2,
+                    y: rect.top + window.scrollY - 10,
+                  });
+                }}
+                onMouseLeave={() => setHoveredData(null)}
+              />
+              <text
+                x={x + barW / 2}
+                y={height - padding + 15}
+                textAnchor="middle"
+                fontSize="9"
+                className="fill-slate-500 dark:fill-white font-semibold"
+              >
+                {dp.label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
+  const renderLineChart = (dataPoints: DataPoint[]) => {
+    if (!dataPoints || dataPoints.length === 0) return null;
+    const maxVal = Math.max(...dataPoints.map((d) => d.value), 100);
+    const width = 500;
+    const height = 200;
+    const padding = 35;
+    const chartW = width - padding * 2;
+    const chartH = height - padding * 2;
+    const stepX = chartW / (dataPoints.length - 1 || 1);
+
+    // Build Line Path
+    let pathD = "";
+    let areaD = `M ${padding} ${height - padding} `;
+
+    dataPoints.forEach((dp, idx) => {
+      const cx = padding + idx * stepX;
+      const cy = height - padding - (dp.value / maxVal) * chartH;
+      if (idx === 0) {
+        pathD = `M ${cx} ${cy} `;
+      } else {
+        pathD += `L ${cx} ${cy} `;
+      }
+      areaD += `L ${cx} ${cy} `;
+    });
+    areaD += `L ${padding + (dataPoints.length - 1) * stepX} ${height - padding} Z`;
+
+    return (
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-full text-slate-400/50"
+      >
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--chart-1)" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+        {/* Y Axis Grid */}
+        {[0, 0.25, 0.5, 0.75, 1].map((ratio, idx) => {
+          const yPos = padding + chartH * (1 - ratio);
+          const gridVal = Math.round(maxVal * ratio);
+          return (
+            <g key={idx}>
+              <line
+                x1={padding}
+                y1={yPos}
+                x2={width - padding}
+                y2={yPos}
+                stroke="currentColor"
+                strokeOpacity="0.1"
+              />
+              <text
+                x={padding - 8}
+                y={yPos + 4}
+                textAnchor="end"
+                fontSize="9"
+                className="fill-slate-500 dark:fill-white font-semibold"
+              >
+                ₹{gridVal.toLocaleString("en-IN")}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Shaded Area */}
+        <path d={areaD} fill="url(#areaGrad)" />
+        {/* Stroke Line */}
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--chart-1)"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        />
+
+        {/* Data points */}
+        {dataPoints.map((dp, idx) => {
+          const cx = padding + idx * stepX;
+          const cy = height - padding - (dp.value / maxVal) * chartH;
+
+          // Only label occasional ticks on x axis if many data points
+          const showLabel =
+            dataPoints.length <= 15 ||
+            idx % 4 === 0 ||
+            idx === dataPoints.length - 1;
+
+          return (
+            <g key={idx} className="group">
+              <circle
+                cx={cx}
+                cy={cy}
+                r="4.5"
+                fill="var(--background)"
+                stroke="var(--chart-1)"
+                strokeWidth="2"
+                className="cursor-pointer transition-all hover:r-6 hover:fill-[var(--chart-1)]"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setHoveredData({
+                    label: dp.label,
+                    value: dp.value,
+                    x: rect.left + window.scrollX,
+                    y: rect.top + window.scrollY - 10,
+                  });
+                }}
+                onMouseLeave={() => setHoveredData(null)}
+              />
+              {showLabel && (
+                <text
+                  x={cx}
+                  y={height - padding + 15}
+                  textAnchor="middle"
+                  fontSize="8"
+                  className="fill-slate-500 dark:fill-white font-semibold"
+                >
+                  {dp.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
 
   // --- Search Filtering ---
-  const filteredPatients = patients.filter(pt =>
-    pt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    pt.phone.includes(searchQuery)
+  const filteredPatients = patients.filter(
+    (pt) =>
+      pt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      pt.phone.includes(searchQuery),
   );
 
   const filteredMedicines = medicines
-    .filter(med => med.name.toLowerCase().includes(medSearchQuery.toLowerCase()))
+    .filter((med) =>
+      med.name.toLowerCase().includes(medSearchQuery.toLowerCase()),
+    )
     .sort((a, b) => {
       let cmp = 0;
       if (medSortBy === "name") cmp = a.name.localeCompare(b.name);
       else if (medSortBy === "stock") cmp = a.stock - b.stock;
       else if (medSortBy === "availability") {
-        const avail = (s: number) => s > 10 ? 2 : s > 0 ? 1 : 0;
+        const avail = (s: number) => (s > 10 ? 2 : s > 0 ? 1 : 0);
         cmp = avail(a.stock) - avail(b.stock);
       }
       return medSortAsc ? cmp : -cmp;
@@ -2288,14 +2834,17 @@ export default function Dashboard() {
     );
   }
 
-  const needsRoleSetup = doctorInfo && 
-    doctorInfo.role === "DOCTOR" && 
-    !doctorInfo.specialization && 
-    !doctorInfo.location && 
+  const needsRoleSetup =
+    doctorInfo &&
+    doctorInfo.role === "DOCTOR" &&
+    !doctorInfo.specialization &&
+    !doctorInfo.location &&
     !doctorInfo.hospital_name;
 
   if (needsRoleSetup) {
-    return <RoleSelectionScreen user={doctorInfo} onCompleted={checkAuthSession} />;
+    return (
+      <RoleSelectionScreen user={doctorInfo} onCompleted={checkAuthSession} />
+    );
   }
 
   return (
@@ -2310,7 +2859,9 @@ export default function Dashboard() {
             {isEditingProfile ? (
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <div>
-                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">Clinic Name</label>
+                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">
+                    Clinic Name
+                  </label>
                   <input
                     type="text"
                     placeholder="Clinic Name"
@@ -2320,7 +2871,9 @@ export default function Dashboard() {
                   />
                 </div>
                 <div>
-                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">Doctor Name</label>
+                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">
+                    Doctor Name
+                  </label>
                   <input
                     type="text"
                     placeholder="Doctor Name"
@@ -2349,18 +2902,26 @@ export default function Dashboard() {
             ) : (
               <div className="flex items-center space-x-2.5" ref={dropdownRef}>
                 <div>
-                  {doctorInfo?.facilities && doctorInfo.facilities.length > 0 ? (
+                  {doctorInfo?.facilities &&
+                  doctorInfo.facilities.length > 0 ? (
                     <div className="relative">
                       <button
-                        onClick={() => setIsFacilityDropdownOpen(!isFacilityDropdownOpen)}
+                        onClick={() =>
+                          setIsFacilityDropdownOpen(!isFacilityDropdownOpen)
+                        }
                         className="flex items-center space-x-1 cursor-pointer select-none text-left focus:outline-none"
                       >
                         <h1 className="text-lg font-black tracking-tight flex items-center hover:opacity-80 text-zinc-950 dark:text-zinc-50">
                           {doctorInfo?.clinic_name || "ClinicFlow"}
-                          <ChevronDown className={cn("w-4 h-4 ml-1 text-slate-400 transition-transform duration-200", isFacilityDropdownOpen && "rotate-180")} />
+                          <ChevronDown
+                            className={cn(
+                              "w-4 h-4 ml-1 text-slate-400 transition-transform duration-200",
+                              isFacilityDropdownOpen && "rotate-180",
+                            )}
+                          />
                         </h1>
                       </button>
-                      
+
                       {isFacilityDropdownOpen && (
                         <div className="absolute left-0 mt-1.5 w-64 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 py-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
                           <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider border-b border-slate-100 dark:border-slate-800/50 mb-1">
@@ -2378,10 +2939,12 @@ export default function Dashboard() {
                                   "w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
                                   fac.id === doctorInfo.active_facility_id
                                     ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
-                                    : "text-slate-700 dark:text-slate-300"
+                                    : "text-slate-700 dark:text-slate-300",
                                 )}
                               >
-                                <span className="truncate mr-2">{fac.name}</span>
+                                <span className="truncate mr-2">
+                                  {fac.name}
+                                </span>
                                 <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500">
                                   {fac.type}
                                 </span>
@@ -2404,7 +2967,9 @@ export default function Dashboard() {
                       )}
                     </div>
                   ) : (
-                    <h1 className="text-lg font-black tracking-tight">{doctorInfo?.clinic_name || "ClinicFlow"}</h1>
+                    <h1 className="text-lg font-black tracking-tight">
+                      {doctorInfo?.clinic_name || "ClinicFlow"}
+                    </h1>
                   )}
                   <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
                     Doctor: {doctorInfo?.name}
@@ -2451,43 +3016,85 @@ export default function Dashboard() {
             const allTabs: { id: string; label: string; icon: any }[] = [];
             if (role === "USER") {
               allTabs.push(
-                { id: "appointments", label: "My Appointments", icon: Calendar },
+                {
+                  id: "appointments",
+                  label: "My Appointments",
+                  icon: Calendar,
+                },
                 { id: "labs", label: "Lab Reports", icon: BriefcaseMedical },
                 { id: "billing", label: "Billing & Invoices", icon: FileText },
-                { id: "queue", label: "Queue Status", icon: Clock }
+                { id: "queue", label: "Queue Status", icon: Clock },
               );
             } else if (role === "PHARMACIST") {
               allTabs.push(
-                { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
+                {
+                  id: "pharmacy",
+                  label: "Pharmacy Queue",
+                  icon: BriefcaseMedical,
+                },
                 { id: "medicines", label: "Medicines Inventory", icon: Plus },
                 { id: "billing", label: "Bills & Invoices", icon: FileText },
-                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone },
               );
             } else if (role === "HOSPITAL_ADMIN") {
               allTabs.push(
                 { id: "staff", label: "Staff Directory", icon: Users },
                 { id: "patients", label: "Patient Directory", icon: Users },
-                { id: "appointments", label: "Appointment Slots", icon: Calendar },
-                { id: "availability", label: "Availability Settings", icon: Settings },
+                {
+                  id: "appointments",
+                  label: "Appointment Slots",
+                  icon: Calendar,
+                },
+                {
+                  id: "availability",
+                  label: "Availability Settings",
+                  icon: Settings,
+                },
                 { id: "queue", label: "Active Hospital Queue", icon: Clock },
-                { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
+                {
+                  id: "pharmacy",
+                  label: "Pharmacy Queue",
+                  icon: BriefcaseMedical,
+                },
                 { id: "billing", label: "Organization Ledger", icon: FileText },
                 { id: "medicines", label: "Pharmacy Stock", icon: Plus },
-                { id: "analytics", label: "Facility Analytics", icon: Activity },
-                { id: "reschedule-queue", label: "Reschedule Queue", icon: AlertTriangle },
-                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+                {
+                  id: "analytics",
+                  label: "Facility Analytics",
+                  icon: Activity,
+                },
+                {
+                  id: "reschedule-queue",
+                  label: "Reschedule Queue",
+                  icon: AlertTriangle,
+                },
+                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone },
               );
             } else {
               // Default to DOCTOR
               allTabs.push(
-                { id: "patients", label: isClinicMode ? "Patient Directory" : "Treated Patients", icon: Users },
+                {
+                  id: "patients",
+                  label: isClinicMode
+                    ? "Patient Directory"
+                    : "Treated Patients",
+                  icon: Users,
+                },
                 { id: "prescriptions", label: "Prescriptions", icon: FileText },
-                { id: "appointments", label: "Appointment Slots", icon: Calendar },
+                {
+                  id: "appointments",
+                  label: "Appointment Slots",
+                  icon: Calendar,
+                },
                 { id: "queue", label: "Patient Queue", icon: Clock },
-                { id: "availability", label: "Slot Settings", icon: Settings }
+                { id: "availability", label: "Slot Settings", icon: Settings },
               );
               if (isClinicMode) {
-                allTabs.push({ id: "whatsapp", label: "WhatsApp Link", icon: Smartphone });
+                allTabs.push({
+                  id: "whatsapp",
+                  label: "WhatsApp Link",
+                  icon: Smartphone,
+                });
               }
             }
             return allTabs.map((tab) => {
@@ -2497,9 +3104,15 @@ export default function Dashboard() {
                 <button
                   key={tab.id}
                   onClick={() => {
-                    const prevIndex = allTabs.findIndex((t) => t.id === activeTab);
+                    const prevIndex = allTabs.findIndex(
+                      (t) => t.id === activeTab,
+                    );
                     const newIndex = allTabs.findIndex((t) => t.id === tab.id);
-                    if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                    if (
+                      prevIndex !== -1 &&
+                      newIndex !== -1 &&
+                      prevIndex !== newIndex
+                    ) {
                       setDirection(newIndex > prevIndex ? 1 : -1);
                     }
                     setActiveTab(tab.id as any);
@@ -2524,12 +3137,20 @@ export default function Dashboard() {
       {/* 3. Main Dashboard Panels */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-6">
         {/* Workspace Creation Panel */}
-        <FloatingPanelRoot isOpen={isCreateWorkspaceOpen} onOpenChange={setIsCreateWorkspaceOpen}>
+        <FloatingPanelRoot
+          isOpen={isCreateWorkspaceOpen}
+          onOpenChange={setIsCreateWorkspaceOpen}
+        >
           <FloatingPanelContent className="w-80 sm:w-96 text-left">
             <FloatingPanelBody>
-              <form onSubmit={handleCreateWorkspace} className="space-y-4 text-xs text-[var(--foreground)]">
+              <form
+                onSubmit={handleCreateWorkspace}
+                className="space-y-4 text-xs text-[var(--foreground)]"
+              >
                 <div>
-                  <label className="text-[10px] font-bold uppercase text-slate-400">Workspace / Facility Name</label>
+                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                    Workspace / Facility Name
+                  </label>
                   <input
                     type="text"
                     required
@@ -2540,14 +3161,22 @@ export default function Dashboard() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold uppercase text-slate-400">Facility Type</label>
+                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                    Facility Type
+                  </label>
                   <select
                     value={newWorkspaceType}
-                    onChange={(e) => setNewWorkspaceType(e.target.value as "CLINIC" | "HOSPITAL")}
+                    onChange={(e) =>
+                      setNewWorkspaceType(
+                        e.target.value as "CLINIC" | "HOSPITAL",
+                      )
+                    }
                     className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer text-black dark:text-white"
                   >
                     <option value="CLINIC">Private Clinic</option>
-                    <option value="HOSPITAL">Hospital / Diagnostic Center</option>
+                    <option value="HOSPITAL">
+                      Hospital / Diagnostic Center
+                    </option>
                   </select>
                 </div>
                 <div className="flex justify-end space-x-2 pt-2">
@@ -2579,7 +3208,11 @@ export default function Dashboard() {
                 : "bg-red-500/10 border-red-500/20 text-red-500"
             }`}
           >
-            {toast.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            {toast.type === "success" ? (
+              <CheckCircle2 className="w-5 h-5" />
+            ) : (
+              <AlertCircle className="w-5 h-5" />
+            )}
             <span className="text-xs font-semibold">{toast.message}</span>
           </div>
         )}
@@ -2596,7 +3229,9 @@ export default function Dashboard() {
 
         {/* VIEW: List vs Detail */}
         {viewState.type === "list" ? (
-          <div className={`relative ${isTransitioning ? "overflow-hidden" : ""}`}>
+          <div
+            className={`relative ${isTransitioning ? "overflow-hidden" : ""}`}
+          >
             <TabTransition
               activeTab={activeTab}
               direction={direction}
@@ -2609,853 +3244,101 @@ export default function Dashboard() {
                 }
               }}
             >
-                      {/* TABS INNER PAGES */}
+              {/* TABS INNER PAGES */}
 
-            {activeTab === "staff" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-black">Staff Onboarding & Directory</h2>
-                  <FloatingPanelRoot isOpen={isInviteOpen} onOpenChange={setIsInviteOpen}>
-                    <FloatingPanelTrigger
-                      title="Invite Staff Member"
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+              {activeTab === "staff" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black">
+                      Staff Onboarding & Directory
+                    </h2>
+                    <FloatingPanelRoot
+                      isOpen={isInviteOpen}
+                      onOpenChange={setIsInviteOpen}
                     >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Invite Staff</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (!inviteEmail) return;
-                          const combinedPhone = invitePhone ? getCombinedPhone(invitePhoneCode, invitePhone) : "";
-                          setIsSubmitting(true);
-                          try {
-                            const res = await fetchAPI("/api/admin/invite", {
-                              method: "POST",
-                              body: JSON.stringify({ email: inviteEmail, phone: combinedPhone, role: inviteRole, access_levels: [] })
-                            });
-                            setInviteLink(`${window.location.origin}/onboard?token=${res.token}`);
-                            if (res.otp) {
-                               setInviteOTP(res.otp);
-                             } else {
-                               setInviteOTP("");
-                             }
-                            setToast({ message: "Staff invite code generated!", type: "success" });
-                            setInviteEmail("");
-                            setInvitePhone("");
-                            setInvitePhoneCode("+91");
-                            setIsInviteOpen(false);
-                          } catch (err: any) {
-                            setToast({ message: err.message || "Failed to invite staff", type: "error" });
-                          } finally {
-                            setIsSubmitting(false);
-                          }
-                        }} className="space-y-4 text-xs text-[var(--foreground)]">
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Staff Email Address</label>
-                            <input
-                              type="email"
-                              required
-                              placeholder="e.g. doctor@hospital.com"
-                              value={inviteEmail}
-                              onChange={(e) => setInviteEmail(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Staff WhatsApp / Phone (Optional)</label>
-                            <div className="flex gap-2 mt-1">
-                              <div className="w-24 flex-shrink-0">
-                                <select
-                                  value={invitePhoneCode}
-                                  onChange={(e) => setInvitePhoneCode(e.target.value)}
-                                  className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
-                                >
-                                  <option value="+91">🇮🇳 +91</option>
-                                  <option value="+1">🇺🇸 +1</option>
-                                  <option value="+44">🇬🇧 +44</option>
-                                  <option value="+971">🇦🇪 +971</option>
-                                  <option value="+61">🇦🇺 +61</option>
-                                  <option value="+65">🇸🇬 +65</option>
-                                  <option value="+86">🇨🇳 +86</option>
-                                  <option value="+81">🇯🇵 +81</option>
-                                  <option value="+49">🇩🇪 +49</option>
-                                  <option value="+33">🇫🇷 +33</option>
-                                  <option value="+7">🇷🇺 +7</option>
-                                  <option value="+92">🇵🇰 +92</option>
-                                  <option value="+880">🇧🇩 +880</option>
-                                  <option value="+977">🇳🇵 +977</option>
-                                  <option value="+94">🇱🇰 +94</option>
-                                </select>
-                              </div>
-                              <input
-                                type="tel"
-                                placeholder="e.g. 9876543210"
-                                value={invitePhone}
-                                onChange={(e) => setInvitePhone(e.target.value)}
-                                className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Select Role</label>
-                            <select
-                              value={inviteRole}
-                              onChange={(e) => setInviteRole(e.target.value as any)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            >
-                              <option value="DOCTOR">DOCTOR</option>
-                              <option value="PHARMACIST">PHARMACIST</option>
-                            </select>
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Generate Invite Link"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                {inviteLink && (
-                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-3xl p-6 space-y-3">
-                    <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Generated Invitation Link</h3>
-                    <p className="text-[10px] text-slate-400">Copy and share this onboarding link with the staff member. They will need to verify with the OTP sent to their email.</p>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={inviteLink}
-                        className="flex-grow px-3 py-2 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-mono text-slate-400 outline-none"
-                      />
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(inviteLink);
-                          setToast({ message: "Invite link copied to clipboard!", type: "success" });
-                        }}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                    {inviteOTP && (
-                       <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl space-y-1">
-                         <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-wider block">Local Development OTP</span>
-                         <p className="text-[10px] text-slate-400">Use this temporary OTP to verify the invitation during testing: <strong className="text-yellow-400 font-mono text-xs select-all">{inviteOTP}</strong></p>
-                       </div>
-                     )}
-                  </div>
-                )}
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Active Staff Members</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
-                          <th className="px-6 py-4">Name</th>
-                          <th className="px-6 py-4">Email</th>
-                          <th className="px-6 py-4">Contact</th>
-                          <th className="px-6 py-4">Specialization</th>
-                          <th className="px-6 py-4">Location</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {staffList.length > 0 ? (
-                          staffList.map((member) => (
-                            <tr key={member.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                              <td className="px-6 py-4 font-semibold">{member.name}</td>
-                              <td className="px-6 py-4 text-slate-500">{member.email}</td>
-                              <td className="px-6 py-4 text-slate-500">{member.phone || "-"}</td>
-                              <td className="px-6 py-4 text-indigo-500 font-bold uppercase">
-                                {member.role === "HOSPITAL_ADMIN" ? "Hospital Admin" : member.role}
-                                {member.specialization ? ` (${member.specialization})` : ""}
-                              </td>
-                              <td className="px-6 py-4 text-slate-400">{member.location || "-"}</td>
-                              <td className="px-6 py-4 text-right">
-                                {doctorInfo?.role === "HOSPITAL_ADMIN" && member.id !== doctorInfo.id && (
-                                  <button
-                                    onClick={() => handleRemoveStaff(member.id)}
-                                    className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
-                                    title="Remove Staff Member"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                            <td className="px-6 py-4 font-semibold">{doctorInfo?.name}</td>
-                            <td className="px-6 py-4 text-slate-500">{doctorInfo?.email}</td>
-                            <td className="px-6 py-4 text-slate-500">{doctorInfo?.phone || "-"}</td>
-                            <td className="px-6 py-4 text-indigo-500 font-bold uppercase">{doctorInfo?.role}</td>
-                            <td className="px-6 py-4 text-slate-400">{doctorInfo?.location || "-"}</td>
-                            <td className="px-6 py-4"></td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === "queue" && (
-              <QueuePanel
-                doctorInfo={doctorInfo}
-                patients={patients}
-                facilityDoctors={facilityDoctors}
-                setToast={setToast}
-                isAuthenticated={isAuthenticated}
-                ownPatientProfile={ownPatientProfile}
-                loadOwnPatientProfile={loadOwnPatientProfile}
-              />
-            )}
-
-            {activeTab === "vitals" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-black">Health Vitals & Trends</h2>
-                    <p className="text-xs text-slate-400">Track metrics including heart rate, BP, and weight over time.</p>
-                  </div>
-                  <FloatingPanelRoot isOpen={isLogVitalsOpen} onOpenChange={setIsLogVitalsOpen}>
-                    <FloatingPanelTrigger
-                      title="Log New Vitals"
-                      className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Log Vitals</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left max-h-[85vh] overflow-y-auto">
-                      <FloatingPanelBody>
-                        <form onSubmit={async (e) => {
-                          e.preventDefault();
-                          const ptId = doctorInfo?.role === "USER" ? ownPatientProfile?.patient?.id : parseInt(vitalsPatientId);
-                          if (!ptId) {
-                            setToast({ message: "Patient selection required", type: "error" });
-                            return;
-                          }
-                          setIsSubmitting(true);
-                          
-                          const customMetricsObj: Record<string, string> = {};
-                          logCustomMetrics.forEach(item => {
-                            if (item.key.trim() && item.value.trim()) {
-                              customMetricsObj[item.key.trim()] = item.value.trim();
-                            }
-                          });
-
-                          try {
-                            const res = await fetchAPI("/api/vitals", {
-                              method: "POST",
-                              body: JSON.stringify({
-                                patient_id: ptId,
-                                weight_kg: logWeight ? parseFloat(logWeight) : null,
-                                blood_pressure: logBP || null,
-                                heart_rate: logHR ? parseInt(logHR) : (logPulse ? parseInt(logPulse) : 0),
-                                pulse: logPulse ? parseInt(logPulse) : null,
-                                spo2: logSpO2 ? parseInt(logSpO2) : null,
-                                temperature: logTemp ? parseFloat(logTemp) : null,
-                                encounter_id: logEncounterId ? parseInt(logEncounterId) : null,
-                                custom_metrics: Object.keys(customMetricsObj).length > 0 ? customMetricsObj : null
-                              })
-                            });
-                            setToast({
-                              message: res.alert_triggered 
-                                ? "Vitals logged! ⚠️ ALERT: Out of range metrics detected."
-                                : "Vitals logged successfully!",
-                              type: res.alert_triggered ? "error" : "success"
-                            });
-                            setLogWeight("");
-                            setLogBP("");
-                            setLogHR("");
-                            setLogPulse("");
-                            setLogSpO2("");
-                            setLogTemp("");
-                            setLogEncounterId("");
-                            setLogCustomMetrics([]);
-                            setIsLogVitalsOpen(false);
-                            if (doctorInfo?.role === "USER") {
-                              loadOwnPatientProfile();
-                            } else {
-                              loadVitals(ptId);
-                            }
-                          } catch (err: any) {
-                            setToast({ message: err.message || "Failed to log vitals", type: "error" });
-                          } finally {
-                            setIsSubmitting(false);
-                          }
-                        }} className="space-y-4 text-xs text-[var(--foreground)]">
-                          {doctorInfo?.role !== "USER" && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                              <select
-                                required
-                                value={vitalsPatientId}
-                                onChange={(e) => {
-                                  setVitalsPatientId(e.target.value);
-                                  if (e.target.value) {
-                                    const ptId = parseInt(e.target.value);
-                                    loadVitals(ptId);
-                                    loadVitalsPatientAppointments(ptId);
-                                  } else {
-                                    setVitalsAppointments([]);
-                                  }
-                                }}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div className="grid grid-cols-3 gap-3">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Weight (kg)</label>
-                              <input
-                                type="number"
-                                step="0.1"
-                                placeholder="72.5"
-                                value={logWeight}
-                                onChange={(e) => setLogWeight(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Blood Pressure</label>
-                              <input
-                                type="text"
-                                placeholder="120/80"
-                                value={logBP}
-                                onChange={(e) => setLogBP(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Heart Rate (bpm)</label>
-                              <input
-                                type="number"
-                                placeholder="72"
-                                value={logHR}
-                                onChange={(e) => setLogHR(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-3 mt-3">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Pulse (bpm)</label>
-                              <input
-                                type="number"
-                                placeholder="72"
-                                value={logPulse}
-                                onChange={(e) => setLogPulse(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">SpO2 (%)</label>
-                              <input
-                                type="number"
-                                placeholder="98"
-                                value={logSpO2}
-                                onChange={(e) => setLogSpO2(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Temp (°C)</label>
-                              <input
-                                type="number"
-                                step="0.1"
-                                placeholder="36.8"
-                                value={logTemp}
-                                onChange={(e) => setLogTemp(e.target.value)}
-                                className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          {vitalsAppointments.length > 0 && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Link to Appointment / Visit</label>
-                              <select
-                                value={logEncounterId}
-                                onChange={(e) => setLogEncounterId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Do Not Link / Standalone --</option>
-                                {vitalsAppointments.map((appt) => (
-                                  <option key={appt.id} value={appt.id}>
-                                    Visit on {new Date(appt.appointment_date).toLocaleDateString()} - {appt.reason || "General Checkup"}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          {/* Custom Metrics Key-Value Builder */}
-                          <div className="border-t border-[var(--border)] pt-3 mt-2">
-                            <div className="flex justify-between items-center mb-1.5">
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Custom Clinical Metrics</label>
-                              <button
-                                type="button"
-                                onClick={() => setLogCustomMetrics([...logCustomMetrics, { key: "", value: "" }])}
-                                className="text-xs text-indigo-500 font-bold hover:underline"
-                              >
-                                + Add Metric
-                              </button>
-                            </div>
-                            {logCustomMetrics.map((item, idx) => (
-                              <div key={idx} className="flex items-center space-x-2 mt-1">
-                                <input
-                                  type="text"
-                                  placeholder="Metric Name (e.g. Sugar)"
-                                  value={item.key}
-                                  onChange={(e) => {
-                                    const updated = [...logCustomMetrics];
-                                    updated[idx].key = e.target.value;
-                                    setLogCustomMetrics(updated);
-                                  }}
-                                  className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                                <input
-                                  type="text"
-                                  placeholder="Value (e.g. 110mg/dL)"
-                                  value={item.value}
-                                  onChange={(e) => {
-                                    const updated = [...logCustomMetrics];
-                                    updated[idx].value = e.target.value;
-                                    setLogCustomMetrics(updated);
-                                  }}
-                                  className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setLogCustomMetrics(logCustomMetrics.filter((_, i) => i !== idx))}
-                                  className="text-red-500 hover:text-red-700 font-bold text-xs"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Record Metrics"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                {vitalsHistory.length > 0 ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* SVG Trend Chart for Heart Rate */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                      <h3 className="text-sm font-black text-slate-200">Heart Rate (bpm) Trend</h3>
-                      <div className="h-64 flex items-center justify-center">
-                        {renderLineChart(vitalsHistory.map(v => ({
-                          label: new Date(v.recorded_at).toLocaleDateString(),
-                          value: v.pulse || v.heart_rate || 70
-                        })))}
-                      </div>
-                    </div>
-
-                    {/* SVG Trend Chart for Weight */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                      <h3 className="text-sm font-black text-slate-200">Weight History (kg)</h3>
-                      <div className="h-64 flex items-center justify-center">
-                        {renderHistogram(vitalsHistory.map(v => ({
-                          label: new Date(v.recorded_at).toLocaleDateString(),
-                          value: parseFloat(v.weight_kg) || 0.0
-                        })))}
-                      </div>
-                    </div>
-
-                    {/* Vitals Log Table */}
-                    <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                      <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">Logs History</h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
-                              <th className="px-4 py-3">Recorded At</th>
-                              <th className="px-4 py-3">Weight</th>
-                              <th className="px-4 py-3">Blood Pressure</th>
-                              <th className="px-4 py-3">Pulse / HR</th>
-                              <th className="px-4 py-3">SpO2</th>
-                              <th className="px-4 py-3">Temp</th>
-                              <th className="px-4 py-3">Custom Metrics</th>
-                              <th className="px-4 py-3 text-right">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {vitalsHistory.map((v) => {
-                              const bpAlert = v.blood_pressure ? checkBPRange(v.blood_pressure)[0] : false;
-                              const hrAlert = v.heart_rate ? checkHRRange(v.heart_rate)[0] : false;
-                              const pulseAlert = v.pulse ? checkHRRange(v.pulse)[0] : false;
-                              const spo2Alert = v.spo2 ? v.spo2 < 95 : false;
-                              const tempAlert = v.temperature ? (v.temperature > 37.8 || v.temperature < 35.5) : false;
-                              
-                              const hasAlert = bpAlert || hrAlert || pulseAlert || spo2Alert || tempAlert;
-                              return (
-                                <tr key={v.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
-                                  <td className="px-4 py-3 text-slate-400 font-medium">{new Date(v.recorded_at).toLocaleString()}</td>
-                                  <td className="px-4 py-3 font-semibold">{v.weight_kg ? `${v.weight_kg} kg` : "-"}</td>
-                                  <td className="px-4 py-3">
-                                    <span className={cn(bpAlert && "text-red-500 font-bold")}>
-                                      {v.blood_pressure || "-"}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={cn((hrAlert || pulseAlert) && "text-red-500 font-bold")}>
-                                      {v.pulse ? `${v.pulse} bpm` : (v.heart_rate ? `${v.heart_rate} bpm` : "-")}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={cn(spo2Alert && "text-red-500 font-bold")}>
-                                      {v.spo2 ? `${v.spo2}%` : "-"}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    <span className={cn(tempAlert && "text-red-500 font-bold")}>
-                                      {v.temperature ? `${v.temperature}°C` : "-"}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3">
-                                    {v.custom_metrics && Object.keys(v.custom_metrics).length > 0 ? (
-                                      <div className="flex flex-wrap gap-1">
-                                        {Object.entries(v.custom_metrics).map(([key, val]: any) => (
-                                          <span key={key} className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium">
-                                            {key}: {val}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      "-"
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <span className={cn(
-                                      "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
-                                      hasAlert ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
-                                    )}>
-                                      {hasAlert ? "⚠️ Out of Range" : "✓ Safe Range"}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-slate-400 font-semibold bg-[var(--card)] border border-[var(--border)] rounded-3xl">
-                    No vitals logged yet. Click 'Log Vitals' to add record.
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === "labs" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-black">Laboratory Services</h2>
-                    <p className="text-xs text-slate-400">Order diagnostics tests and retrieve uploaded clinical lab reports.</p>
-                  </div>
-                  {doctorInfo?.role !== "USER" && (
-                    <FloatingPanelRoot isOpen={isRequestLabOpen} onOpenChange={setIsRequestLabOpen}>
                       <FloatingPanelTrigger
-                        title="Order Diagnostics Lab Test"
+                        title="Invite Staff Member"
                         className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
                       >
                         <Plus className="w-4 h-4 mr-1.5" />
-                        <span>Order Lab Test</span>
+                        <span>Invite Staff</span>
                       </FloatingPanelTrigger>
                       <FloatingPanelContent className="w-80 sm:w-96 text-left">
                         <FloatingPanelBody>
-                          <form onSubmit={async (e) => {
-                            e.preventDefault();
-                            if (!newLabPatientId || !newLabTestName) return;
-                            setIsSubmitting(true);
-                            try {
-                              await fetchAPI("/api/labs/request", {
-                                method: "POST",
-                                body: JSON.stringify({ patient_id: parseInt(newLabPatientId), test_name: newLabTestName })
-                              });
-                              setToast({ message: "Lab test ordered successfully!", type: "success" });
-                              setNewLabPatientId("");
-                              setNewLabTestName("");
-                              setIsRequestLabOpen(false);
-                              loadLabRequests(parseInt(newLabPatientId));
-                            } catch (err: any) {
-                              setToast({ message: err.message || "Failed to order lab test", type: "error" });
-                            } finally {
-                              setIsSubmitting(false);
-                            }
-                          }} className="space-y-4 text-xs text-[var(--foreground)]">
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!inviteEmail) return;
+                              const combinedPhone = invitePhone
+                                ? getCombinedPhone(invitePhoneCode, invitePhone)
+                                : "";
+                              setIsSubmitting(true);
+                              try {
+                                const res = await fetchAPI(
+                                  "/api/admin/invite",
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      email: inviteEmail,
+                                      phone: combinedPhone,
+                                      role: inviteRole,
+                                      access_levels: [],
+                                    }),
+                                  },
+                                );
+                                setInviteLink(
+                                  `${window.location.origin}/onboard?token=${res.token}`,
+                                );
+                                if (res.otp) {
+                                  setInviteOTP(res.otp);
+                                } else {
+                                  setInviteOTP("");
+                                }
+                                setToast({
+                                  message: "Staff invite code generated!",
+                                  type: "success",
+                                });
+                                setInviteEmail("");
+                                setInvitePhone("");
+                                setInvitePhoneCode("+91");
+                                setIsInviteOpen(false);
+                              } catch (err: any) {
+                                setToast({
+                                  message:
+                                    err.message || "Failed to invite staff",
+                                  type: "error",
+                                });
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="space-y-4 text-xs text-[var(--foreground)]"
+                          >
                             <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                              <select
-                                required
-                                value={newLabPatientId}
-                                onChange={(e) => {
-                                  setNewLabPatientId(e.target.value);
-                                  if (e.target.value) loadLabRequests(parseInt(e.target.value));
-                                }}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Diagnostics Test Name</label>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Staff Email Address
+                              </label>
                               <input
-                                type="text"
+                                type="email"
                                 required
-                                placeholder="e.g. Complete Blood Count (CBC)"
-                                value={newLabTestName}
-                                onChange={(e) => setNewLabTestName(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-
-                            <div className="flex space-x-2 pt-2 text-xs">
-                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                              <FloatingPanelSubmitButton
-                                label="Order Test"
-                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                              />
-                            </div>
-                          </form>
-                        </FloatingPanelBody>
-                      </FloatingPanelContent>
-                    </FloatingPanelRoot>
-                  )}
-                </div>
-
-                {/* Lab Upload Dialog Box */}
-                {isUploadLabOpen && (
-                  <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full text-left space-y-4">
-                      <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                        <h3 className="text-sm font-bold text-slate-200">Upload Diagnostics Report</h3>
-                        <button onClick={() => setIsUploadLabOpen(false)} className="text-slate-400 hover:text-white">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                      <form onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (!uploadLabRequestId || !uploadReportUrl) return;
-                        setIsSubmitting(true);
-                        try {
-                          await fetchAPI("/api/labs/upload", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              lab_request_id: uploadLabRequestId,
-                              report_url: uploadReportUrl,
-                              result_summary: uploadResultSummary
-                            })
-                          });
-                          setToast({ message: "Lab report uploaded successfully!", type: "success" });
-                          setUploadReportUrl("");
-                          setUploadResultSummary("");
-                          setUploadLabRequestId(null);
-                          setIsUploadLabOpen(false);
-                          const ptId = doctorInfo?.role === "USER" ? ownPatientProfile?.patient?.id : parseInt(newLabPatientId);
-                          if (ptId) loadLabRequests(ptId);
-                        } catch (err: any) {
-                          setToast({ message: err.message || "Failed to upload report", type: "error" });
-                        } finally {
-                          setIsSubmitting(false);
-                        }
-                      }} className="space-y-4 text-xs text-[var(--foreground)]">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400">Report Document URL</label>
-                          <input
-                            type="url"
-                            required
-                            placeholder="https://..."
-                            value={uploadReportUrl}
-                            onChange={(e) => setUploadReportUrl(e.target.value)}
-                            className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400">Result Summary Remarks</label>
-                          <textarea
-                            placeholder="Enter test findings and parameters summary..."
-                            value={uploadResultSummary}
-                            onChange={(e) => setUploadResultSummary(e.target.value)}
-                            rows={3}
-                            className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white resize-none"
-                          />
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition cursor-pointer"
-                        >
-                          Complete and Close Request
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                {doctorInfo?.role !== "USER" && !newLabPatientId && (
-                  <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs rounded-2xl">
-                    Please select a patient under <b>Health Vitals</b> or select patient search to fetch lab request history.
-                  </div>
-                )}
-
-                {(labRequests.length > 0 || (doctorInfo?.role !== "USER" && newLabPatientId)) && (
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
-                            <th className="px-6 py-4">Ordered Date</th>
-                            <th className="px-6 py-4">Doctor</th>
-                            <th className="px-6 py-4">Test Name</th>
-                            <th className="px-6 py-4">Status</th>
-                            <th className="px-6 py-4">Findings / Summary</th>
-                            <th className="px-6 py-4 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {labRequests.length > 0 ? (
-                            labRequests.map((lr) => (
-                              <tr key={lr.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                                <td className="px-6 py-4 font-semibold text-slate-500">{new Date(lr.requested_date).toLocaleDateString()}</td>
-                                <td className="px-6 py-4 text-slate-400">Dr. {lr.doctor_name}</td>
-                                <td className="px-6 py-4 font-bold text-slate-600 dark:text-slate-200">{lr.test_name}</td>
-                                <td className="px-6 py-4">
-                                  <span className={cn(
-                                    "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
-                                    lr.status === "COMPLETED" ? "bg-emerald-500/10 text-emerald-500" : "bg-indigo-500/10 text-indigo-500"
-                                  )}>
-                                    {lr.status}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{lr.result_summary || "-"}</td>
-                                <td className="px-6 py-4 text-right">
-                                  {lr.status === "REQUESTED" && doctorInfo?.role !== "USER" && (
-                                    <button
-                                      onClick={() => {
-                                        setUploadLabRequestId(lr.id);
-                                        setIsUploadLabOpen(true);
-                                      }}
-                                      className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-md transition cursor-pointer"
-                                    >
-                                      Upload Report
-                                    </button>
-                                  )}
-                                  {lr.status === "COMPLETED" && lr.report_url && (
-                                    <a
-                                      href={lr.report_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition"
-                                    >
-                                      View Document
-                                    </a>
-                                  )}
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                                No lab orders logged for this patient.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB: PATIENTS */}
-            {activeTab === "patients" && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="relative flex-grow max-w-md">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search patient by name or phone..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-all"
-                    />
-                  </div>
-                  {((doctorInfo?.role === "DOCTOR" && isClinicMode) || doctorInfo?.role === "HOSPITAL_ADMIN") && (
-                    <FloatingPanelRoot isOpen={isAddPatientOpen} onOpenChange={setIsAddPatientOpen}>
-                      <FloatingPanelTrigger
-                        title="Register New Patient"
-                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                      >
-                        <Plus className="w-4 h-4 mr-1.5" />
-                        <span>Register Patient</span>
-                      </FloatingPanelTrigger>
-                      <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                        <FloatingPanelBody>
-                          <form onSubmit={handleAddPatient} className="space-y-3.5 text-xs text-[var(--foreground)]">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Full Name</label>
-                              <input
-                                type="text"
-                                required
-                                value={newPtName}
-                                onChange={(e) => setNewPtName(e.target.value)}
+                                placeholder="e.g. doctor@hospital.com"
+                                value={inviteEmail}
+                                onChange={(e) => setInviteEmail(e.target.value)}
                                 className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                               />
                             </div>
 
                             <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Phone Number (with Country Code)</label>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Staff WhatsApp / Phone (Optional)
+                              </label>
                               <div className="flex gap-2 mt-1">
                                 <div className="w-24 flex-shrink-0">
                                   <select
-                                    value={newPtPhoneCode}
-                                    onChange={(e) => setNewPtPhoneCode(e.target.value)}
+                                    value={invitePhoneCode}
+                                    onChange={(e) =>
+                                      setInvitePhoneCode(e.target.value)
+                                    }
                                     className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
                                   >
                                     <option value="+91">🇮🇳 +91</option>
@@ -3476,69 +3359,3165 @@ export default function Dashboard() {
                                   </select>
                                 </div>
                                 <input
-                                  type="text"
-                                  required
-                                  placeholder="e.g. 9999999999"
-                                  value={newPtPhone}
-                                  onChange={(e) => setNewPtPhone(e.target.value)}
+                                  type="tel"
+                                  placeholder="e.g. 9876543210"
+                                  value={invitePhone}
+                                  onChange={(e) =>
+                                    setInvitePhone(e.target.value)
+                                  }
                                   className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
                                 />
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Select Role
+                              </label>
+                              <select
+                                value={inviteRole}
+                                onChange={(e) =>
+                                  setInviteRole(e.target.value as any)
+                                }
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option value="DOCTOR">DOCTOR</option>
+                                <option value="PHARMACIST">PHARMACIST</option>
+                              </select>
+                            </div>
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Generate Invite Link"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  </div>
+
+                  {inviteLink && (
+                    <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-3xl p-6 space-y-3">
+                      <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider">
+                        Generated Invitation Link
+                      </h3>
+                      <p className="text-[10px] text-slate-400">
+                        Copy and share this onboarding link with the staff
+                        member. They will need to verify with the OTP sent to
+                        their email.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={inviteLink}
+                          className="flex-grow px-3 py-2 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-mono text-slate-400 outline-none"
+                        />
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(inviteLink);
+                            setToast({
+                              message: "Invite link copied to clipboard!",
+                              type: "success",
+                            });
+                          }}
+                          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      {inviteOTP && (
+                        <div className="mt-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl space-y-1">
+                          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-wider block">
+                            Local Development OTP
+                          </span>
+                          <p className="text-[10px] text-slate-400">
+                            Use this temporary OTP to verify the invitation
+                            during testing:{" "}
+                            <strong className="text-yellow-400 font-mono text-xs select-all">
+                              {inviteOTP}
+                            </strong>
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">
+                      Active Staff Members
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                            <th className="px-6 py-4">Name</th>
+                            <th className="px-6 py-4">Email</th>
+                            <th className="px-6 py-4">Contact</th>
+                            <th className="px-6 py-4">Specialization</th>
+                            <th className="px-6 py-4">Location</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {staffList.length > 0 ? (
+                            staffList.map((member) => (
+                              <tr
+                                key={member.id}
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                              >
+                                <td className="px-6 py-4 font-semibold">
+                                  {member.name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500">
+                                  {member.email}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500">
+                                  {member.phone || "-"}
+                                </td>
+                                <td className="px-6 py-4 text-indigo-500 font-bold uppercase">
+                                  {member.role === "HOSPITAL_ADMIN"
+                                    ? "Hospital Admin"
+                                    : member.role}
+                                  {member.specialization
+                                    ? ` (${member.specialization})`
+                                    : ""}
+                                </td>
+                                <td className="px-6 py-4 text-slate-400">
+                                  {member.location || "-"}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  {doctorInfo?.role === "HOSPITAL_ADMIN" &&
+                                    member.id !== doctorInfo.id && (
+                                      <button
+                                        onClick={() =>
+                                          handleRemoveStaff(member.id)
+                                        }
+                                        className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                        title="Remove Staff Member"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
+                              <td className="px-6 py-4 font-semibold">
+                                {doctorInfo?.name}
+                              </td>
+                              <td className="px-6 py-4 text-slate-500">
+                                {doctorInfo?.email}
+                              </td>
+                              <td className="px-6 py-4 text-slate-500">
+                                {doctorInfo?.phone || "-"}
+                              </td>
+                              <td className="px-6 py-4 text-indigo-500 font-bold uppercase">
+                                {doctorInfo?.role}
+                              </td>
+                              <td className="px-6 py-4 text-slate-400">
+                                {doctorInfo?.location || "-"}
+                              </td>
+                              <td className="px-6 py-4"></td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === "queue" && (
+                <QueuePanel
+                  doctorInfo={doctorInfo}
+                  patients={patients}
+                  facilityDoctors={facilityDoctors}
+                  setToast={setToast}
+                  isAuthenticated={isAuthenticated}
+                  ownPatientProfile={ownPatientProfile}
+                  loadOwnPatientProfile={loadOwnPatientProfile}
+                />
+              )}
+
+              {activeTab === "vitals" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-xl font-black">
+                        Health Vitals & Trends
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Track metrics including heart rate, BP, and weight over
+                        time.
+                      </p>
+                    </div>
+                    <FloatingPanelRoot
+                      isOpen={isLogVitalsOpen}
+                      onOpenChange={setIsLogVitalsOpen}
+                    >
+                      <FloatingPanelTrigger
+                        title="Log New Vitals"
+                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Log Vitals</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-96 text-left max-h-[85vh] overflow-y-auto">
+                        <FloatingPanelBody>
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              const ptId =
+                                doctorInfo?.role === "USER"
+                                  ? ownPatientProfile?.patient?.id
+                                  : parseInt(vitalsPatientId);
+                              if (!ptId) {
+                                setToast({
+                                  message: "Patient selection required",
+                                  type: "error",
+                                });
+                                return;
+                              }
+                              setIsSubmitting(true);
+
+                              const customMetricsObj: Record<string, string> =
+                                {};
+                              logCustomMetrics.forEach((item) => {
+                                if (item.key.trim() && item.value.trim()) {
+                                  customMetricsObj[item.key.trim()] =
+                                    item.value.trim();
+                                }
+                              });
+
+                              try {
+                                const res = await fetchAPI("/api/vitals", {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    patient_id: ptId,
+                                    weight_kg: logWeight
+                                      ? parseFloat(logWeight)
+                                      : null,
+                                    blood_pressure: logBP || null,
+                                    heart_rate: logHR
+                                      ? parseInt(logHR)
+                                      : logPulse
+                                        ? parseInt(logPulse)
+                                        : 0,
+                                    pulse: logPulse ? parseInt(logPulse) : null,
+                                    spo2: logSpO2 ? parseInt(logSpO2) : null,
+                                    temperature: logTemp
+                                      ? parseFloat(logTemp)
+                                      : null,
+                                    encounter_id: logEncounterId
+                                      ? parseInt(logEncounterId)
+                                      : null,
+                                    custom_metrics:
+                                      Object.keys(customMetricsObj).length > 0
+                                        ? customMetricsObj
+                                        : null,
+                                  }),
+                                });
+                                setToast({
+                                  message: res.alert_triggered
+                                    ? "Vitals logged! ⚠️ ALERT: Out of range metrics detected."
+                                    : "Vitals logged successfully!",
+                                  type: res.alert_triggered
+                                    ? "error"
+                                    : "success",
+                                });
+                                setLogWeight("");
+                                setLogBP("");
+                                setLogHR("");
+                                setLogPulse("");
+                                setLogSpO2("");
+                                setLogTemp("");
+                                setLogEncounterId("");
+                                setLogCustomMetrics([]);
+                                setIsLogVitalsOpen(false);
+                                if (doctorInfo?.role === "USER") {
+                                  loadOwnPatientProfile();
+                                } else {
+                                  loadVitals(ptId);
+                                }
+                              } catch (err: any) {
+                                setToast({
+                                  message:
+                                    err.message || "Failed to log vitals",
+                                  type: "error",
+                                });
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="space-y-4 text-xs text-[var(--foreground)]"
+                          >
+                            {doctorInfo?.role !== "USER" && (
                               <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Age</label>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Patient
+                                </label>
+                                <select
+                                  required
+                                  value={vitalsPatientId}
+                                  onChange={(e) => {
+                                    setVitalsPatientId(e.target.value);
+                                    if (e.target.value) {
+                                      const ptId = parseInt(e.target.value);
+                                      loadVitals(ptId);
+                                      loadVitalsPatientAppointments(ptId);
+                                    } else {
+                                      setVitalsAppointments([]);
+                                    }
+                                  }}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">-- Choose Patient --</option>
+                                  {patients.map((pt) => (
+                                    <option key={pt.id} value={pt.id}>
+                                      {pt.name} ({pt.phone})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Weight (kg)
+                                </label>
                                 <input
                                   type="number"
-                                  value={newPtAge}
-                                  onChange={(e) => setNewPtAge(e.target.value)}
+                                  step="0.1"
+                                  placeholder="72.5"
+                                  value={logWeight}
+                                  onChange={(e) => setLogWeight(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Blood Pressure
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="120/80"
+                                  value={logBP}
+                                  onChange={(e) => setLogBP(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Heart Rate (bpm)
+                                </label>
+                                <input
+                                  type="number"
+                                  placeholder="72"
+                                  value={logHR}
+                                  onChange={(e) => setLogHR(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 mt-3">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Pulse (bpm)
+                                </label>
+                                <input
+                                  type="number"
+                                  placeholder="72"
+                                  value={logPulse}
+                                  onChange={(e) => setLogPulse(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  SpO2 (%)
+                                </label>
+                                <input
+                                  type="number"
+                                  placeholder="98"
+                                  value={logSpO2}
+                                  onChange={(e) => setLogSpO2(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Temp (°C)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  placeholder="36.8"
+                                  value={logTemp}
+                                  onChange={(e) => setLogTemp(e.target.value)}
+                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            {vitalsAppointments.length > 0 && (
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Link to Appointment / Visit
+                                </label>
+                                <select
+                                  value={logEncounterId}
+                                  onChange={(e) =>
+                                    setLogEncounterId(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">
+                                    -- Do Not Link / Standalone --
+                                  </option>
+                                  {vitalsAppointments.map((appt) => (
+                                    <option key={appt.id} value={appt.id}>
+                                      Visit on{" "}
+                                      {new Date(
+                                        appt.appointment_date,
+                                      ).toLocaleDateString()}{" "}
+                                      - {appt.reason || "General Checkup"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Custom Metrics Key-Value Builder */}
+                            <div className="border-t border-[var(--border)] pt-3 mt-2">
+                              <div className="flex justify-between items-center mb-1.5">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Custom Clinical Metrics
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLogCustomMetrics([
+                                      ...logCustomMetrics,
+                                      { key: "", value: "" },
+                                    ])
+                                  }
+                                  className="text-xs text-indigo-500 font-bold hover:underline"
+                                >
+                                  + Add Metric
+                                </button>
+                              </div>
+                              {logCustomMetrics.map((item, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center space-x-2 mt-1"
+                                >
+                                  <input
+                                    type="text"
+                                    placeholder="Metric Name (e.g. Sugar)"
+                                    value={item.key}
+                                    onChange={(e) => {
+                                      const updated = [...logCustomMetrics];
+                                      updated[idx].key = e.target.value;
+                                      setLogCustomMetrics(updated);
+                                    }}
+                                    className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                  <input
+                                    type="text"
+                                    placeholder="Value (e.g. 110mg/dL)"
+                                    value={item.value}
+                                    onChange={(e) => {
+                                      const updated = [...logCustomMetrics];
+                                      updated[idx].value = e.target.value;
+                                      setLogCustomMetrics(updated);
+                                    }}
+                                    className="w-1/2 px-2 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setLogCustomMetrics(
+                                        logCustomMetrics.filter(
+                                          (_, i) => i !== idx,
+                                        ),
+                                      )
+                                    }
+                                    className="text-red-500 hover:text-red-700 font-bold text-xs"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Record Metrics"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  </div>
+
+                  {vitalsHistory.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* SVG Trend Chart for Heart Rate */}
+                      <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                        <h3 className="text-sm font-black text-slate-200">
+                          Heart Rate (bpm) Trend
+                        </h3>
+                        <div className="h-64 flex items-center justify-center">
+                          {renderLineChart(
+                            vitalsHistory.map((v) => ({
+                              label: new Date(
+                                v.recorded_at,
+                              ).toLocaleDateString(),
+                              value: v.pulse || v.heart_rate || 70,
+                            })),
+                          )}
+                        </div>
+                      </div>
+
+                      {/* SVG Trend Chart for Weight */}
+                      <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                        <h3 className="text-sm font-black text-slate-200">
+                          Weight History (kg)
+                        </h3>
+                        <div className="h-64 flex items-center justify-center">
+                          {renderHistogram(
+                            vitalsHistory.map((v) => ({
+                              label: new Date(
+                                v.recorded_at,
+                              ).toLocaleDateString(),
+                              value: parseFloat(v.weight_kg) || 0.0,
+                            })),
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Vitals Log Table */}
+                      <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                        <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">
+                          Logs History
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                                <th className="px-4 py-3">Recorded At</th>
+                                <th className="px-4 py-3">Weight</th>
+                                <th className="px-4 py-3">Blood Pressure</th>
+                                <th className="px-4 py-3">Pulse / HR</th>
+                                <th className="px-4 py-3">SpO2</th>
+                                <th className="px-4 py-3">Temp</th>
+                                <th className="px-4 py-3">Custom Metrics</th>
+                                <th className="px-4 py-3 text-right">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {vitalsHistory.map((v) => {
+                                const bpAlert = v.blood_pressure
+                                  ? checkBPRange(v.blood_pressure)[0]
+                                  : false;
+                                const hrAlert = v.heart_rate
+                                  ? checkHRRange(v.heart_rate)[0]
+                                  : false;
+                                const pulseAlert = v.pulse
+                                  ? checkHRRange(v.pulse)[0]
+                                  : false;
+                                const spo2Alert = v.spo2 ? v.spo2 < 95 : false;
+                                const tempAlert = v.temperature
+                                  ? v.temperature > 37.8 || v.temperature < 35.5
+                                  : false;
+
+                                const hasAlert =
+                                  bpAlert ||
+                                  hrAlert ||
+                                  pulseAlert ||
+                                  spo2Alert ||
+                                  tempAlert;
+                                return (
+                                  <tr
+                                    key={v.id}
+                                    className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition"
+                                  >
+                                    <td className="px-4 py-3 text-slate-400 font-medium">
+                                      {new Date(v.recorded_at).toLocaleString()}
+                                    </td>
+                                    <td className="px-4 py-3 font-semibold">
+                                      {v.weight_kg ? `${v.weight_kg} kg` : "-"}
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span
+                                        className={cn(
+                                          bpAlert && "text-red-500 font-bold",
+                                        )}
+                                      >
+                                        {v.blood_pressure || "-"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span
+                                        className={cn(
+                                          (hrAlert || pulseAlert) &&
+                                            "text-red-500 font-bold",
+                                        )}
+                                      >
+                                        {v.pulse
+                                          ? `${v.pulse} bpm`
+                                          : v.heart_rate
+                                            ? `${v.heart_rate} bpm`
+                                            : "-"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span
+                                        className={cn(
+                                          spo2Alert && "text-red-500 font-bold",
+                                        )}
+                                      >
+                                        {v.spo2 ? `${v.spo2}%` : "-"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      <span
+                                        className={cn(
+                                          tempAlert && "text-red-500 font-bold",
+                                        )}
+                                      >
+                                        {v.temperature
+                                          ? `${v.temperature}°C`
+                                          : "-"}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3">
+                                      {v.custom_metrics &&
+                                      Object.keys(v.custom_metrics).length >
+                                        0 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {Object.entries(v.custom_metrics).map(
+                                            ([key, val]: any) => (
+                                              <span
+                                                key={key}
+                                                className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium"
+                                              >
+                                                {key}: {val}
+                                              </span>
+                                            ),
+                                          )}
+                                        </div>
+                                      ) : (
+                                        "-"
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <span
+                                        className={cn(
+                                          "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                          hasAlert
+                                            ? "bg-red-500/10 text-red-500"
+                                            : "bg-emerald-500/10 text-emerald-500",
+                                        )}
+                                      >
+                                        {hasAlert
+                                          ? "⚠️ Out of Range"
+                                          : "✓ Safe Range"}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-slate-400 font-semibold bg-[var(--card)] border border-[var(--border)] rounded-3xl">
+                      No vitals logged yet. Click 'Log Vitals' to add record.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "labs" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-xl font-black">
+                        Laboratory Services
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Order diagnostics tests and retrieve uploaded clinical
+                        lab reports.
+                      </p>
+                    </div>
+                    {doctorInfo?.role !== "USER" && (
+                      <FloatingPanelRoot
+                        isOpen={isRequestLabOpen}
+                        onOpenChange={setIsRequestLabOpen}
+                      >
+                        <FloatingPanelTrigger
+                          title="Order Diagnostics Lab Test"
+                          className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          <span>Order Lab Test</span>
+                        </FloatingPanelTrigger>
+                        <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                          <FloatingPanelBody>
+                            <form
+                              onSubmit={async (e) => {
+                                e.preventDefault();
+                                if (!newLabPatientId || !newLabTestName) return;
+                                setIsSubmitting(true);
+                                try {
+                                  await fetchAPI("/api/labs/request", {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      patient_id: parseInt(newLabPatientId),
+                                      test_name: newLabTestName,
+                                    }),
+                                  });
+                                  setToast({
+                                    message: "Lab test ordered successfully!",
+                                    type: "success",
+                                  });
+                                  setNewLabPatientId("");
+                                  setNewLabTestName("");
+                                  setIsRequestLabOpen(false);
+                                  loadLabRequests(parseInt(newLabPatientId));
+                                } catch (err: any) {
+                                  setToast({
+                                    message:
+                                      err.message || "Failed to order lab test",
+                                    type: "error",
+                                  });
+                                } finally {
+                                  setIsSubmitting(false);
+                                }
+                              }}
+                              className="space-y-4 text-xs text-[var(--foreground)]"
+                            >
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Patient
+                                </label>
+                                <select
+                                  required
+                                  value={newLabPatientId}
+                                  onChange={(e) => {
+                                    setNewLabPatientId(e.target.value);
+                                    if (e.target.value)
+                                      loadLabRequests(parseInt(e.target.value));
+                                  }}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">-- Choose Patient --</option>
+                                  {patients.map((pt) => (
+                                    <option key={pt.id} value={pt.id}>
+                                      {pt.name} ({pt.phone})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Diagnostics Test Name
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="e.g. Complete Blood Count (CBC)"
+                                  value={newLabTestName}
+                                  onChange={(e) =>
+                                    setNewLabTestName(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+
+                              <div className="flex space-x-2 pt-2 text-xs">
+                                <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                                <FloatingPanelSubmitButton
+                                  label="Order Test"
+                                  className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                                />
+                              </div>
+                            </form>
+                          </FloatingPanelBody>
+                        </FloatingPanelContent>
+                      </FloatingPanelRoot>
+                    )}
+                  </div>
+
+                  {/* Lab Upload Dialog Box */}
+                  {isUploadLabOpen && (
+                    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+                      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full text-left space-y-4">
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                          <h3 className="text-sm font-bold text-slate-200">
+                            Upload Diagnostics Report
+                          </h3>
+                          <button
+                            onClick={() => setIsUploadLabOpen(false)}
+                            className="text-slate-400 hover:text-white"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!uploadLabRequestId || !uploadReportUrl) return;
+                            setIsSubmitting(true);
+                            try {
+                              await fetchAPI("/api/labs/upload", {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  lab_request_id: uploadLabRequestId,
+                                  report_url: uploadReportUrl,
+                                  result_summary: uploadResultSummary,
+                                }),
+                              });
+                              setToast({
+                                message: "Lab report uploaded successfully!",
+                                type: "success",
+                              });
+                              setUploadReportUrl("");
+                              setUploadResultSummary("");
+                              setUploadLabRequestId(null);
+                              setIsUploadLabOpen(false);
+                              const ptId =
+                                doctorInfo?.role === "USER"
+                                  ? ownPatientProfile?.patient?.id
+                                  : parseInt(newLabPatientId);
+                              if (ptId) loadLabRequests(ptId);
+                            } catch (err: any) {
+                              setToast({
+                                message:
+                                  err.message || "Failed to upload report",
+                                type: "error",
+                              });
+                            } finally {
+                              setIsSubmitting(false);
+                            }
+                          }}
+                          className="space-y-4 text-xs text-[var(--foreground)]"
+                        >
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Report Document URL
+                            </label>
+                            <input
+                              type="url"
+                              required
+                              placeholder="https://..."
+                              value={uploadReportUrl}
+                              onChange={(e) =>
+                                setUploadReportUrl(e.target.value)
+                              }
+                              className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Result Summary Remarks
+                            </label>
+                            <textarea
+                              placeholder="Enter test findings and parameters summary..."
+                              value={uploadResultSummary}
+                              onChange={(e) =>
+                                setUploadResultSummary(e.target.value)
+                              }
+                              rows={3}
+                              className="w-full mt-1 px-4 py-2.5 border border-slate-800 rounded-2xl bg-slate-950 text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-white resize-none"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs transition cursor-pointer"
+                          >
+                            Complete and Close Request
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {doctorInfo?.role !== "USER" && !newLabPatientId && (
+                    <div className="p-4 bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-xs rounded-2xl">
+                      Please select a patient under <b>Health Vitals</b> or
+                      select patient search to fetch lab request history.
+                    </div>
+                  )}
+
+                  {(labRequests.length > 0 ||
+                    (doctorInfo?.role !== "USER" && newLabPatientId)) && (
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                              <th className="px-6 py-4">Ordered Date</th>
+                              <th className="px-6 py-4">Doctor</th>
+                              <th className="px-6 py-4">Test Name</th>
+                              <th className="px-6 py-4">Status</th>
+                              <th className="px-6 py-4">Findings / Summary</th>
+                              <th className="px-6 py-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {labRequests.length > 0 ? (
+                              labRequests.map((lr) => (
+                                <tr
+                                  key={lr.id}
+                                  className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                                >
+                                  <td className="px-6 py-4 font-semibold text-slate-500">
+                                    {new Date(
+                                      lr.requested_date,
+                                    ).toLocaleDateString()}
+                                  </td>
+                                  <td className="px-6 py-4 text-slate-400">
+                                    Dr. {lr.doctor_name}
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-slate-600 dark:text-slate-200">
+                                    {lr.test_name}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span
+                                      className={cn(
+                                        "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                        lr.status === "COMPLETED"
+                                          ? "bg-emerald-500/10 text-emerald-500"
+                                          : "bg-indigo-500/10 text-indigo-500",
+                                      )}
+                                    >
+                                      {lr.status}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-slate-400 max-w-xs truncate">
+                                    {lr.result_summary || "-"}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    {lr.status === "REQUESTED" &&
+                                      doctorInfo?.role !== "USER" && (
+                                        <button
+                                          onClick={() => {
+                                            setUploadLabRequestId(lr.id);
+                                            setIsUploadLabOpen(true);
+                                          }}
+                                          className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-md transition cursor-pointer"
+                                        >
+                                          Upload Report
+                                        </button>
+                                      )}
+                                    {lr.status === "COMPLETED" &&
+                                      lr.report_url && (
+                                        <a
+                                          href={lr.report_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition"
+                                        >
+                                          View Document
+                                        </a>
+                                      )}
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td
+                                  colSpan={6}
+                                  className="px-6 py-12 text-center text-slate-400 font-semibold"
+                                >
+                                  No lab orders logged for this patient.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: PATIENTS */}
+              {activeTab === "patients" && (
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="relative flex-grow max-w-md">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search patient by name or phone..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm transition-all"
+                      />
+                    </div>
+                    {((doctorInfo?.role === "DOCTOR" && isClinicMode) ||
+                      doctorInfo?.role === "HOSPITAL_ADMIN") && (
+                      <FloatingPanelRoot
+                        isOpen={isAddPatientOpen}
+                        onOpenChange={setIsAddPatientOpen}
+                      >
+                        <FloatingPanelTrigger
+                          title="Register New Patient"
+                          className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          <span>Register Patient</span>
+                        </FloatingPanelTrigger>
+                        <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                          <FloatingPanelBody>
+                            <form
+                              onSubmit={handleAddPatient}
+                              className="space-y-3.5 text-xs text-[var(--foreground)]"
+                            >
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Full Name
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  value={newPtName}
+                                  onChange={(e) => setNewPtName(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Phone Number (with Country Code)
+                                </label>
+                                <div className="flex gap-2 mt-1">
+                                  <div className="w-24 flex-shrink-0">
+                                    <select
+                                      value={newPtPhoneCode}
+                                      onChange={(e) =>
+                                        setNewPtPhoneCode(e.target.value)
+                                      }
+                                      className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                    >
+                                      <option value="+91">🇮🇳 +91</option>
+                                      <option value="+1">🇺🇸 +1</option>
+                                      <option value="+44">🇬🇧 +44</option>
+                                      <option value="+971">🇦🇪 +971</option>
+                                      <option value="+61">🇦🇺 +61</option>
+                                      <option value="+65">🇸🇬 +65</option>
+                                      <option value="+86">🇨🇳 +86</option>
+                                      <option value="+81">🇯🇵 +81</option>
+                                      <option value="+49">🇩🇪 +49</option>
+                                      <option value="+33">🇫🇷 +33</option>
+                                      <option value="+7">🇷🇺 +7</option>
+                                      <option value="+92">🇵🇰 +92</option>
+                                      <option value="+880">🇧🇩 +880</option>
+                                      <option value="+977">🇳🇵 +977</option>
+                                      <option value="+94">🇱🇰 +94</option>
+                                    </select>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. 9999999999"
+                                    value={newPtPhone}
+                                    onChange={(e) =>
+                                      setNewPtPhone(e.target.value)
+                                    }
+                                    className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Age
+                                  </label>
+                                  <input
+                                    type="number"
+                                    value={newPtAge}
+                                    onChange={(e) =>
+                                      setNewPtAge(e.target.value)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Gender
+                                  </label>
+                                  <select
+                                    value={newPtGender}
+                                    onChange={(e) =>
+                                      setNewPtGender(e.target.value)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  >
+                                    <option>Male</option>
+                                    <option>Female</option>
+                                    <option>Other</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Medical History Summary
+                                </label>
+                                <textarea
+                                  placeholder="Allergies, chronic illness, major surgeries..."
+                                  value={newPtHistory}
+                                  onChange={(e) =>
+                                    setNewPtHistory(e.target.value)
+                                  }
+                                  rows={3}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Refer to Doctor
+                                </label>
+                                <select
+                                  value={selectedDoctorIds[0] || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSelectedDoctorIds(
+                                      val ? [parseInt(val)] : [],
+                                    );
+                                  }}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                  required={
+                                    doctorInfo?.role === "HOSPITAL_ADMIN"
+                                  }
+                                >
+                                  <option value="">Select Doctor</option>
+                                  {facilityDoctors.map((doc) => (
+                                    <option key={doc.id} value={doc.id}>
+                                      Dr. {doc.name} (
+                                      {doc.specialization || "General"})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex space-x-2 pt-2 text-xs">
+                                <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                                <FloatingPanelSubmitButton
+                                  label="Register"
+                                  className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                                />
+                              </div>
+                            </form>
+                          </FloatingPanelBody>
+                        </FloatingPanelContent>
+                      </FloatingPanelRoot>
+                    )}
+                  </div>
+
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                    {/* Mobile Card List View */}
+                    <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                      {filteredPatients.length > 0 ? (
+                        filteredPatients.map((pt) => (
+                          <div
+                            key={pt.id}
+                            onClick={() =>
+                              setViewState({
+                                type: "patient",
+                                patientId: pt.id,
+                              })
+                            }
+                            className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">
+                                {pt.name}
+                              </span>
+                              <div
+                                className="flex items-center space-x-2"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span
+                                  className={cn(
+                                    "font-black text-xs",
+                                    pt.total_dues > 0
+                                      ? "text-red-500"
+                                      : "text-emerald-500",
+                                  )}
+                                >
+                                  {pt.total_dues > 0
+                                    ? `₹${pt.total_dues.toLocaleString("en-IN")}`
+                                    : "Settled"}
+                                </span>
+                                {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                                  <button
+                                    onClick={() => handleDeletePatient(pt.id)}
+                                    className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                    title="Delete Patient"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                              <span>{pt.phone}</span>
+                              <span>
+                                {pt.age} yrs / {pt.gender}
+                              </span>
+                            </div>
+                            {pt.medical_history && (
+                              <p className="text-[11px] text-slate-400 truncate">
+                                {pt.medical_history}
+                              </p>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center text-slate-400 font-semibold">
+                          {isDoctorInHospital
+                            ? "No treated patients found."
+                            : "No patients found. Click 'Register Patient' to add one."}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="px-6 py-4">Patient Name</th>
+                            <th className="px-6 py-4">Phone</th>
+                            <th className="px-6 py-4">Age / Gender</th>
+                            <th className="px-6 py-4">
+                              Medical History Summary
+                            </th>
+                            <th className="px-6 py-4 text-right">
+                              Outstanding Dues
+                            </th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredPatients.length > 0 ? (
+                            filteredPatients.map((pt) => (
+                              <tr
+                                key={pt.id}
+                                onClick={() =>
+                                  setViewState({
+                                    type: "patient",
+                                    patientId: pt.id,
+                                  })
+                                }
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
+                              >
+                                <td className="px-6 py-4 font-normal text-sm">
+                                  {pt.name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">
+                                  {pt.phone}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">
+                                  {pt.age} yrs / {pt.gender}
+                                </td>
+                                <td className="px-6 py-4 text-slate-400 truncate max-w-xs">
+                                  {pt.medical_history || "No logs"}
+                                </td>
+                                <td className="px-6 py-4 text-right font-black text-red-500">
+                                  {pt.total_dues > 0
+                                    ? `₹${pt.total_dues.toLocaleString("en-IN")}`
+                                    : "Settled"}
+                                </td>
+                                <td
+                                  className="px-6 py-4 text-right"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                                    <button
+                                      onClick={() => handleDeletePatient(pt.id)}
+                                      className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
+                                      title="Delete Patient"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="px-6 py-12 text-center text-slate-400 font-semibold"
+                              >
+                                {isDoctorInHospital
+                                  ? "No treated patients found."
+                                  : "No patients found. Click 'Register Patient' to add one."}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: PRESCRIPTIONS */}
+              {activeTab === "prescriptions" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black">
+                      Prescriptions Directory
+                    </h2>
+                    {doctorInfo?.role === "DOCTOR" && (
+                      <FloatingPanelRoot
+                        isOpen={isAddRxOpen}
+                        onOpenChange={setIsAddRxOpen}
+                      >
+                        <FloatingPanelTrigger
+                          title="New Prescription"
+                          className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          <span>Write Prescription</span>
+                        </FloatingPanelTrigger>
+                        <FloatingPanelContent className="w-96 sm:w-[500px] text-left max-h-[85vh] overflow-y-auto">
+                          <FloatingPanelBody>
+                            <form
+                              onSubmit={handleAddPrescription}
+                              className="space-y-4 text-xs text-[var(--foreground)]"
+                            >
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Patient
+                                </label>
+                                <select
+                                  required
+                                  value={rxPatientId}
+                                  onChange={(e) =>
+                                    setRxPatientId(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">-- Choose Patient --</option>
+                                  {patients.map((pt) => (
+                                    <option key={pt.id} value={pt.id}>
+                                      {pt.name} ({pt.phone})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Diagnosis
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="e.g. Acute bronchitis, Hypertension"
+                                  value={rxDiagnosis}
+                                  onChange={(e) =>
+                                    setRxDiagnosis(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+
+                              {(doctorInfo?.role === "DOCTOR" ||
+                                doctorInfo?.role === "HOSPITAL_ADMIN") && (
+                                <div
+                                  className={cn(
+                                    "grid gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl",
+                                    isClinicMode
+                                      ? "grid-cols-2"
+                                      : "grid-cols-1",
+                                  )}
+                                >
+                                  <div>
+                                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                                      Total Charges (₹)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      placeholder="e.g. 500"
+                                      value={rxVisitCharges}
+                                      onChange={(e) =>
+                                        setRxVisitCharges(e.target.value)
+                                      }
+                                      className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  {isClinicMode && (
+                                    <>
+                                      <div>
+                                        <label className="text-[10px] font-bold uppercase text-slate-400">
+                                          Amount Paid (₹)
+                                        </label>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          placeholder="e.g. 300"
+                                          value={rxAmountPaid}
+                                          onChange={(e) =>
+                                            setRxAmountPaid(e.target.value)
+                                          }
+                                          className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                      <div className="col-span-2 flex justify-between items-center text-[10px] font-bold text-slate-500 mt-1">
+                                        <span>Calculated Due Balance:</span>
+                                        <span className="text-xs text-indigo-500">
+                                          ₹
+                                          {Math.max(
+                                            0,
+                                            (parseFloat(rxVisitCharges) || 0) -
+                                              (parseFloat(rxAmountPaid) || 0),
+                                          ).toFixed(2)}
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Clinical Notes / Advice
+                                </label>
+                                <textarea
+                                  placeholder="Bed rest, drink plenty of warm water..."
+                                  value={rxNotes}
+                                  onChange={(e) => setRxNotes(e.target.value)}
+                                  rows={2}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between items-center mb-1">
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Medicines & Dosage
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRxItems([
+                                        ...rxItems,
+                                        {
+                                          medicine_name: "",
+                                          medicine_id: null,
+                                          dosage: "",
+                                          frequency: "",
+                                          duration: "",
+                                          quantity: 1,
+                                          instructions: "",
+                                        },
+                                      ])
+                                    }
+                                    className="text-xs text-indigo-500 font-bold hover:underline"
+                                  >
+                                    + Add Item
+                                  </button>
+                                </div>
+
+                                <div className="space-y-3">
+                                  <datalist id="medicine-suggestions">
+                                    {Array.from(
+                                      new Set([
+                                        ...medicines.map((m) => m.name),
+                                        ...COMMON_MEDICINES,
+                                      ]),
+                                    ).map((medName, mIdx) => (
+                                      <option value={medName} key={mIdx} />
+                                    ))}
+                                  </datalist>
+                                  {rxItems.map((item, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="border border-[var(--border)] p-3 rounded-2xl bg-[var(--card)] space-y-2 relative"
+                                    >
+                                      {rxItems.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setRxItems(
+                                              rxItems.filter(
+                                                (_, i) => i !== idx,
+                                              ),
+                                            )
+                                          }
+                                          className="absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold"
+                                        >
+                                          Remove
+                                        </button>
+                                      )}
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                            Medicine Name
+                                          </label>
+                                          <input
+                                            type="text"
+                                            required
+                                            list="medicine-suggestions"
+                                            placeholder="e.g. Paracetamol"
+                                            value={item.medicine_name}
+                                            onChange={(e) => {
+                                              const updated = [...rxItems];
+                                              updated[idx].medicine_name =
+                                                e.target.value;
+                                              // Check if matches an existing medicine for auto-linking
+                                              const matched = medicines.find(
+                                                (m) =>
+                                                  m.name.toLowerCase() ===
+                                                  e.target.value.toLowerCase(),
+                                              );
+                                              if (matched) {
+                                                updated[idx].medicine_id =
+                                                  matched.id;
+                                              } else {
+                                                updated[idx].medicine_id = null;
+                                              }
+                                              setRxItems(updated);
+                                            }}
+                                            className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                            Dosage
+                                          </label>
+                                          <input
+                                            type="text"
+                                            placeholder="e.g. 500mg"
+                                            value={item.dosage}
+                                            onChange={(e) => {
+                                              const updated = [...rxItems];
+                                              updated[idx].dosage =
+                                                e.target.value;
+                                              setRxItems(updated);
+                                            }}
+                                            className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div className="grid grid-cols-3 gap-2">
+                                        <div>
+                                          <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                            Frequency
+                                          </label>
+                                          <input
+                                            type="text"
+                                            placeholder="e.g. 1-0-1"
+                                            value={item.frequency}
+                                            onChange={(e) => {
+                                              const updated = [...rxItems];
+                                              updated[idx].frequency =
+                                                e.target.value;
+                                              setRxItems(updated);
+                                            }}
+                                            className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                            Duration
+                                          </label>
+                                          <input
+                                            type="text"
+                                            placeholder="e.g. 5 Days"
+                                            value={item.duration}
+                                            onChange={(e) => {
+                                              const updated = [...rxItems];
+                                              updated[idx].duration =
+                                                e.target.value;
+                                              setRxItems(updated);
+                                            }}
+                                            className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                            Total Qty
+                                          </label>
+                                          <input
+                                            type="number"
+                                            required
+                                            min={1}
+                                            value={item.quantity}
+                                            onChange={(e) => {
+                                              const updated = [...rxItems];
+                                              updated[idx].quantity =
+                                                parseInt(e.target.value) || 0;
+                                              setRxItems(updated);
+                                            }}
+                                            className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                          />
+                                        </div>
+                                      </div>
+
+                                      <div>
+                                        <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                          Instructions
+                                        </label>
+                                        <input
+                                          type="text"
+                                          placeholder="e.g. After meals"
+                                          value={item.instructions}
+                                          onChange={(e) => {
+                                            const updated = [...rxItems];
+                                            updated[idx].instructions =
+                                              e.target.value;
+                                            setRxItems(updated);
+                                          }}
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                        />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Lab Requests Section */}
+                              <div className="border-t border-[var(--border)] pt-4 mt-2">
+                                <div className="flex justify-between items-center mb-2">
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Diagnostic / Lab Tests
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setRxLabRequests([
+                                        ...rxLabRequests,
+                                        { name: "", value: "" },
+                                      ])
+                                    }
+                                    className="text-xs text-indigo-500 font-bold hover:underline"
+                                  >
+                                    + Add Lab Test
+                                  </button>
+                                </div>
+                                {rxLabRequests.length > 0 && (
+                                  <div className="p-3 border border-[var(--border)] rounded-2xl bg-[var(--card)] space-y-3">
+                                    <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2.5 rounded-xl mb-1 flex items-start gap-1.5 leading-relaxed">
+                                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
+                                      <span>
+                                        CLINICAL BEST PRACTICE: Enter distinct,
+                                        descriptive names (e.g. "X-Ray Chest"
+                                        and "X-Ray Spine") instead of duplicate
+                                        generic names. Identical names within a
+                                        prescription will be automatically
+                                        skipped by the system.
+                                      </span>
+                                    </div>
+                                    {rxLabRequests.map((test, lIdx) => {
+                                      const isDuplicate =
+                                        rxLabRequests.filter(
+                                          (t, i) =>
+                                            i !== lIdx &&
+                                            t.name.trim() !== "" &&
+                                            t.name.trim().toLowerCase() ===
+                                              test.name.trim().toLowerCase(),
+                                        ).length > 0;
+                                      const genericNames = [
+                                        "x-ray",
+                                        "xray",
+                                        "ultrasound",
+                                        "mri",
+                                        "ct scan",
+                                        "blood test",
+                                        "biopsy",
+                                        "scan",
+                                        "test",
+                                      ];
+                                      const isGeneric = genericNames.includes(
+                                        test.name.trim().toLowerCase(),
+                                      );
+                                      return (
+                                        <div
+                                          key={lIdx}
+                                          className="flex items-center space-x-2"
+                                        >
+                                          <div className="flex-grow flex gap-2">
+                                            <div className="flex-grow">
+                                              <input
+                                                type="text"
+                                                required
+                                                placeholder="e.g. CBC, Lipid Profile, Sugar level"
+                                                value={test.name}
+                                                onChange={(e) => {
+                                                  const updated = [
+                                                    ...rxLabRequests,
+                                                  ];
+                                                  updated[lIdx] = {
+                                                    ...updated[lIdx],
+                                                    name: e.target.value,
+                                                  };
+                                                  setRxLabRequests(updated);
+                                                }}
+                                                className={cn(
+                                                  "w-full px-3 py-1.5 border rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none",
+                                                  isDuplicate
+                                                    ? "border-red-500 focus:ring-red-500"
+                                                    : "border-[var(--border)]",
+                                                )}
+                                              />
+                                              {isDuplicate && (
+                                                <span className="text-[9px] text-red-500 font-bold mt-0.5 block">
+                                                  Duplicate name: Use specific
+                                                  names to differentiate!
+                                                </span>
+                                              )}
+                                              {isGeneric && !isDuplicate && (
+                                                <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5 block">
+                                                  💡 Clinical Hint: Make this
+                                                  more specific to avoid
+                                                  duplicate clashes.
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="w-28">
+                                              <input
+                                                type="text"
+                                                placeholder="Result / Value"
+                                                value={test.value}
+                                                onChange={(e) => {
+                                                  const updated = [
+                                                    ...rxLabRequests,
+                                                  ];
+                                                  updated[lIdx] = {
+                                                    ...updated[lIdx],
+                                                    value: e.target.value,
+                                                  };
+                                                  setRxLabRequests(updated);
+                                                }}
+                                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                              />
+                                            </div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setRxLabRequests(
+                                                rxLabRequests.filter(
+                                                  (_, i) => i !== lIdx,
+                                                ),
+                                              )
+                                            }
+                                            className="text-red-500 hover:text-red-700 font-bold text-xs p-1"
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Patient Vitals Section */}
+                              <div className="border-t border-[var(--border)] pt-4 mt-2">
+                                <label className="text-[10px] font-bold uppercase text-slate-400 block mb-2">
+                                  Patient Vitals (Optional)
+                                </label>
+                                <div className="grid grid-cols-3 gap-3 border border-[var(--border)] p-3.5 rounded-2xl bg-[var(--card)]">
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      Weight (kg)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      placeholder="e.g. 72.5"
+                                      value={rxWeight}
+                                      onChange={(e) =>
+                                        setRxWeight(e.target.value)
+                                      }
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      Blood Pressure
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="e.g. 120/80"
+                                      value={rxBP}
+                                      onChange={(e) => setRxBP(e.target.value)}
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      Heart Rate (bpm)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      placeholder="e.g. 75"
+                                      value={rxHR}
+                                      onChange={(e) => setRxHR(e.target.value)}
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      Pulse (bpm)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      placeholder="e.g. 75"
+                                      value={rxPulse}
+                                      onChange={(e) =>
+                                        setRxPulse(e.target.value)
+                                      }
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      SpO2 (%)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      placeholder="e.g. 98"
+                                      value={rxSpO2}
+                                      onChange={(e) =>
+                                        setRxSpO2(e.target.value)
+                                      }
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
+                                      Temp (°C)
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="0.1"
+                                      placeholder="e.g. 37.0"
+                                      value={rxTemp}
+                                      onChange={(e) =>
+                                        setRxTemp(e.target.value)
+                                      }
+                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex space-x-2 pt-2 text-xs">
+                                <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                                <FloatingPanelSubmitButton
+                                  label="Submit Prescription"
+                                  className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                                />
+                              </div>
+                            </form>
+                          </FloatingPanelBody>
+                        </FloatingPanelContent>
+                      </FloatingPanelRoot>
+                    )}
+                  </div>
+
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden shadow-sm">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="px-6 py-4">Prescription ID</th>
+                            <th className="px-6 py-4">Patient Name</th>
+                            <th className="px-6 py-4">Diagnosis</th>
+                            <th className="px-6 py-4">Consultation Charges</th>
+                            <th className="px-6 py-4">Written By</th>
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {prescriptions.length > 0 ? (
+                            prescriptions.map((rx) => (
+                              <tr
+                                key={rx.id}
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                              >
+                                <td className="px-6 py-4 font-semibold text-indigo-500">
+                                  Rx #{rx.id}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-sm">
+                                  {rx.patient_name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
+                                  <div className="font-medium text-slate-700 dark:text-slate-200">
+                                    {rx.diagnosis || "N/A"}
+                                  </div>
+                                  {rx.lab_requests &&
+                                    rx.lab_requests.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1.5">
+                                        {rx.lab_requests.map(
+                                          (test: string, idx: number) => (
+                                            <span
+                                              key={idx}
+                                              className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20"
+                                            >
+                                              🔬 {test}
+                                            </span>
+                                          ),
+                                        )}
+                                      </div>
+                                    )}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-indigo-500">
+                                  ₹
+                                  {rx.consultation_charges?.toFixed(2) ||
+                                    "0.00"}
+                                </td>
+                                <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
+                                  Dr. {rx.doctor_name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-400">
+                                  {new Date(rx.created_at).toLocaleString()}
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <span
+                                    className={`inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                      rx.status === "dispensed"
+                                        ? "bg-emerald-500/10 text-emerald-500"
+                                        : rx.status === "partially_dispensed"
+                                          ? "bg-blue-500/10 text-blue-500"
+                                          : rx.status === "cancelled"
+                                            ? "bg-red-500/10 text-red-500"
+                                            : "bg-amber-500/10 text-amber-500"
+                                    }`}
+                                  >
+                                    {rx.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="px-6 py-12 text-center text-slate-400 font-semibold"
+                              >
+                                No prescriptions written yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: APPOINTMENTS */}
+              {activeTab === "appointments" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black">Agenda Log</h2>
+                    <FloatingPanelRoot
+                      isOpen={isAddAppointmentOpen}
+                      onOpenChange={setIsAddAppointmentOpen}
+                    >
+                      <FloatingPanelTrigger
+                        title="Book Appointment"
+                        className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Book Appointment</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                        <FloatingPanelBody>
+                          <form
+                            onSubmit={handleAddAppointment}
+                            className="space-y-4 text-xs text-[var(--foreground)]"
+                          >
+                            {doctorInfo?.role !== "USER" && (
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Patient
+                                </label>
+                                <select
+                                  required
+                                  value={apptPatientId}
+                                  onChange={(e) =>
+                                    setApptPatientId(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">-- Choose Patient --</option>
+                                  {patients.map((pt) => (
+                                    <option key={pt.id} value={pt.id}>
+                                      {pt.name} ({pt.phone})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+
+                            {!isClinicMode &&
+                              doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Select Doctor
+                                  </label>
+                                  <select
+                                    required
+                                    value={apptDoctorId}
+                                    onChange={(e) => {
+                                      setApptDoctorId(e.target.value);
+                                      setApptSlotId("");
+                                      setAvailableSlots([]);
+                                      if (apptDate) {
+                                        fetchAvailableSlots(
+                                          e.target.value,
+                                          apptDate,
+                                        );
+                                      }
+                                    }}
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  >
+                                    <option value="">
+                                      -- Choose Doctor --
+                                    </option>
+                                    {facilityDoctors.map((doc) => (
+                                      <option key={doc.id} value={doc.id}>
+                                        Dr. {doc.name} (
+                                        {doc.specialization || "General"})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Schedule Date
+                              </label>
+                              <input
+                                type="date"
+                                required
+                                value={apptDate}
+                                onChange={(e) => {
+                                  setApptDate(e.target.value);
+                                  setApptSlotId("");
+                                  if (apptDoctorId) {
+                                    fetchAvailableSlots(
+                                      apptDoctorId,
+                                      e.target.value,
+                                    );
+                                  }
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            {apptDoctorId && apptDate && (
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Available Slot
+                                </label>
+                                {availableSlots.length > 0 ? (
+                                  <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
+                                    {availableSlots.map((slot) => {
+                                      const isSelected =
+                                        apptSlotId === slot.id.toString();
+                                      const isFull =
+                                        slot.booked_count >=
+                                          slot.max_patients ||
+                                        slot.status !== "available";
+                                      return (
+                                        <button
+                                          key={slot.id}
+                                          type="button"
+                                          disabled={isFull && !isSelected}
+                                          onClick={() =>
+                                            setApptSlotId(slot.id.toString())
+                                          }
+                                          className={cn(
+                                            "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+                                            isSelected
+                                              ? "bg-indigo-600 border-indigo-600 text-white"
+                                              : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]",
+                                          )}
+                                        >
+                                          <span className="block">
+                                            {slot.start_time.substring(0, 5)} -{" "}
+                                            {slot.end_time.substring(0, 5)}
+                                          </span>
+                                          <span className="block text-[8px] opacity-60">
+                                            {isFull
+                                              ? "Full"
+                                              : `${slot.booked_count}/${slot.max_patients} Booked`}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-red-500 italic mt-1">
+                                    No slots generated for selected doctor/date.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Consultation Reason / Notes
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Regular health check, chest pain"
+                                value={apptReason}
+                                onChange={(e) => setApptReason(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Book Slot"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  </div>
+
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                    {/* Mobile Card List View for Appointments */}
+                    <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                      {appointments.length > 0 ? (
+                        appointments.map((ap) => (
+                          <div
+                            key={ap.id}
+                            className="p-4 hover:bg-[var(--accent)] transition space-y-2"
+                          >
+                            <div className="flex justify-between items-start">
+                              <span className="font-bold text-sm text-zinc-905 dark:text-zinc-50">
+                                {ap.patient_name}
+                              </span>
+                              <span
+                                className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                  ap.status === "COMPLETED"
+                                    ? "bg-emerald-500/10 text-emerald-500"
+                                    : ap.status === "CANCELLED"
+                                      ? "bg-red-500/10 text-red-500"
+                                      : "bg-amber-500/10 text-amber-500"
+                                }`}
+                              >
+                                <span>{ap.status}</span>
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                              <span>Dr. {ap.doctor_name}</span>
+                              <span className="font-bold text-slate-600 dark:text-slate-300">
+                                {new Date(
+                                  ap.appointment_date,
+                                ).toLocaleDateString()}{" "}
+                                {ap.slot_time
+                                  ? `(${ap.slot_time})`
+                                  : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center gap-2 pt-1">
+                              <span className="text-[11px] text-slate-400 italic truncate max-w-[60%]">
+                                {ap.reason || "General Consult"}
+                              </span>
+
+                              {ap.status !== "CANCELLED" &&
+                                doctorInfo?.role !== "USER" && (
+                                  <button
+                                    onClick={() =>
+                                      toggleAppointmentStatus(ap.id, ap.status)
+                                    }
+                                    className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                                      ap.status === "COMPLETED"
+                                        ? "border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
+                                        : "border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
+                                    }`}
+                                  >
+                                    {ap.status === "COMPLETED"
+                                      ? "Mark Pending"
+                                      : "Mark Completed"}
+                                  </button>
+                                )}
+                              {ap.status === "PENDING" &&
+                                doctorInfo?.role === "USER" && (
+                                  <button
+                                    onClick={() =>
+                                      toggleAppointmentStatus(
+                                        ap.id,
+                                        "CANCELLED",
+                                      )
+                                    }
+                                    className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+                                  >
+                                    Cancel Booking
+                                  </button>
+                                )}
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center text-slate-400 font-semibold">
+                          No appointments booked. Click 'Book Appointment' to
+                          schedule one.
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="px-6 py-4">Slot Date & Time</th>
+                            <th className="px-6 py-4">Doctor</th>
+                            <th className="px-6 py-4">Patient Name</th>
+                            <th className="px-6 py-4">Reason / Notes</th>
+                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {appointments.length > 0 ? (
+                            appointments.map((ap) => (
+                              <tr
+                                key={ap.id}
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                              >
+                                <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
+                                  {new Date(
+                                    ap.appointment_date,
+                                  ).toLocaleDateString()}{" "}
+                                  {ap.slot_time
+                                    ? `(${ap.slot_time})`
+                                    : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                                </td>
+                                <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
+                                  Dr. {ap.doctor_name}
+                                </td>
+                                <td className="px-6 py-4 font-normal text-sm">
+                                  {ap.patient_name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-400">
+                                  {ap.reason || "General Consult"}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span
+                                    className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                      ap.status === "COMPLETED"
+                                        ? "bg-emerald-500/10 text-emerald-500"
+                                        : ap.status === "CANCELLED"
+                                          ? "bg-red-500/10 text-red-500"
+                                          : "bg-amber-500/10 text-amber-500"
+                                    }`}
+                                  >
+                                    {ap.status === "COMPLETED" ? (
+                                      <CheckCircle2 className="w-3 h-3" />
+                                    ) : ap.status === "CANCELLED" ? (
+                                      <XCircle className="w-3 h-3" />
+                                    ) : (
+                                      <Clock className="w-3 h-3" />
+                                    )}
+                                    <span>{ap.status}</span>
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  {ap.status !== "CANCELLED" &&
+                                    doctorInfo?.role !== "USER" && (
+                                      <button
+                                        onClick={() =>
+                                          toggleAppointmentStatus(
+                                            ap.id,
+                                            ap.status,
+                                          )
+                                        }
+                                        className={`px-3 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
+                                          ap.status === "COMPLETED"
+                                            ? "border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
+                                            : "border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
+                                        }`}
+                                      >
+                                        {ap.status === "COMPLETED"
+                                          ? "Mark Pending"
+                                          : "Mark Completed"}
+                                      </button>
+                                    )}
+                                  {ap.status === "PENDING" &&
+                                    doctorInfo?.role === "USER" && (
+                                      <button
+                                        onClick={() =>
+                                          toggleAppointmentStatus(
+                                            ap.id,
+                                            "CANCELLED",
+                                          )
+                                        }
+                                        className="px-3 py-1 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
+                                      >
+                                        Cancel Booking
+                                      </button>
+                                    )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="px-6 py-12 text-center text-slate-400 font-semibold"
+                              >
+                                No appointments booked. Click 'Book Appointment'
+                                to schedule one.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: PHARMACY DISPENSING */}
+              {activeTab === "pharmacy" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-black">
+                      Pharmacy Dispensing Queue
+                    </h2>
+                    <button
+                      onClick={loadPendingPrescriptions}
+                      className="px-4 py-2 border border-[var(--border)] rounded-2xl text-xs hover:bg-[var(--card-hover)] transition cursor-pointer"
+                    >
+                      Refresh Queue
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {pendingPrescriptions.length > 0 ? (
+                      pendingPrescriptions.map((rx) => (
+                        <div
+                          key={rx.id}
+                          className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between space-y-4"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-black uppercase text-indigo-500">
+                                Rx #{rx.id}
+                              </span>
+                              <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">
+                                {rx.status}
+                              </span>
+                            </div>
+                            <div>
+                              <h3
+                                onClick={() => {
+                                  if (activeRxToDispense?.id === rx.id) {
+                                    setActiveRxToDispense(null);
+                                    setDispenseItems([]);
+                                  } else {
+                                    setActiveRxToDispense(rx);
+                                    const itemsToDispense = rx.items.map(
+                                      (item: any) => {
+                                        const matchedMed = medicines.find(
+                                          (m) =>
+                                            m.name.toLowerCase() ===
+                                            item.medicine_name.toLowerCase(),
+                                        );
+                                        return {
+                                          prescription_item_id: item.id,
+                                          medicine_name: item.medicine_name,
+                                          medicine_id:
+                                            item.medicine_id ||
+                                            (matchedMed ? matchedMed.id : null),
+                                          prescribed_qty: item.quantity,
+                                          dosage: item.dosage,
+                                          duration: item.duration || "N/A",
+                                          tablets_given: item.quantity,
+                                          cost_per_tablet: "", // Blank field!
+                                          is_nil: false,
+                                          nil_reason: "",
+                                          line_total: 0,
+                                        };
+                                      },
+                                    );
+                                    setDispenseItems(itemsToDispense);
+                                  }
+                                }}
+                                className="text-sm font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 cursor-pointer transition flex items-center justify-between"
+                              >
+                                <span>{rx.patient_name}</span>
+                                <span className="text-[10px] text-indigo-500 font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
+                                  {activeRxToDispense?.id === rx.id
+                                    ? "Hide details ▲"
+                                    : "View details ▼"}
+                                </span>
+                              </h3>
+                              <p className="text-[10px] text-slate-400">
+                                Dr. {rx.doctor_name}
+                              </p>
+                            </div>
+
+                            {activeRxToDispense?.id !== rx.id && (
+                              <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
+                                <span className="text-[9px] font-black uppercase text-slate-400 block">
+                                  Prescribed Meds:
+                                </span>
+                                {rx.items &&
+                                  rx.items.map((it: any) => (
+                                    <div
+                                      key={it.id}
+                                      className="text-xs flex justify-between text-slate-500 dark:text-slate-400"
+                                    >
+                                      <span>
+                                        {it.medicine_name} ({it.dosage})
+                                      </span>
+                                      <span className="font-semibold">
+                                        x{it.quantity}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {activeRxToDispense?.id === rx.id ? (
+                            <form
+                              onSubmit={handleDispensePrescription}
+                              className="mt-4 border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200"
+                            >
+                              <p className="text-[10px] text-slate-400 uppercase font-black">
+                                Diagnosis: {rx.diagnosis || "N/A"}
+                              </p>
+                              <div className="space-y-3">
+                                {dispenseItems.map((item, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={`p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5 ${item.is_nil ? "opacity-60 border-red-500/20 bg-red-500/5" : ""}`}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {/* Block in front showing dosage and number of days (duration) */}
+                                      <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black rounded-lg border border-indigo-200 dark:border-indigo-800/40">
+                                        {item.dosage} | {item.duration}
+                                      </span>
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                                        {item.medicine_name}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400">
+                                        Prescribed: {item.prescribed_qty}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center space-x-1.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                          Amt:
+                                        </span>
+                                        <input
+                                          type="text"
+                                          placeholder="0.00"
+                                          value={item.cost_per_tablet}
+                                          disabled={item.is_nil}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (
+                                              val === "" ||
+                                              /^[0-9]*\.?[0-9]*$/.test(val)
+                                            ) {
+                                              const updated = [
+                                                ...dispenseItems,
+                                              ];
+                                              updated[idx].cost_per_tablet =
+                                                val;
+                                              const price =
+                                                parseFloat(val) || 0;
+                                              updated[idx].line_total =
+                                                item.tablets_given * price;
+                                              setDispenseItems(updated);
+                                            }
+                                          }}
+                                          className="w-20 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center space-x-1.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                          Qty:
+                                        </span>
+                                        <input
+                                          type="number"
+                                          min={0}
+                                          required
+                                          disabled={item.is_nil}
+                                          value={item.tablets_given}
+                                          onChange={(e) => {
+                                            const val =
+                                              parseInt(e.target.value) || 0;
+                                            const updated = [...dispenseItems];
+                                            updated[idx].tablets_given = val;
+                                            const price =
+                                              parseFloat(
+                                                item.cost_per_tablet,
+                                              ) || 0;
+                                            updated[idx].line_total =
+                                              val * price;
+                                            setDispenseItems(updated);
+                                          }}
+                                          className="w-14 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                        />
+                                      </div>
+
+                                      <div className="flex items-center space-x-1">
+                                        <input
+                                          type="checkbox"
+                                          id={`nil-${rx.id}-${idx}`}
+                                          checked={item.is_nil}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            const updated = [...dispenseItems];
+                                            updated[idx].is_nil = checked;
+                                            if (checked) {
+                                              updated[idx].line_total = 0;
+                                            } else {
+                                              const price =
+                                                parseFloat(
+                                                  item.cost_per_tablet,
+                                                ) || 0;
+                                              updated[idx].line_total =
+                                                item.tablets_given * price;
+                                            }
+                                            setDispenseItems(updated);
+                                          }}
+                                          className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                        />
+                                        <label
+                                          htmlFor={`nil-${rx.id}-${idx}`}
+                                          className="text-[10px] font-black text-red-500 uppercase cursor-pointer"
+                                        >
+                                          NIL
+                                        </label>
+                                      </div>
+                                    </div>
+
+                                    {item.is_nil && (
+                                      <input
+                                        type="text"
+                                        required
+                                        placeholder="Reason (e.g. Out of Stock)"
+                                        value={item.nil_reason}
+                                        onChange={(e) => {
+                                          const updated = [...dispenseItems];
+                                          updated[idx].nil_reason =
+                                            e.target.value;
+                                          setDispenseItems(updated);
+                                        }}
+                                        className="w-full px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
+                                      />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 border-t border-[var(--border)]">
+                                <span>TOTAL VALUE:</span>
+                                <span className="text-sm font-black text-slate-800 dark:text-slate-200">
+                                  ₹
+                                  {dispenseItems
+                                    .reduce(
+                                      (acc, it) =>
+                                        acc + (it.is_nil ? 0 : it.line_total),
+                                      0,
+                                    )
+                                    .toFixed(2)}
+                                </span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Amount Paid (INR)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="0.00"
+                                  value={dispenseAmountPaid}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (
+                                      val === "" ||
+                                      /^[0-9]*\.?[0-9]*$/.test(val)
+                                    ) {
+                                      setDispenseAmountPaid(val);
+                                    }
+                                  }}
+                                  className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-center"
+                                />
+                              </div>
+
+                              <button
+                                type="submit"
+                                disabled={isSubmitting}
+                                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center disabled:opacity-50"
+                              >
+                                {isSubmitting
+                                  ? "Processing..."
+                                  : "Dispense & Generate Bill"}
+                              </button>
+                            </form>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setActiveRxToDispense(rx);
+                                const itemsToDispense = rx.items.map(
+                                  (item: any) => {
+                                    const matchedMed = medicines.find(
+                                      (m) =>
+                                        m.name.toLowerCase() ===
+                                        item.medicine_name.toLowerCase(),
+                                    );
+                                    return {
+                                      prescription_item_id: item.id,
+                                      medicine_name: item.medicine_name,
+                                      medicine_id:
+                                        item.medicine_id ||
+                                        (matchedMed ? matchedMed.id : null),
+                                      prescribed_qty: item.quantity,
+                                      dosage: item.dosage,
+                                      duration: item.duration || "N/A",
+                                      tablets_given: item.quantity,
+                                      cost_per_tablet: "", // Blank field!
+                                      is_nil: false,
+                                      nil_reason: "",
+                                      line_total: 0,
+                                    };
+                                  },
+                                );
+                                setDispenseItems(itemsToDispense);
+                              }}
+                              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
+                            >
+                              Dispense Medication
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-full bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-slate-400 font-semibold">
+                        No prescriptions in the pending dispensing queue.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: BILLING & PRESCRIPTIONS */}
+              {activeTab === "billing" && (
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="text-xl font-black">Clinic Billings</h2>
+                    <FloatingPanelRoot
+                      isOpen={isCreateBillOpen}
+                      onOpenChange={setIsCreateBillOpen}
+                    >
+                      <FloatingPanelTrigger
+                        title="Generate Bill"
+                        className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Compose Bill</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-[32rem] max-h-[80vh] overflow-y-auto text-left">
+                        <FloatingPanelBody>
+                          <form
+                            onSubmit={handleCreateBill}
+                            className="space-y-4 text-xs text-[var(--foreground)]"
+                          >
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Patient
+                                </label>
+                                <select
+                                  required
+                                  value={billPatientId}
+                                  onChange={(e) =>
+                                    setBillPatientId(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                >
+                                  <option value="">-- Choose Patient --</option>
+                                  {patients.map((pt) => (
+                                    <option key={pt.id} value={pt.id}>
+                                      {pt.name} ({pt.phone})
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Diagnosis / Bill Name
+                                </label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="e.g. Dental cleaning, Viral fever"
+                                  value={billDesc}
+                                  onChange={(e) => setBillDesc(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Multiple Items Composer */}
+                            <div className="space-y-3">
+                              <div className="flex justify-between items-center">
+                                <span className="text-[10px] font-bold uppercase text-slate-400">
+                                  Bill Items / Other Entries
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={addBillItemRow}
+                                  className="flex items-center space-x-1.5 text-indigo-500 hover:text-indigo-600 text-[10px] font-bold cursor-pointer"
+                                >
+                                  <PlusCircle className="w-3.5 h-3.5" />
+                                  <span>Add Entry</span>
+                                </button>
+                              </div>
+
+                              <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                                {billItems.map((item, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="flex flex-col sm:flex-row gap-2.5 items-end sm:items-center bg-[var(--nav-bg)] p-3 rounded-2xl border border-[var(--border)]"
+                                  >
+                                    <div className="w-full sm:flex-1 relative">
+                                      <label className="text-[8px] font-bold uppercase text-slate-400">
+                                        Entry / Item Name
+                                      </label>
+                                      <input
+                                        type="text"
+                                        required
+                                        placeholder="e.g. Consultation Fee, Lab Test, Procedure"
+                                        value={item.item_name}
+                                        onChange={(e) =>
+                                          handleBillItemChange(
+                                            idx,
+                                            "item_name",
+                                            e.target.value,
+                                          )
+                                        }
+                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                      />
+                                    </div>
+                                    <div className="w-20">
+                                      <label className="text-[8px] font-bold uppercase text-slate-400">
+                                        Qty
+                                      </label>
+                                      <input
+                                        type="number"
+                                        required
+                                        value={item.quantity}
+                                        onChange={(e) =>
+                                          handleBillItemChange(
+                                            idx,
+                                            "quantity",
+                                            e.target.value,
+                                          )
+                                        }
+                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                      />
+                                    </div>
+                                    <div className="w-28">
+                                      <label className="text-[8px] font-bold uppercase text-slate-400">
+                                        Price (INR)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        required
+                                        value={item.unit_price || ""}
+                                        onChange={(e) =>
+                                          handleBillItemChange(
+                                            idx,
+                                            "unit_price",
+                                            e.target.value,
+                                          )
+                                        }
+                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                      />
+                                    </div>
+                                    {billItems.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => removeBillItemRow(idx)}
+                                        className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg cursor-pointer"
+                                      >
+                                        <MinusCircle className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Total Display */}
+                            <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded-2xl text-xs font-bold text-indigo-500">
+                              <span>Calculated Total:</span>
+                              <span className="text-sm font-black">
+                                ₹{getBillTotal().toFixed(2)}
+                              </span>
+                            </div>
+
+                            {/* Upfront payment details */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[var(--border)] pt-4">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Upfront Amount Paid
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="Keep blank for 0"
+                                  value={billAmountPaid}
+                                  onChange={(e) =>
+                                    setBillAmountPaid(e.target.value)
+                                  }
                                   className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                                 />
                               </div>
                               <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Gender</label>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Payment Mode
+                                </label>
                                 <select
-                                  value={newPtGender}
-                                  onChange={(e) => setNewPtGender(e.target.value)}
+                                  value={billPayMode}
+                                  onChange={(e) =>
+                                    setBillPayMode(e.target.value as any)
+                                  }
                                   className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                                 >
-                                  <option>Male</option>
-                                  <option>Female</option>
-                                  <option>Other</option>
+                                  <option>CASH</option>
+                                  <option>ONLINE_UPI</option>
+                                  <option>BANK_TRANSFER</option>
                                 </select>
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Promise Due Date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={billDueDate}
+                                  onChange={(e) =>
+                                    setBillDueDate(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
                               </div>
                             </div>
 
+                            {/* Upfront Payment Remarks */}
                             <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Medical History Summary</label>
-                              <textarea
-                                placeholder="Allergies, chronic illness, major surgeries..."
-                                value={newPtHistory}
-                                onChange={(e) => setNewPtHistory(e.target.value)}
-                                rows={3}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Remarks / Log Note
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="Remarks"
+                                value={billPayRemarks}
+                                onChange={(e) =>
+                                  setBillPayRemarks(e.target.value)
+                                }
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                               />
                             </div>
 
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Refer to Doctor</label>
-                              <select
-                                value={selectedDoctorIds[0] || ""}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setSelectedDoctorIds(val ? [parseInt(val)] : []);
-                                }}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
-                                required={doctorInfo?.role === "HOSPITAL_ADMIN"}
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Generate Invoice"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        </FloatingPanelBody>
+                      </FloatingPanelContent>
+                    </FloatingPanelRoot>
+                  </div>
+
+                  {/* Search Bar */}
+                  <div className="relative w-full md:max-w-xs">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search bills by patient name..."
+                      value={billSearchQuery}
+                      onChange={(e) => {
+                        setBillSearchQuery(e.target.value);
+                        loadRecentBills(e.target.value, 0);
+                      }}
+                      className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                    {/* Mobile Card List View for Billings */}
+                    <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
+                      {recentBills.length > 0 ? (
+                        recentBills.map((bill) => (
+                          <div
+                            key={bill.id}
+                            onClick={() => {
+                              setActiveTab("patients");
+                              setViewState({ type: "bill", billId: bill.id });
+                            }}
+                            className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
+                          >
+                            <div className="flex justify-between items-start">
+                              <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                                {bill.patient_name}
+                              </span>
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                  bill.status === "SETTLED"
+                                    ? "bg-emerald-500/10 text-emerald-500"
+                                    : bill.status === "PARTIALLY_PAID"
+                                      ? "bg-amber-500/10 text-amber-500"
+                                      : "bg-red-500/10 text-red-500"
+                                }`}
                               >
-                                <option value="">Select Doctor</option>
-                                {facilityDoctors.map((doc) => (
-                                  <option key={doc.id} value={doc.id}>
-                                    Dr. {doc.name} ({doc.specialization || "General"})
-                                  </option>
-                                ))}
-                              </select>
+                                {bill.status}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                              <span>
+                                Total: ₹{bill.total_amount.toFixed(2)}
+                              </span>
+                              <span className="font-bold text-red-500">
+                                Dues: ₹{bill.remaining_amount.toFixed(2)}
+                              </span>
+                            </div>
+
+                            <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
+                              <span className="truncate max-w-[60%]">
+                                {bill.description}
+                              </span>
+                              <span>
+                                {new Date(bill.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-8 text-center text-slate-400 font-semibold">
+                          {billsLoading
+                            ? "Loading bills..."
+                            : "No billing records found."}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="px-6 py-4">Date</th>
+                            <th className="px-6 py-4">Patient Name</th>
+                            <th className="px-6 py-4">Diagnosis / Details</th>
+                            <th className="px-6 py-4">Total Amount</th>
+                            <th className="px-6 py-4">Outstanding Balance</th>
+                            <th className="px-6 py-4">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {recentBills.length > 0 ? (
+                            recentBills.map((bill) => (
+                              <tr
+                                key={bill.id}
+                                onClick={() => {
+                                  setActiveTab("patients");
+                                  setViewState({
+                                    type: "bill",
+                                    billId: bill.id,
+                                  });
+                                }}
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
+                              >
+                                <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
+                                  {new Date(
+                                    bill.created_at,
+                                  ).toLocaleDateString()}
+                                </td>
+                                <td className="px-6 py-4 font-normal">
+                                  {bill.patient_name}
+                                </td>
+                                <td className="px-6 py-4 text-slate-400 max-w-xs truncate">
+                                  {bill.description}
+                                </td>
+                                <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
+                                  ₹{bill.total_amount.toFixed(2)}
+                                </td>
+                                <td className="px-6 py-4 font-black text-red-500">
+                                  ₹{bill.remaining_amount.toFixed(2)}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span
+                                    className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                      bill.status === "SETTLED"
+                                        ? "bg-emerald-500/10 text-emerald-500"
+                                        : bill.status === "PARTIALLY_PAID"
+                                          ? "bg-amber-500/10 text-amber-500"
+                                          : "bg-red-500/10 text-red-500"
+                                    }`}
+                                  >
+                                    {bill.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={6}
+                                className="px-6 py-12 text-center text-slate-400 font-semibold"
+                              >
+                                {billsLoading
+                                  ? "Loading bills..."
+                                  : "No billing records found."}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Pagination */}
+                  {recentBills.length < billsTotalCount && (
+                    <div className="flex justify-center pt-2">
+                      <button
+                        onClick={() =>
+                          loadRecentBills(
+                            billSearchQuery,
+                            billsOffset + 20,
+                            true,
+                          )
+                        }
+                        disabled={billsLoading}
+                        className="px-6 py-2 border border-indigo-600/30 text-indigo-500 hover:bg-indigo-500/10 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center space-x-1.5"
+                      >
+                        {billsLoading ? (
+                          <span>Loading...</span>
+                        ) : (
+                          <>
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Load More Bills</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: PHARMACY STOCK */}
+              {activeTab === "medicines" && (
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="text-xl font-black">Medicine Catalog</h2>
+                    <FloatingPanelRoot
+                      isOpen={isAddMedicineOpen}
+                      onOpenChange={setIsAddMedicineOpen}
+                    >
+                      <FloatingPanelTrigger
+                        title="Register New Medicine"
+                        className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                      >
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        <span>Add New Medicine</span>
+                      </FloatingPanelTrigger>
+                      <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                        <FloatingPanelBody>
+                          <form
+                            onSubmit={handleAddMedicine}
+                            className="space-y-4 text-xs text-[var(--foreground)]"
+                          >
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Medicine Name
+                              </label>
+                              <input
+                                type="text"
+                                required
+                                value={medName}
+                                onChange={(e) => setMedName(e.target.value)}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Price Per Unit
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  required
+                                  value={medPrice}
+                                  onChange={(e) => setMedPrice(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Initial Stock
+                                </label>
+                                <input
+                                  type="number"
+                                  value={medStock}
+                                  onChange={(e) => setMedStock(e.target.value)}
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
                             </div>
 
                             <div className="flex space-x-2 pt-2 text-xs">
@@ -3552,2302 +6531,208 @@ export default function Dashboard() {
                         </FloatingPanelBody>
                       </FloatingPanelContent>
                     </FloatingPanelRoot>
-                  )}
-                </div>
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  {/* Mobile Card List View */}
-                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
-                    {filteredPatients.length > 0 ? (
-                      filteredPatients.map((pt) => (
-                        <div
-                          key={pt.id}
-                          onClick={() => setViewState({ type: "patient", patientId: pt.id })}
-                          className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
-                        >
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-sm text-zinc-950 dark:text-zinc-50">{pt.name}</span>
-                            <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
-                              <span className={cn("font-black text-xs", pt.total_dues > 0 ? "text-red-500" : "text-emerald-500")}>
-                                {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
-                              </span>
-                              {doctorInfo?.role === "HOSPITAL_ADMIN" && (
-                                <button
-                                  onClick={() => handleDeletePatient(pt.id)}
-                                  className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
-                                  title="Delete Patient"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-                            <span>{pt.phone}</span>
-                            <span>{pt.age} yrs / {pt.gender}</span>
-                          </div>
-                          {pt.medical_history && (
-                            <p className="text-[11px] text-slate-400 truncate">{pt.medical_history}</p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-slate-400 font-semibold">
-                        {isDoctorInHospital ? "No treated patients found." : "No patients found. Click 'Register Patient' to add one."}
-                      </div>
-                    )}
                   </div>
 
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Patient Name</th>
-                          <th className="px-6 py-4">Phone</th>
-                          <th className="px-6 py-4">Age / Gender</th>
-                          <th className="px-6 py-4">Medical History Summary</th>
-                          <th className="px-6 py-4 text-right">Outstanding Dues</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredPatients.length > 0 ? (
-                          filteredPatients.map((pt) => (
-                            <tr
-                              key={pt.id}
-                              onClick={() => setViewState({ type: "patient", patientId: pt.id })}
-                              className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
-                            >
-                              <td className="px-6 py-4 font-normal text-sm">{pt.name}</td>
-                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{pt.phone}</td>
-                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400 font-medium">{pt.age} yrs / {pt.gender}</td>
-                              <td className="px-6 py-4 text-slate-400 truncate max-w-xs">{pt.medical_history || "No logs"}</td>
-                              <td className="px-6 py-4 text-right font-black text-red-500">
-                                {pt.total_dues > 0 ? `₹${pt.total_dues.toLocaleString("en-IN")}` : "Settled"}
-                              </td>
-                              <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                {doctorInfo?.role === "HOSPITAL_ADMIN" && (
-                                  <button
-                                    onClick={() => handleDeletePatient(pt.id)}
-                                    className="p-1 hover:text-red-500 text-slate-400 bg-transparent border-none outline-none cursor-pointer"
-                                    title="Delete Patient"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              {isDoctorInHospital ? "No treated patients found." : "No patients found. Click 'Register Patient' to add one."}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
+                  {/* Filters & Search */}
+                  <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+                    {/* Search Bar */}
+                    <div className="relative w-full md:max-w-xs">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search medicine catalog..."
+                        value={medSearchQuery}
+                        onChange={(e) => setMedSearchQuery(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
 
-            {/* TAB: PRESCRIPTIONS */}
-            {activeTab === "prescriptions" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-black">Prescriptions Directory</h2>
-                  {doctorInfo?.role === "DOCTOR" && (
-                    <FloatingPanelRoot isOpen={isAddRxOpen} onOpenChange={setIsAddRxOpen}>
-                      <FloatingPanelTrigger
-                        title="New Prescription"
-                        className="flex items-center justify-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                      >
-                        <Plus className="w-4 h-4 mr-1.5" />
-                        <span>Write Prescription</span>
-                      </FloatingPanelTrigger>
-                      <FloatingPanelContent className="w-96 sm:w-[500px] text-left max-h-[85vh] overflow-y-auto">
-                        <FloatingPanelBody>
-                          <form onSubmit={handleAddPrescription} className="space-y-4 text-xs text-[var(--foreground)]">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                              <select
-                                required
-                                value={rxPatientId}
-                                onChange={(e) => setRxPatientId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Diagnosis</label>
-                              <input
-                                type="text"
-                                required
-                                placeholder="e.g. Acute bronchitis, Hypertension"
-                                value={rxDiagnosis}
-                                onChange={(e) => setRxDiagnosis(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                             </div>
-
-                            {(doctorInfo?.role === "DOCTOR" || doctorInfo?.role === "HOSPITAL_ADMIN") && (
-                              <div className={cn(
-                                "grid gap-3 border border-indigo-500/20 bg-indigo-500/5 p-3.5 rounded-2xl",
-                                isClinicMode ? "grid-cols-2" : "grid-cols-1"
-                              )}>
-                                <div>
-                                  <label className="text-[10px] font-bold uppercase text-slate-400">Total Charges (₹)</label>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    placeholder="e.g. 500"
-                                    value={rxVisitCharges}
-                                    onChange={(e) => setRxVisitCharges(e.target.value)}
-                                    className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                {isClinicMode && (
-                                  <>
-                                    <div>
-                                      <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (₹)</label>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        placeholder="e.g. 300"
-                                        value={rxAmountPaid}
-                                        onChange={(e) => setRxAmountPaid(e.target.value)}
-                                        className="w-full mt-1 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                      />
-                                    </div>
-                                    <div className="col-span-2 flex justify-between items-center text-[10px] font-bold text-slate-500 mt-1">
-                                      <span>Calculated Due Balance:</span>
-                                      <span className="text-xs text-indigo-500">
-                                        ₹{Math.max(0, (parseFloat(rxVisitCharges) || 0) - (parseFloat(rxAmountPaid) || 0)).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Clinical Notes / Advice</label>
-                              <textarea
-                                placeholder="Bed rest, drink plenty of warm water..."
-                                value={rxNotes}
-                                onChange={(e) => setRxNotes(e.target.value)}
-                                rows={2}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                              />
-                            </div>
-
-                            <div>
-                              <div className="flex justify-between items-center mb-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Medicines & Dosage</label>
-                                <button
-                                  type="button"
-                                  onClick={() => setRxItems([...rxItems, { medicine_name: "", medicine_id: null, dosage: "", frequency: "", duration: "", quantity: 1, instructions: "" }])}
-                                  className="text-xs text-indigo-500 font-bold hover:underline"
-                                >
-                                  + Add Item
-                                </button>
-                              </div>
-                              
-                              <div className="space-y-3">
-                                <datalist id="medicine-suggestions">
-                                  {Array.from(new Set([
-                                    ...medicines.map(m => m.name),
-                                    ...COMMON_MEDICINES
-                                  ])).map((medName, mIdx) => (
-                                    <option value={medName} key={mIdx} />
-                                  ))}
-                                </datalist>
-                                {rxItems.map((item, idx) => (
-                                  <div key={idx} className="border border-[var(--border)] p-3 rounded-2xl bg-[var(--card)] space-y-2 relative">
-                                    {rxItems.length > 1 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setRxItems(rxItems.filter((_, i) => i !== idx))}
-                                        className="absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold"
-                                      >
-                                        Remove
-                                      </button>
-                                    )}
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <div>
-                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Medicine Name</label>
-                                        <input
-                                          type="text"
-                                          required
-                                          list="medicine-suggestions"
-                                          placeholder="e.g. Paracetamol"
-                                          value={item.medicine_name}
-                                          onChange={(e) => {
-                                            const updated = [...rxItems];
-                                            updated[idx].medicine_name = e.target.value;
-                                            // Check if matches an existing medicine for auto-linking
-                                            const matched = medicines.find(m => m.name.toLowerCase() === e.target.value.toLowerCase());
-                                            if (matched) {
-                                              updated[idx].medicine_id = matched.id;
-                                            } else {
-                                              updated[idx].medicine_id = null;
-                                            }
-                                            setRxItems(updated);
-                                          }}
-                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Dosage</label>
-                                        <input
-                                          type="text"
-                                          placeholder="e.g. 500mg"
-                                          value={item.dosage}
-                                          onChange={(e) => {
-                                            const updated = [...rxItems];
-                                            updated[idx].dosage = e.target.value;
-                                            setRxItems(updated);
-                                          }}
-                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                        />
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-3 gap-2">
-                                      <div>
-                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Frequency</label>
-                                        <input
-                                          type="text"
-                                          placeholder="e.g. 1-0-1"
-                                          value={item.frequency}
-                                          onChange={(e) => {
-                                            const updated = [...rxItems];
-                                            updated[idx].frequency = e.target.value;
-                                            setRxItems(updated);
-                                          }}
-                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Duration</label>
-                                        <input
-                                          type="text"
-                                          placeholder="e.g. 5 Days"
-                                          value={item.duration}
-                                          onChange={(e) => {
-                                            const updated = [...rxItems];
-                                            updated[idx].duration = e.target.value;
-                                            setRxItems(updated);
-                                          }}
-                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                        />
-                                      </div>
-                                      <div>
-                                        <label className="text-[9px] text-slate-400 uppercase font-bold">Total Qty</label>
-                                        <input
-                                          type="number"
-                                          required
-                                          min={1}
-                                          value={item.quantity}
-                                          onChange={(e) => {
-                                            const updated = [...rxItems];
-                                            updated[idx].quantity = parseInt(e.target.value) || 0;
-                                            setRxItems(updated);
-                                          }}
-                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                        />
-                                      </div>
-                                    </div>
-
-                                    <div>
-                                      <label className="text-[9px] text-slate-400 uppercase font-bold">Instructions</label>
-                                      <input
-                                        type="text"
-                                        placeholder="e.g. After meals"
-                                        value={item.instructions}
-                                        onChange={(e) => {
-                                          const updated = [...rxItems];
-                                          updated[idx].instructions = e.target.value;
-                                          setRxItems(updated);
-                                        }}
-                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            {/* Lab Requests Section */}
-                            <div className="border-t border-[var(--border)] pt-4 mt-2">
-                              <div className="flex justify-between items-center mb-2">
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Diagnostic / Lab Tests</label>
-                                <button
-                                  type="button"
-                                  onClick={() => setRxLabRequests([...rxLabRequests, { name: "", value: "" }])}
-                                  className="text-xs text-indigo-500 font-bold hover:underline"
-                                >
-                                  + Add Lab Test
-                                </button>
-                              </div>
-                              {rxLabRequests.length > 0 && (
-                                <div className="p-3 border border-[var(--border)] rounded-2xl bg-[var(--card)] space-y-3">
-                                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 p-2.5 rounded-xl mb-1 flex items-start gap-1.5 leading-relaxed">
-                                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" />
-                                    <span>CLINICAL BEST PRACTICE: Enter distinct, descriptive names (e.g. "X-Ray Chest" and "X-Ray Spine") instead of duplicate generic names. Identical names within a prescription will be automatically skipped by the system.</span>
-                                  </div>
-                                  {rxLabRequests.map((test, lIdx) => {
-                                    const isDuplicate = rxLabRequests.filter((t, i) => i !== lIdx && t.name.trim() !== "" && t.name.trim().toLowerCase() === test.name.trim().toLowerCase()).length > 0;
-                                    const genericNames = ["x-ray", "xray", "ultrasound", "mri", "ct scan", "blood test", "biopsy", "scan", "test"];
-                                    const isGeneric = genericNames.includes(test.name.trim().toLowerCase());
-                                    return (
-                                      <div key={lIdx} className="flex items-center space-x-2">
-                                        <div className="flex-grow flex gap-2">
-                                          <div className="flex-grow">
-                                            <input
-                                              type="text"
-                                              required
-                                              placeholder="e.g. CBC, Lipid Profile, Sugar level"
-                                              value={test.name}
-                                              onChange={(e) => {
-                                                const updated = [...rxLabRequests];
-                                                updated[lIdx] = { ...updated[lIdx], name: e.target.value };
-                                                setRxLabRequests(updated);
-                                              }}
-                                              className={cn(
-                                                "w-full px-3 py-1.5 border rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none",
-                                                isDuplicate ? "border-red-500 focus:ring-red-500" : "border-[var(--border)]"
-                                              )}
-                                            />
-                                            {isDuplicate && (
-                                              <span className="text-[9px] text-red-500 font-bold mt-0.5 block">Duplicate name: Use specific names to differentiate!</span>
-                                            )}
-                                            {isGeneric && !isDuplicate && (
-                                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5 block">💡 Clinical Hint: Make this more specific to avoid duplicate clashes.</span>
-                                            )}
-                                          </div>
-                                          <div className="w-28">
-                                            <input
-                                              type="text"
-                                              placeholder="Result / Value"
-                                              value={test.value}
-                                              onChange={(e) => {
-                                                const updated = [...rxLabRequests];
-                                                updated[lIdx] = { ...updated[lIdx], value: e.target.value };
-                                                setRxLabRequests(updated);
-                                              }}
-                                              className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                            />
-                                          </div>
-                                        </div>
-                                        <button
-                                          type="button"
-                                          onClick={() => setRxLabRequests(rxLabRequests.filter((_, i) => i !== lIdx))}
-                                          className="text-red-500 hover:text-red-700 font-bold text-xs p-1"
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Patient Vitals Section */}
-                            <div className="border-t border-[var(--border)] pt-4 mt-2">
-                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-2">Patient Vitals (Optional)</label>
-                              <div className="grid grid-cols-3 gap-3 border border-[var(--border)] p-3.5 rounded-2xl bg-[var(--card)]">
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Weight (kg)</label>
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    placeholder="e.g. 72.5"
-                                    value={rxWeight}
-                                    onChange={(e) => setRxWeight(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Blood Pressure</label>
-                                  <input
-                                    type="text"
-                                    placeholder="e.g. 120/80"
-                                    value={rxBP}
-                                    onChange={(e) => setRxBP(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Heart Rate (bpm)</label>
-                                  <input
-                                    type="number"
-                                    placeholder="e.g. 75"
-                                    value={rxHR}
-                                    onChange={(e) => setRxHR(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Pulse (bpm)</label>
-                                  <input
-                                    type="number"
-                                    placeholder="e.g. 75"
-                                    value={rxPulse}
-                                    onChange={(e) => setRxPulse(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">SpO2 (%)</label>
-                                  <input
-                                    type="number"
-                                    placeholder="e.g. 98"
-                                    value={rxSpO2}
-                                    onChange={(e) => setRxSpO2(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-[9px] text-slate-400 uppercase font-bold">Temp (°F)</label>
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    placeholder="e.g. 98.6"
-                                    value={rxTemp}
-                                    onChange={(e) => setRxTemp(e.target.value)}
-                                    className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex space-x-2 pt-2 text-xs">
-                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                              <FloatingPanelSubmitButton
-                                label="Submit Prescription"
-                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                              />
-                            </div>
-                          </form>
-                        </FloatingPanelBody>
-                      </FloatingPanelContent>
-                    </FloatingPanelRoot>
-                  )}
-                </div>
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Prescription ID</th>
-                          <th className="px-6 py-4">Patient Name</th>
-                          <th className="px-6 py-4">Diagnosis</th>
-                          <th className="px-6 py-4">Consultation Charges</th>
-                          <th className="px-6 py-4">Written By</th>
-                          <th className="px-6 py-4">Date</th>
-                          <th className="px-6 py-4 text-right">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {prescriptions.length > 0 ? (
-                          prescriptions.map((rx) => (
-                            <tr key={rx.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                              <td className="px-6 py-4 font-semibold text-indigo-500">Rx #{rx.id}</td>
-                              <td className="px-6 py-4 font-bold text-sm">{rx.patient_name}</td>
-                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400">
-                                <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
-                                {rx.lab_requests && rx.lab_requests.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {rx.lab_requests.map((test: string, idx: number) => (
-                                      <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
-                                        🔬 {test}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-6 py-4 font-bold text-indigo-500">₹{rx.consultation_charges?.toFixed(2) || "0.00"}</td>
-                              <td className="px-6 py-4 text-slate-500 dark:text-slate-400">Dr. {rx.doctor_name}</td>
-                              <td className="px-6 py-4 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
-                              <td className="px-6 py-4 text-right">
-                                <span
-                                  className={`inline-flex px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-                                    rx.status === "dispensed"
-                                      ? "bg-emerald-500/10 text-emerald-500"
-                                      : rx.status === "partially_dispensed"
-                                      ? "bg-blue-500/10 text-blue-500"
-                                      : rx.status === "cancelled"
-                                      ? "bg-red-500/10 text-red-500"
-                                      : "bg-amber-500/10 text-amber-500"
-                                  }`}
-                                >
-                                  {rx.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              No prescriptions written yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: APPOINTMENTS */}
-            {activeTab === "appointments" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-black">Agenda Log</h2>
-                  <FloatingPanelRoot isOpen={isAddAppointmentOpen} onOpenChange={setIsAddAppointmentOpen}>
-                    <FloatingPanelTrigger
-                      title="Book Appointment"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Book Appointment</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={handleAddAppointment} className="space-y-4 text-xs text-[var(--foreground)]">
-                          {doctorInfo?.role !== "USER" && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                              <select
-                                required
-                                value={apptPatientId}
-                                onChange={(e) => setApptPatientId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          {!isClinicMode && doctorInfo?.role === "HOSPITAL_ADMIN" && (
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
-                              <select
-                                required
-                                value={apptDoctorId}
-                                onChange={(e) => {
-                                  setApptDoctorId(e.target.value);
-                                  setApptSlotId("");
-                                  setAvailableSlots([]);
-                                  if (apptDate) {
-                                    fetchAvailableSlots(e.target.value, apptDate);
-                                  }
-                                }}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Doctor --</option>
-                                {facilityDoctors.map((doc) => (
-                                  <option key={doc.id} value={doc.id}>
-                                    Dr. {doc.name} ({doc.specialization || "General"})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Schedule Date</label>
-                            <input
-                              type="date"
-                              required
-                              value={apptDate}
-                              onChange={(e) => {
-                                setApptDate(e.target.value);
-                                setApptSlotId("");
-                                if (apptDoctorId) {
-                                  fetchAvailableSlots(apptDoctorId, e.target.value);
-                                }
-                              }}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          {apptDoctorId && apptDate && (
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Available Slot</label>
-                              {availableSlots.length > 0 ? (
-                                <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
-                                  {availableSlots.map((slot) => {
-                                    const isSelected = apptSlotId === slot.id.toString();
-                                    const isFull = slot.booked_count >= slot.max_patients || slot.status !== "available";
-                                    return (
-                                      <button
-                                        key={slot.id}
-                                        type="button"
-                                        disabled={isFull && !isSelected}
-                                        onClick={() => setApptSlotId(slot.id.toString())}
-                                        className={cn(
-                                          "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
-                                          isSelected
-                                            ? "bg-indigo-600 border-indigo-600 text-white"
-                                            : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]"
-                                        )}
-                                      >
-                                        <span className="block">{slot.start_time.substring(0, 5)} - {slot.end_time.substring(0, 5)}</span>
-                                        <span className="block text-[8px] opacity-60">
-                                          {isFull ? "Full" : `${slot.booked_count}/${slot.max_patients} Booked`}
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="text-[10px] text-red-500 italic mt-1">No slots generated for selected doctor/date.</p>
-                              )}
-                            </div>
-                          )}
-
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Consultation Reason / Notes</label>
-                            <input
-                              type="text"
-                              placeholder="e.g. Regular health check, chest pain"
-                              value={apptReason}
-                              onChange={(e) => setApptReason(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Book Slot"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  {/* Mobile Card List View for Appointments */}
-                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
-                    {appointments.length > 0 ? (
-                      appointments.map((ap) => (
-                        <div
-                          key={ap.id}
-                          className="p-4 hover:bg-[var(--accent)] transition space-y-2"
-                        >
-                          <div className="flex justify-between items-start">
-                            <span className="font-bold text-sm text-zinc-905 dark:text-zinc-50">{ap.patient_name}</span>
-                            <span
-                              className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                ap.status === "COMPLETED"
-                                  ? "bg-emerald-500/10 text-emerald-500"
-                                  : ap.status === "CANCELLED"
-                                  ? "bg-red-500/10 text-red-500"
-                                  : "bg-amber-500/10 text-amber-500"
-                              }`}
-                            >
-                              <span>{ap.status}</span>
-                            </span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-                            <span>Dr. {ap.doctor_name}</span>
-                            <span className="font-bold text-slate-600 dark:text-slate-300">
-                              {new Date(ap.appointment_date).toLocaleDateString()} {ap.slot_time ? `(${ap.slot_time})` : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
-                            </span>
-                          </div>
-
-                          <div className="flex justify-between items-center gap-2 pt-1">
-                            <span className="text-[11px] text-slate-400 italic truncate max-w-[60%]">{ap.reason || "General Consult"}</span>
-                            
-                            {ap.status !== "CANCELLED" && doctorInfo?.role !== "USER" && (
-                              <button
-                                onClick={() => toggleAppointmentStatus(ap.id, ap.status)}
-                                className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
-                                  ap.status === "COMPLETED"
-                                    ? "border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
-                                    : "border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
-                                }`}
-                              >
-                                {ap.status === "COMPLETED" ? "Mark Pending" : "Mark Completed"}
-                              </button>
-                            )}
-                            {ap.status === "PENDING" && doctorInfo?.role === "USER" && (
-                              <button
-                                onClick={() => toggleAppointmentStatus(ap.id, "CANCELLED")}
-                                className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
-                              >
-                                Cancel Booking
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-slate-400 font-semibold">
-                        No appointments booked. Click 'Book Appointment' to schedule one.
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Slot Date & Time</th>
-                          <th className="px-6 py-4">Doctor</th>
-                          <th className="px-6 py-4">Patient Name</th>
-                          <th className="px-6 py-4">Reason / Notes</th>
-                          <th className="px-6 py-4">Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {appointments.length > 0 ? (
-                          appointments.map((ap) => (
-                            <tr key={ap.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                              <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
-                                {new Date(ap.appointment_date).toLocaleDateString()} {ap.slot_time ? `(${ap.slot_time})` : `@ ${new Date(ap.appointment_date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
-                              </td>
-                              <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
-                                Dr. {ap.doctor_name}
-                              </td>
-                              <td className="px-6 py-4 font-normal text-sm">{ap.patient_name}</td>
-                              <td className="px-6 py-4 text-slate-400">{ap.reason || "General Consult"}</td>
-                              <td className="px-6 py-4">
-                                <span
-                                  className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                    ap.status === "COMPLETED"
-                                      ? "bg-emerald-500/10 text-emerald-500"
-                                      : ap.status === "CANCELLED"
-                                      ? "bg-red-500/10 text-red-500"
-                                      : "bg-amber-500/10 text-amber-500"
-                                  }`}
-                                >
-                                  {ap.status === "COMPLETED" ? (
-                                    <CheckCircle2 className="w-3 h-3" />
-                                  ) : ap.status === "CANCELLED" ? (
-                                    <XCircle className="w-3 h-3" />
-                                  ) : (
-                                    <Clock className="w-3 h-3" />
-                                  )}
-                                  <span>{ap.status}</span>
-                                </span>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                {ap.status !== "CANCELLED" && doctorInfo?.role !== "USER" && (
-                                  <button
-                                    onClick={() => toggleAppointmentStatus(ap.id, ap.status)}
-                                    className={`px-3 py-1 rounded-xl text-[10px] font-bold border transition cursor-pointer ${
-                                      ap.status === "COMPLETED"
-                                        ? "border-amber-500/20 text-amber-500 hover:bg-amber-500/10"
-                                        : "border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/10"
-                                    }`}
-                                  >
-                                    {ap.status === "COMPLETED" ? "Mark Pending" : "Mark Completed"}
-                                  </button>
-                                )}
-                                {ap.status === "PENDING" && doctorInfo?.role === "USER" && (
-                                  <button
-                                    onClick={() => toggleAppointmentStatus(ap.id, "CANCELLED")}
-                                    className="px-3 py-1 rounded-xl text-[10px] font-bold border border-red-500/20 text-red-500 hover:bg-red-500/10 transition cursor-pointer"
-                                  >
-                                    Cancel Booking
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              No appointments booked. Click 'Book Appointment' to schedule one.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: PHARMACY DISPENSING */}
-            {activeTab === "pharmacy" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-xl font-black">Pharmacy Dispensing Queue</h2>
-                  <button 
-                    onClick={loadPendingPrescriptions}
-                    className="px-4 py-2 border border-[var(--border)] rounded-2xl text-xs hover:bg-[var(--card-hover)] transition cursor-pointer"
-                  >
-                    Refresh Queue
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {pendingPrescriptions.length > 0 ? (
-                    pendingPrescriptions.map((rx) => (
-                      <div key={rx.id} className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between space-y-4">
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-[10px] font-black uppercase text-indigo-500">Rx #{rx.id}</span>
-                            <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">{rx.status}</span>
-                          </div>
-                          <div>
-                            <h3 
-                              onClick={() => {
-                                if (activeRxToDispense?.id === rx.id) {
-                                  setActiveRxToDispense(null);
-                                  setDispenseItems([]);
-                                } else {
-                                  setActiveRxToDispense(rx);
-                                  const itemsToDispense = rx.items.map((item: any) => {
-                                    const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
-                                    return {
-                                      prescription_item_id: item.id,
-                                      medicine_name: item.medicine_name,
-                                      medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
-                                      prescribed_qty: item.quantity,
-                                      dosage: item.dosage,
-                                      duration: item.duration || "N/A",
-                                      tablets_given: item.quantity,
-                                      cost_per_tablet: "", // Blank field!
-                                      is_nil: false,
-                                      nil_reason: "",
-                                      line_total: 0
-                                    };
-                                  });
-                                  setDispenseItems(itemsToDispense);
-                                }
-                              }}
-                              className="text-sm font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 cursor-pointer transition flex items-center justify-between"
-                            >
-                              <span>{rx.patient_name}</span>
-                              <span className="text-[10px] text-indigo-500 font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
-                                {activeRxToDispense?.id === rx.id ? "Hide details ▲" : "View details ▼"}
-                              </span>
-                            </h3>
-                            <p className="text-[10px] text-slate-400">Dr. {rx.doctor_name}</p>
-                          </div>
-                          
-                          {activeRxToDispense?.id !== rx.id && (
-                            <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
-                              <span className="text-[9px] font-black uppercase text-slate-400 block">Prescribed Meds:</span>
-                              {rx.items && rx.items.map((it: any) => (
-                                <div key={it.id} className="text-xs flex justify-between text-slate-500 dark:text-slate-400">
-                                  <span>{it.medicine_name} ({it.dosage})</span>
-                                  <span className="font-semibold">x{it.quantity}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {activeRxToDispense?.id === rx.id ? (
-                          <form 
-                            onSubmit={handleDispensePrescription}
-                            className="mt-4 border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200"
-                          >
-                            <p className="text-[10px] text-slate-400 uppercase font-black">Diagnosis: {rx.diagnosis || "N/A"}</p>
-                            <div className="space-y-3">
-                              {dispenseItems.map((item, idx) => (
-                                <div key={idx} className={`p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5 ${item.is_nil ? "opacity-60 border-red-500/20 bg-red-500/5" : ""}`}>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    {/* Block in front showing dosage and number of days (duration) */}
-                                    <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black rounded-lg border border-indigo-200 dark:border-indigo-800/40">
-                                      {item.dosage} | {item.duration}
-                                    </span>
-                                    <span className="font-bold text-slate-800 dark:text-slate-200">{item.medicine_name}</span>
-                                    <span className="text-[10px] text-slate-400">Prescribed: {item.prescribed_qty}</span>
-                                  </div>
-
-                                  <div className="flex items-center justify-between gap-2">
-                                    <div className="flex items-center space-x-1.5">
-                                      <span className="text-[10px] font-bold text-slate-400 uppercase">Amt:</span>
-                                      <input
-                                        type="text"
-                                        placeholder="0.00"
-                                        value={item.cost_per_tablet}
-                                        disabled={item.is_nil}
-                                        onChange={(e) => {
-                                          const val = e.target.value;
-                                          if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
-                                            const updated = [...dispenseItems];
-                                            updated[idx].cost_per_tablet = val;
-                                            const price = parseFloat(val) || 0;
-                                            updated[idx].line_total = item.tablets_given * price;
-                                            setDispenseItems(updated);
-                                          }
-                                        }}
-                                        className="w-20 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
-                                      />
-                                    </div>
-
-                                    <div className="flex items-center space-x-1.5">
-                                      <span className="text-[10px] font-bold text-slate-400 uppercase">Qty:</span>
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        required
-                                        disabled={item.is_nil}
-                                        value={item.tablets_given}
-                                        onChange={(e) => {
-                                          const val = parseInt(e.target.value) || 0;
-                                          const updated = [...dispenseItems];
-                                          updated[idx].tablets_given = val;
-                                          const price = parseFloat(item.cost_per_tablet) || 0;
-                                          updated[idx].line_total = val * price;
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="w-14 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
-                                      />
-                                    </div>
-
-                                    <div className="flex items-center space-x-1">
-                                      <input
-                                        type="checkbox"
-                                        id={`nil-${rx.id}-${idx}`}
-                                        checked={item.is_nil}
-                                        onChange={(e) => {
-                                          const checked = e.target.checked;
-                                          const updated = [...dispenseItems];
-                                          updated[idx].is_nil = checked;
-                                          if (checked) {
-                                            updated[idx].line_total = 0;
-                                          } else {
-                                            const price = parseFloat(item.cost_per_tablet) || 0;
-                                            updated[idx].line_total = item.tablets_given * price;
-                                          }
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                                      />
-                                      <label htmlFor={`nil-${rx.id}-${idx}`} className="text-[10px] font-black text-red-500 uppercase cursor-pointer">NIL</label>
-                                    </div>
-                                  </div>
-
-                                  {item.is_nil && (
-                                    <input
-                                      type="text"
-                                      required
-                                      placeholder="Reason (e.g. Out of Stock)"
-                                      value={item.nil_reason}
-                                      onChange={(e) => {
-                                        const updated = [...dispenseItems];
-                                        updated[idx].nil_reason = e.target.value;
-                                        setDispenseItems(updated);
-                                      }}
-                                      className="w-full px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
-                                    />
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 border-t border-[var(--border)]">
-                              <span>TOTAL VALUE:</span>
-                              <span className="text-sm font-black text-slate-800 dark:text-slate-200">
-                                ₹{dispenseItems.reduce((acc, it) => acc + (it.is_nil ? 0 : it.line_total), 0).toFixed(2)}
-                              </span>
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (INR)</label>
-                              <input
-                                type="text"
-                                placeholder="0.00"
-                                value={dispenseAmountPaid}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
-                                    setDispenseAmountPaid(val);
-                                  }
-                                }}
-                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-center"
-                              />
-                            </div>
-
-                            <button
-                              type="submit"
-                              disabled={isSubmitting}
-                              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center disabled:opacity-50"
-                            >
-                              {isSubmitting ? "Processing..." : "Dispense & Generate Bill"}
-                            </button>
-                          </form>
-                        ) : (
+                    {/* Sort Controls */}
+                    <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto py-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400 whitespace-nowrap">
+                        Sort By:
+                      </span>
+                      {(["name", "stock", "availability"] as const).map(
+                        (field) => (
                           <button
+                            key={field}
                             onClick={() => {
-                              setActiveRxToDispense(rx);
-                              const itemsToDispense = rx.items.map((item: any) => {
-                                const matchedMed = medicines.find(m => m.name.toLowerCase() === item.medicine_name.toLowerCase());
-                                return {
-                                  prescription_item_id: item.id,
-                                  medicine_name: item.medicine_name,
-                                  medicine_id: item.medicine_id || (matchedMed ? matchedMed.id : null),
-                                  prescribed_qty: item.quantity,
-                                  dosage: item.dosage,
-                                  duration: item.duration || "N/A",
-                                  tablets_given: item.quantity,
-                                  cost_per_tablet: "", // Blank field!
-                                  is_nil: false,
-                                  nil_reason: "",
-                                  line_total: 0
-                                };
-                              });
-                              setDispenseItems(itemsToDispense);
+                              if (medSortBy === field) {
+                                setMedSortAsc(!medSortAsc);
+                              } else {
+                                setMedSortBy(field);
+                                setMedSortAsc(true);
+                              }
                             }}
-                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
-                          >
-                            Dispense Medication
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="col-span-full bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-slate-400 font-semibold">
-                      No prescriptions in the pending dispensing queue.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: BILLING & PRESCRIPTIONS */}
-            {activeTab === "billing" && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <h2 className="text-xl font-black">Clinic Billings</h2>
-                  <FloatingPanelRoot isOpen={isCreateBillOpen} onOpenChange={setIsCreateBillOpen}>
-                    <FloatingPanelTrigger
-                      title="Generate Bill"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Compose Bill</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-[32rem] max-h-[80vh] overflow-y-auto text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={handleCreateBill} className="space-y-4 text-xs text-[var(--foreground)]">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Patient</label>
-                              <select
-                                required
-                                value={billPatientId}
-                                onChange={(e) => setBillPatientId(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option value="">-- Choose Patient --</option>
-                                {patients.map((pt) => (
-                                  <option key={pt.id} value={pt.id}>
-                                    {pt.name} ({pt.phone})
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Diagnosis / Bill Name</label>
-                              <input
-                                type="text"
-                                required
-                                placeholder="e.g. Dental cleaning, Viral fever"
-                                value={billDesc}
-                                onChange={(e) => setBillDesc(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Multiple Items Composer */}
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                              <span className="text-[10px] font-bold uppercase text-slate-400">Bill Items / Other Entries</span>
-                              <button
-                                type="button"
-                                onClick={addBillItemRow}
-                                className="flex items-center space-x-1.5 text-indigo-500 hover:text-indigo-600 text-[10px] font-bold cursor-pointer"
-                              >
-                                <PlusCircle className="w-3.5 h-3.5" />
-                                <span>Add Entry</span>
-                              </button>
-                            </div>
-
-                            <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
-                              {billItems.map((item, idx) => (
-                                <div key={idx} className="flex flex-col sm:flex-row gap-2.5 items-end sm:items-center bg-[var(--nav-bg)] p-3 rounded-2xl border border-[var(--border)]">
-                                  <div className="w-full sm:flex-1 relative">
-                                    <label className="text-[8px] font-bold uppercase text-slate-400">Entry / Item Name</label>
-                                    <input
-                                      type="text"
-                                      required
-                                      placeholder="e.g. Consultation Fee, Lab Test, Procedure"
-                                      value={item.item_name}
-                                      onChange={(e) => handleBillItemChange(idx, "item_name", e.target.value)}
-                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                    />
-                                  </div>
-                                  <div className="w-20">
-                                    <label className="text-[8px] font-bold uppercase text-slate-400">Qty</label>
-                                    <input
-                                      type="number"
-                                      required
-                                      value={item.quantity}
-                                      onChange={(e) => handleBillItemChange(idx, "quantity", e.target.value)}
-                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                    />
-                                  </div>
-                                  <div className="w-28">
-                                    <label className="text-[8px] font-bold uppercase text-slate-400">Price (INR)</label>
-                                    <input
-                                      type="number"
-                                      step="0.01"
-                                      required
-                                      value={item.unit_price || ""}
-                                      onChange={(e) => handleBillItemChange(idx, "unit_price", e.target.value)}
-                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                    />
-                                  </div>
-                                  {billItems.length > 1 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => removeBillItemRow(idx)}
-                                      className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg cursor-pointer"
-                                    >
-                                      <MinusCircle className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Total Display */}
-                          <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded-2xl text-xs font-bold text-indigo-500">
-                            <span>Calculated Total:</span>
-                            <span className="text-sm font-black">₹{getBillTotal().toFixed(2)}</span>
-                          </div>
-
-                          {/* Upfront payment details */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[var(--border)] pt-4">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Upfront Amount Paid</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                placeholder="Keep blank for 0"
-                                value={billAmountPaid}
-                                onChange={(e) => setBillAmountPaid(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Payment Mode</label>
-                              <select
-                                value={billPayMode}
-                                onChange={(e) => setBillPayMode(e.target.value as any)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              >
-                                <option>CASH</option>
-                                <option>ONLINE_UPI</option>
-                                <option>BANK_TRANSFER</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Promise Due Date</label>
-                              <input
-                                type="date"
-                                value={billDueDate}
-                                onChange={(e) => setBillDueDate(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Upfront Payment Remarks */}
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Remarks / Log Note</label>
-                            <input
-                              type="text"
-                              placeholder="Remarks"
-                              value={billPayRemarks}
-                              onChange={(e) => setBillPayRemarks(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Generate Invoice"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                {/* Search Bar */}
-                <div className="relative w-full md:max-w-xs">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Search bills by patient name..."
-                    value={billSearchQuery}
-                    onChange={(e) => {
-                      setBillSearchQuery(e.target.value);
-                      loadRecentBills(e.target.value, 0);
-                    }}
-                    className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                  />
-                </div>
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  {/* Mobile Card List View for Billings */}
-                  <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
-                    {recentBills.length > 0 ? (
-                      recentBills.map((bill) => (
-                        <div
-                          key={bill.id}
-                          onClick={() => {
-                            setActiveTab("patients");
-                            setViewState({ type: "bill", billId: bill.id });
-                          }}
-                          className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
-                        >
-                          <div className="flex justify-between items-start">
-                            <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{bill.patient_name}</span>
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                bill.status === "SETTLED"
-                                  ? "bg-emerald-500/10 text-emerald-500"
-                                  : bill.status === "PARTIALLY_PAID"
-                                  ? "bg-amber-500/10 text-amber-500"
-                                  : "bg-red-500/10 text-red-500"
-                              }`}
-                            >
-                              {bill.status}
-                            </span>
-                          </div>
-                          
-                          <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-                            <span>Total: ₹{bill.total_amount.toFixed(2)}</span>
-                            <span className="font-bold text-red-500">Dues: ₹{bill.remaining_amount.toFixed(2)}</span>
-                          </div>
-
-                          <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
-                            <span className="truncate max-w-[60%]">{bill.description}</span>
-                            <span>{new Date(bill.created_at).toLocaleDateString()}</span>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="p-8 text-center text-slate-400 font-semibold">
-                        {billsLoading ? "Loading bills..." : "No billing records found."}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Date</th>
-                          <th className="px-6 py-4">Patient Name</th>
-                          <th className="px-6 py-4">Diagnosis / Details</th>
-                          <th className="px-6 py-4">Total Amount</th>
-                          <th className="px-6 py-4">Outstanding Balance</th>
-                          <th className="px-6 py-4">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {recentBills.length > 0 ? (
-                          recentBills.map((bill) => (
-                            <tr
-                              key={bill.id}
-                              onClick={() => {
-                                setActiveTab("patients");
-                                setViewState({ type: "bill", billId: bill.id });
-                              }}
-                              className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
-                            >
-                              <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
-                                {new Date(bill.created_at).toLocaleDateString()}
-                              </td>
-                              <td className="px-6 py-4 font-normal">{bill.patient_name}</td>
-                              <td className="px-6 py-4 text-slate-400 max-w-xs truncate">{bill.description}</td>
-                              <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
-                                ₹{bill.total_amount.toFixed(2)}
-                              </td>
-                              <td className="px-6 py-4 font-black text-red-500">
-                                ₹{bill.remaining_amount.toFixed(2)}
-                              </td>
-                              <td className="px-6 py-4">
-                                <span
-                                  className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
-                                    bill.status === "SETTLED"
-                                      ? "bg-emerald-500/10 text-emerald-500"
-                                      : bill.status === "PARTIALLY_PAID"
-                                      ? "bg-amber-500/10 text-amber-500"
-                                      : "bg-red-500/10 text-red-500"
-                                  }`}
-                                >
-                                  {bill.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              {billsLoading ? "Loading bills..." : "No billing records found."}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Pagination */}
-                {recentBills.length < billsTotalCount && (
-                  <div className="flex justify-center pt-2">
-                    <button
-                      onClick={() => loadRecentBills(billSearchQuery, billsOffset + 20, true)}
-                      disabled={billsLoading}
-                      className="px-6 py-2 border border-indigo-600/30 text-indigo-500 hover:bg-indigo-500/10 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center space-x-1.5"
-                    >
-                      {billsLoading ? (
-                        <span>Loading...</span>
-                      ) : (
-                        <>
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>Load More Bills</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* TAB: PHARMACY STOCK */}
-            {activeTab === "medicines" && (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <h2 className="text-xl font-black">Medicine Catalog</h2>
-                  <FloatingPanelRoot isOpen={isAddMedicineOpen} onOpenChange={setIsAddMedicineOpen}>
-                    <FloatingPanelTrigger
-                      title="Register New Medicine"
-                      className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-100 font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" />
-                      <span>Add New Medicine</span>
-                    </FloatingPanelTrigger>
-                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                      <FloatingPanelBody>
-                        <form onSubmit={handleAddMedicine} className="space-y-4 text-xs text-[var(--foreground)]">
-                          <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Medicine Name</label>
-                            <input
-                              type="text"
-                              required
-                              value={medName}
-                              onChange={(e) => setMedName(e.target.value)}
-                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Price Per Unit</label>
-                              <input
-                                type="number"
-                                step="0.01"
-                                required
-                                value={medPrice}
-                                onChange={(e) => setMedPrice(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Initial Stock</label>
-                              <input
-                                type="number"
-                                value={medStock}
-                                onChange={(e) => setMedStock(e.target.value)}
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Register"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
-                          </div>
-                        </form>
-                      </FloatingPanelBody>
-                    </FloatingPanelContent>
-                  </FloatingPanelRoot>
-                </div>
-
-                {/* Filters & Search */}
-                <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                  {/* Search Bar */}
-                  <div className="relative w-full md:max-w-xs">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search medicine catalog..."
-                      value={medSearchQuery}
-                      onChange={(e) => setMedSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-
-                  {/* Sort Controls */}
-                  <div className="flex items-center space-x-2 w-full md:w-auto overflow-x-auto py-1">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 whitespace-nowrap">Sort By:</span>
-                    {(["name", "stock", "availability"] as const).map((field) => (
-                      <button
-                        key={field}
-                        onClick={() => {
-                          if (medSortBy === field) {
-                            setMedSortAsc(!medSortAsc);
-                          } else {
-                            setMedSortBy(field);
-                            setMedSortAsc(true);
-                          }
-                        }}
-                        className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold capitalize transition flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
-                          medSortBy === field
-                            ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-500"
-                            : "border-[var(--border)] hover:bg-[var(--card-hover)] text-slate-500"
-                        }`}
-                      >
-                        <span>{field}</span>
-                        {medSortBy === field && (
-                          <ArrowUpDown className={`w-3 h-3 transition-transform ${medSortAsc ? "" : "rotate-180"}`} />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                          <th className="px-6 py-4">Medicine Name</th>
-                          <th className="px-6 py-4">Unit Price</th>
-                          <th className="px-6 py-4">Stock In-Hand</th>
-                          <th className="px-6 py-4">Status</th>
-                          <th className="px-6 py-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredMedicines.length > 0 ? (
-                          filteredMedicines.map((med) => {
-                            const isEditing = editingMedId === med.id;
-                            return (
-                              <tr key={med.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                                <td className="px-6 py-4 font-black text-sm">
-                                  {isEditing ? (
-                                    <input
-                                      type="text"
-                                      value={editMedName}
-                                      onChange={(e) => setEditMedName(e.target.value)}
-                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-full max-w-[200px]"
-                                    />
-                                  ) : (
-                                    med.name
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
-                                  {isEditing ? (
-                                    <div className="flex items-center space-x-1">
-                                      <span className="text-slate-400">₹</span>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        value={editMedPrice}
-                                        onChange={(e) => setEditMedPrice(e.target.value)}
-                                        className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-20"
-                                      />
-                                    </div>
-                                  ) : (
-                                    `₹${med.price.toFixed(2)}`
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
-                                  {isEditing ? (
-                                    <input
-                                      type="number"
-                                      value={editMedStock}
-                                      onChange={(e) => setEditMedStock(e.target.value)}
-                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-20"
-                                    />
-                                  ) : (
-                                    `${med.stock} units`
-                                  )}
-                                </td>
-                                <td className="px-6 py-4">
-                                  <span
-                                    className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                      med.stock > 10
-                                        ? "bg-emerald-500/10 text-emerald-500"
-                                        : med.stock > 0
-                                        ? "bg-amber-500/10 text-amber-500"
-                                        : "bg-red-500/10 text-red-500"
-                                    }`}
-                                  >
-                                    {med.stock > 10 ? "Available" : med.stock > 0 ? "Low Stock" : "Out of stock"}
-                                  </span>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                  {isEditing ? (
-                                    <div className="flex items-center justify-end space-x-2">
-                                      <button
-                                        onClick={() => handleUpdateMedicine(med.id)}
-                                        className="p-1.5 text-emerald-500 hover:bg-emerald-500/10 rounded-xl cursor-pointer"
-                                        title="Save Changes"
-                                      >
-                                        <Save className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => setEditingMedId(null)}
-                                        className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-xl cursor-pointer"
-                                        title="Cancel"
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center justify-end space-x-2">
-                                      <button
-                                        onClick={() => {
-                                          setEditingMedId(med.id);
-                                          setEditMedName(med.name);
-                                          setEditMedPrice(med.price.toString());
-                                          setEditMedStock(med.stock.toString());
-                                        }}
-                                        className="p-1.5 text-slate-500 hover:bg-slate-500/10 dark:text-slate-400 rounded-xl cursor-pointer"
-                                        title="Edit Medicine"
-                                      >
-                                        <Pencil className="w-4 h-4" />
-                                      </button>
-                                      <button
-                                        onClick={() => handleDeleteMedicine(med.id, med.name)}
-                                        className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-xl cursor-pointer"
-                                        title="Delete Medicine"
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-semibold">
-                              {medSearchQuery ? "No medicines matching your search." : "Pharmacy inventory is empty. Click 'Add New Medicine' to register stock."}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: ANALYTICS DASHBOARD */}
-            {activeTab === "analytics" && (
-              <div className="space-y-8">
-                {/* 1. Summary Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Patients Treated</span>
-                      <h3 className="text-3xl font-black mt-1">
-                        {analytics?.patients_weekly?.reduce((s, p) => s + p.value, 0) || 0}
-                      </h3>
-                      <p className="text-[10px] text-indigo-500 font-semibold mt-1">Completed slots (past 7 days)</p>
-                    </div>
-                    <div className="p-3.5 bg-indigo-500/10 text-indigo-500 rounded-2xl">
-                      <Users className="w-6 h-6" />
-                    </div>
-                  </div>
-
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Revenue (Past 30 Days)</span>
-                      <h3 className="text-3xl font-black mt-1 text-emerald-500">
-                        ₹{(analytics?.revenue_daily?.reduce((s, r) => s + r.value, 0) || 0).toLocaleString("en-IN")}
-                      </h3>
-                      <p className="text-[10px] text-emerald-500 font-semibold mt-1">Gross Invoiced</p>
-                    </div>
-                    <div className="p-3.5 bg-emerald-500/10 text-emerald-500 rounded-2xl">
-                      <DollarSign className="w-6 h-6" />
-                    </div>
-                  </div>
-
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Upcoming Agenda Slots</span>
-                      <h3 className="text-3xl font-black mt-1 text-amber-500">
-                        {analytics?.appointments_future?.reduce((s, a) => s + a.value, 0) || 0}
-                      </h3>
-                      <p className="text-[10px] text-amber-500 font-semibold mt-1">Next 14 Days</p>
-                    </div>
-                    <div className="p-3.5 bg-amber-500/10 text-amber-500 rounded-2xl">
-                      <Calendar className="w-6 h-6" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Graphs Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Treated Patients Histogram */}
-                  <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">Patients Treated (Completed)</h4>
-                        <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">Historical performance data</p>
-                      </div>
-                      <div className="flex border border-[var(--border)] dark:border-zinc-800 rounded-xl overflow-hidden text-[10px] font-bold">
-                        {(["weekly", "monthly", "yearly"] as const).map((t) => (
-                          <button
-                            key={t}
-                            onClick={() => setPatientTimeframe(t)}
-                            className={`px-3 py-1.5 cursor-pointer uppercase transition ${
-                              patientTimeframe === t
-                                ? "bg-indigo-600 text-white"
-                                : "hover:bg-[var(--card-hover)] text-[var(--text-muted)] dark:text-zinc-400 dark:hover:bg-zinc-800"
+                            className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold capitalize transition flex items-center space-x-1.5 cursor-pointer whitespace-nowrap ${
+                              medSortBy === field
+                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-500"
+                                : "border-[var(--border)] hover:bg-[var(--card-hover)] text-slate-500"
                             }`}
                           >
-                            {t}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="h-64 flex items-center justify-center p-2">
-                      {analytics ? (
-                        patientTimeframe === "weekly" ? (
-                          renderHistogram(analytics.patients_weekly)
-                        ) : patientTimeframe === "monthly" ? (
-                          renderHistogram(analytics.patients_monthly)
-                        ) : (
-                          renderHistogram(analytics.patients_yearly)
-                        )
-                      ) : (
-                        <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">Loading chart data...</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Daily Revenue Line Chart */}
-                  <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
-                    <div>
-                      <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">Daily Revenue Trend</h4>
-                      <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">Invoices generated in the past 30 days</p>
-                    </div>
-
-                    <div className="h-64 flex items-center justify-center p-2">
-                      {analytics?.revenue_daily ? (
-                        renderLineChart(analytics.revenue_daily)
-                      ) : (
-                        <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">Loading chart data...</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Future Appointments Histogram */}
-                  <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm lg:col-span-2 space-y-4 text-[var(--foreground)] dark:text-white">
-                    <div>
-                      <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">Upcoming Booking Density (Next 14 Days)</h4>
-                      <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">Future slots scheduled date-wise</p>
-                    </div>
-
-                    <div className="h-64 flex items-center justify-center p-2">
-                      {analytics?.appointments_future ? (
-                        renderHistogram(analytics.appointments_future)
-                      ) : (
-                        <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">Loading chart data...</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: WHATSAPP LINKING */}
-            {activeTab === "whatsapp" && (
-              <div className="max-w-xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-6">
-                <WhatsAppPanel setToast={setToast} />
-
-                {/* Message Templates Section */}
-                <div className="border-t border-[var(--border)] pt-6 mt-6 space-y-4">
-                  <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">Message Templates</h3>
-                  <p className="text-[11px] text-slate-400">
-                    Customize your automated WhatsApp messages. Use the chips as placeholders.
-                  </p>
-
-                  {(["bill_notification", "overdue_reminder", "prescription_notification", "appointment_reminder", "appointment_confirmation"] as const).map((key) => {
-                    const isEditing = editingTemplate === key;
-                    const tmpl = waTemplates[key];
-                    const label = 
-                      key === "bill_notification" ? "Bill Notification Template" :
-                      key === "overdue_reminder" ? "Overdue Reminder Template" :
-                      key === "prescription_notification" ? "Prescription Notification Template" :
-                      key === "appointment_reminder" ? "Appointment Reminder Template" :
-                      "Appointment Confirmation Template";
-                    const chips = 
-                      key === "bill_notification" 
-                        ? ["{patient_name}", "{total_amount}", "{remaining_amount}", "{clinic_name}", "{items_list}", "{bill_link}", "{payment_details}", "{description}"]
-                        : key === "overdue_reminder"
-                        ? ["{patient_name}", "{remaining_amount}", "{clinic_name}", "{bill_link}", "{description}"]
-                        : key === "prescription_notification"
-                        ? ["{patient_name}", "{doctor_name}", "{clinic_name}", "{diagnosis}", "{notes}"]
-                        : ["{patient_name}", "{doctor_name}", "{clinic_name}", "{appointment_time}", "{reason}"];
-
-                    return (
-                      <div key={key} className="border border-[var(--border)] rounded-2xl p-4 bg-[var(--nav-bg)] space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">{label}</h4>
-                          <button
-                            onClick={() => {
-                              if (isEditing) {
-                                setEditingTemplate(null);
-                              } else {
-                                setEditingTemplate(key);
-                              }
-                            }}
-                            className="text-xs text-indigo-500 hover:underline font-semibold flex items-center space-x-1 cursor-pointer"
-                          >
-                            {isEditing ? (
-                              <>
-                                <X className="w-3 h-3" />
-                                <span>Cancel</span>
-                              </>
-                            ) : (
-                              <>
-                                <Pencil className="w-3 h-3" />
-                                <span>Edit</span>
-                              </>
+                            <span>{field}</span>
+                            {medSortBy === field && (
+                              <ArrowUpDown
+                                className={`w-3 h-3 transition-transform ${medSortAsc ? "" : "rotate-180"}`}
+                              />
                             )}
                           </button>
-                        </div>
-
-                        {/* Chips list */}
-                        <div className="flex flex-wrap gap-1.5">
-                          {chips.map(chip => (
-                            <span 
-                              key={chip} 
-                              onClick={() => {
-                                if (isEditing) {
-                                  setWaTemplates(prev => ({
-                                    ...prev,
-                                    [key]: {
-                                      ...prev[key],
-                                      body: prev[key].body + chip
-                                    }
-                                  }));
-                                }
-                              }}
-                              className={`text-[9px] font-mono px-2 py-0.5 rounded-md ${
-                                isEditing ? "bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 cursor-pointer" : "bg-slate-500/10 text-slate-400"
-                              }`}
-                            >
-                              {chip}
-                            </span>
-                          ))}
-                        </div>
-
-                        {isEditing ? (
-                          <div className="space-y-3 pt-2">
-                            <div>
-                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Greeting</label>
-                              <input
-                                type="text"
-                                value={tmpl.greeting}
-                                onChange={(e) => setWaTemplates(prev => ({
-                                  ...prev,
-                                  [key]: { ...prev[key], greeting: e.target.value }
-                                }))}
-                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Body Text</label>
-                              <textarea
-                                value={tmpl.body}
-                                rows={4}
-                                onChange={(e) => setWaTemplates(prev => ({
-                                  ...prev,
-                                  [key]: { ...prev[key], body: e.target.value }
-                                }))}
-                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">Footer</label>
-                              <input
-                                type="text"
-                                value={tmpl.footer}
-                                onChange={(e) => setWaTemplates(prev => ({
-                                  ...prev,
-                                  [key]: { ...prev[key], footer: e.target.value }
-                                }))}
-                                className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-
-                            <div className="flex justify-end space-x-2 pt-1">
-                              <button
-                                onClick={() => loadWhatsAppTemplates().then(() => setEditingTemplate(null))}
-                                className="px-3 py-1.5 border border-[var(--border)] text-slate-500 font-bold rounded-xl text-[10px] hover:bg-[var(--card-hover)] cursor-pointer"
-                              >
-                                Reset
-                              </button>
-                              <button
-                                onClick={() => handleSaveTemplate(key)}
-                                disabled={templateSaving}
-                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[10px] shadow-sm flex items-center space-x-1 cursor-pointer"
-                              >
-                                {templateSaving ? (
-                                  <span>Saving...</span>
-                                ) : (
-                                  <>
-                                    <Save className="w-3.5 h-3.5" />
-                                    <span>Save Template</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-[var(--input-bg)] border border-[var(--border)] rounded-xl p-3 text-[11px] font-mono text-slate-600 dark:text-white whitespace-pre-wrap leading-relaxed">
-                            <span className="font-bold text-slate-400 block text-[9px] uppercase tracking-wider mb-1">Preview</span>
-                            {tmpl.greeting ? tmpl.greeting : "Dear {patient_name},"}
-                            {"\n\n"}
-                            {tmpl.body ? tmpl.body : "..."}
-                            {"\n\n"}
-                            {tmpl.footer ? tmpl.footer : "..."}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: SLOT SETTINGS */}
-            {activeTab === "availability" && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h2 className="text-xl font-black">Availability & Slot Settings</h2>
-                    <p className="text-xs text-slate-400">Configure weekly operational hours and generate discrete appointment slots.</p>
-                  </div>
-                </div>
-
-                {doctorInfo?.role === "HOSPITAL_ADMIN" && (
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm space-y-2 border-white">
-                    <label className="text-[12px] font-bold uppercase text-slate-400">Select Doctor to Configure</label>
-                    <select
-                      value={configDoctorId}
-                      onChange={(e) => {
-                        setConfigDoctorId(e.target.value);
-                        loadDoctorAvailability(e.target.value);
-                        setSlotPreviews([]);
-                      }}
-                      className="w-full sm:w-72 mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                    >
-                      <option value="">-- Choose Doctor --</option>
-                      {facilityDoctors.map((doc) => (
-                        <option key={doc.id} value={doc.id}>
-                          Dr. {doc.name} ({doc.specialization || "General"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {(configDoctorId || doctorInfo?.role === "DOCTOR") && (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Weekly Schedule Planner */}
-                    <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                      <h3 className="text-sm font-black">Weekly Availability Template</h3>
-                      <div className="space-y-3">
-                        {configWeeklyAvail.map((day, idx) => {
-                          const daysName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-                          return (
-                            <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-[var(--border)] rounded-2xl bg-[var(--nav-bg)] gap-2">
-                              <div className="flex items-center space-x-3 w-32">
-                                <input
-                                  type="checkbox"
-                                  checked={day.is_active}
-                                  onChange={(e) => {
-                                    const updated = [...configWeeklyAvail];
-                                    updated[idx].is_active = e.target.checked;
-                                    setConfigWeeklyAvail(updated);
-                                  }}
-                                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
-                                />
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{daysName[idx]}</span>
-                              </div>
-
-                              {day.is_active ? (
-                                <div className="flex flex-1 flex-wrap items-center gap-3 text-xs justify-start sm:justify-end">
-                                  <div className="flex items-center space-x-1">
-                                    <span className="text-slate-400">Start:</span>
-                                    <input
-                                      type="time"
-                                      value={day.start_time}
-                                      onChange={(e) => {
-                                        const updated = [...configWeeklyAvail];
-                                        updated[idx].start_time = e.target.value;
-                                        setConfigWeeklyAvail(updated);
-                                      }}
-                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
-                                    />
-                                  </div>
-                                  <div className="flex items-center space-x-1">
-                                    <span className="text-slate-400">End:</span>
-                                    <input
-                                      type="time"
-                                      value={day.end_time}
-                                      onChange={(e) => {
-                                        const updated = [...configWeeklyAvail];
-                                        updated[idx].end_time = e.target.value;
-                                        setConfigWeeklyAvail(updated);
-                                      }}
-                                      className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
-                                    />
-                                  </div>
-                                  <div className="flex items-center space-x-1">
-                                    <span className="text-slate-400">Max Qty:</span>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={day.max_patients_per_slot}
-                                      onChange={(e) => {
-                                        const updated = [...configWeeklyAvail];
-                                        updated[idx].max_patients_per_slot = parseInt(e.target.value) || 1;
-                                        setConfigWeeklyAvail(updated);
-                                      }}
-                                      className="w-12 px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <span className="text-[11px] text-slate-400 italic">Closed / Unavailable</span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <button
-                        onClick={async () => {
-                          setIsSubmitting(true);
-                          try {
-                            const activeDays = configWeeklyAvail.filter(d => d.is_active);
-                            await fetchAPI("/api/doctors/availability", {
-                              method: "POST",
-                              body: JSON.stringify({
-                                doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
-                                availabilities: activeDays
-                              })
-                            });
-                            setToast({ message: "Weekly availability template saved!", type: "success" });
-                          } catch (err: any) {
-                            setToast({ message: err.message || "Failed to save availability", type: "error" });
-                          } finally {
-                            setIsSubmitting(false);
-                          }
-                        }}
-                        disabled={isSubmitting}
-                        className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer"
-                      >
-                        Save Availability Template
-                      </button>
-                    </div>
-
-                    {/* Discrete Slots Generator */}
-                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit">
-                      <h3 className="text-sm font-black">Generate Discrete Slots</h3>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Roll out slots in bulk for a date range based on your weekly template. Overlapping slots are automatically skipped.
-                      </p>
-
-                      <div className="space-y-3 text-xs">
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400">Start Date</label>
-                          <input
-                            type="date"
-                            value={generateStartDate}
-                            onChange={(e) => setGenerateStartDate(e.target.value)}
-                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold uppercase text-slate-400">End Date</label>
-                          <input
-                            type="date"
-                            value={generateEndDate}
-                            onChange={(e) => setGenerateEndDate(e.target.value)}
-                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (!generateStartDate || !generateEndDate) {
-                              setToast({ message: "Select start and end dates", type: "error" });
-                              return;
-                            }
-                            setIsSubmitting(true);
-                            try {
-                              const data = await fetchAPI("/api/slots/generate", {
-                                method: "POST",
-                                body: JSON.stringify({
-                                  doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
-                                  start_date: generateStartDate,
-                                  end_date: generateEndDate
-                                })
-                              });
-                              setSlotPreviews(data || []);
-                              if (!data || data.length === 0) {
-                                setToast({ message: "No slots to generate on these dates", type: "error" });
-                              }
-                            } catch (err: any) {
-                              setToast({ message: err.message || "Failed to generate previews", type: "error" });
-                            } finally {
-                              setIsSubmitting(false);
-                            }
-                          }}
-                          className="w-full py-2.5 border border-indigo-500/20 text-indigo-500 hover:bg-indigo-500/10 rounded-2xl font-bold transition cursor-pointer text-center"
-                        >
-                          Preview Slots List
-                        </button>
-                      </div>
-
-                      {slotPreviews.length > 0 && (
-                        <div className="space-y-3 pt-3 border-t border-[var(--border)] animate-fade-in">
-                          <span className="text-[10px] font-black uppercase text-slate-400 block">
-                            Preview Generated ({slotPreviews.length} slots)
-                          </span>
-                          <div className="max-h-40 overflow-y-auto space-y-1.5 border border-[var(--border)] rounded-2xl p-2 bg-[var(--nav-bg)] text-[10px]">
-                            {slotPreviews.map((p, idx) => (
-                              <div key={idx} className="flex justify-between text-slate-500">
-                                <span className="font-bold">{p.slot_date}</span>
-                                <span>{p.start_time} - {p.end_time}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <button
-                            onClick={async () => {
-                              setIsSubmitting(true);
-                              try {
-                                await fetchAPI("/api/slots/confirm", {
-                                  method: "POST",
-                                  body: JSON.stringify({
-                                    doctor_id: configDoctorId ? parseInt(configDoctorId) : 0,
-                                    slots: slotPreviews
-                                  })
-                                });
-                                setToast({ message: "Discrete slots generated successfully!", type: "success" });
-                                setSlotPreviews([]);
-                              } catch (err: any) {
-                                setToast({ message: err.message || "Failed to confirm slots", type: "error" });
-                              } finally {
-                                setIsSubmitting(false);
-                              }
-                            }}
-                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
-                          >
-                            Generate & Save Slots
-                          </button>
-                        </div>
+                        ),
                       )}
                     </div>
                   </div>
-                )}
-              </div>
-            )}
 
-            {/* TAB: RESCHEDULE QUEUE */}
-            {activeTab === "reschedule-queue" && (
-              <div className="space-y-6 animate-fade-in">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Mark Unavailability form */}
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit lg:col-span-1">
-                    <h3 className="text-sm font-black">Register Unavailability</h3>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Marking a doctor unavailable cancels all slots and automatically moves bookings into the reschedule queue. WhatsApp notifications are dispatched instantly.
-                    </p>
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (!unavailDoctorId || !unavailDate) return;
-                        setIsSubmitting(true);
-                        try {
-                          await fetchAPI("/api/doctors/unavailable", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              doctor_id: parseInt(unavailDoctorId),
-                              unavailable_date: unavailDate,
-                              reason: unavailReason
-                            })
-                          });
-                          setToast({ message: "Doctor registered unavailable. Alerts queued!", type: "success" });
-                          setUnavailDoctorId("");
-                          setUnavailDate("");
-                          setUnavailReason("");
-                          loadRescheduleQueue();
-                        } catch (err: any) {
-                          setToast({ message: err.message || "Operation failed", type: "error" });
-                        } finally {
-                          setIsSubmitting(false);
-                        }
-                      }}
-                      className="space-y-3 text-xs text-[var(--foreground)]"
-                    >
-                      <div>
-                        <label className="text-[10px] font-bold uppercase text-slate-400">Select Doctor</label>
-                        <select
-                          required
-                          value={unavailDoctorId}
-                          onChange={(e) => setUnavailDoctorId(e.target.value)}
-                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                        >
-                          <option value="">-- Choose Doctor --</option>
-                          {facilityDoctors.map((doc) => (
-                            <option key={doc.id} value={doc.id}>
-                              Dr. {doc.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-bold uppercase text-slate-400">Unavailable Date</label>
-                        <input
-                          type="date"
-                          required
-                          value={unavailDate}
-                          onChange={(e) => setUnavailDate(e.target.value)}
-                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] font-bold uppercase text-slate-400">Reason / Notes</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Conference, Medical Leave"
-                          value={unavailReason}
-                          onChange={(e) => setUnavailReason(e.target.value)}
-                          className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                        />
-                      </div>
-
-                      <button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
-                      >
-                        {isSubmitting ? "Processing..." : "Mark Unavailable"}
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Reschedule List Table */}
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 lg:col-span-2">
-                    <h3 className="text-sm font-black">Rescheduling Active Queue</h3>
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
-                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 font-bold uppercase">
-                            <th className="px-4 py-3">Patient</th>
-                            <th className="px-4 py-3">Doctor Name</th>
-                            <th className="px-4 py-3">Original Date</th>
-                            <th className="px-4 py-3 text-right">Actions</th>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                            <th className="px-6 py-4">Medicine Name</th>
+                            <th className="px-6 py-4">Unit Price</th>
+                            <th className="px-6 py-4">Stock In-Hand</th>
+                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {rescheduleQueue.length > 0 ? (
-                            rescheduleQueue.map((item) => (
-                              <tr key={item.id} className="border-b border-[var(--border)] hover:bg-table-row-hover transition">
-                                <td className="px-4 py-3">
-                                  <div className="font-bold">{item.patient_name}</div>
-                                  <div className="text-[9px] text-slate-400">{item.patient_phone}</div>
-                                </td>
-                                <td className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-400">Dr. {item.doctor_name}</td>
-                                <td className="px-4 py-3 text-slate-500">
-                                  {item.original_date} {item.original_slot_time ? `(${item.original_slot_time})` : ""}
-                                </td>
-                                <td className="px-4 py-3 text-right">
-                                  <button
-                                    onClick={() => {
-                                      setActiveRescheduleItem(item);
-                                      setReschedDate("");
-                                      setReschedNewSlotId("");
-                                      setReschedSlots([]);
-                                      setIsRescheduleModalOpen(true);
-                                    }}
-                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-sm transition cursor-pointer"
-                                  >
-                                    Assign Slot
-                                  </button>
-                                </td>
-                              </tr>
-                            ))
+                          {filteredMedicines.length > 0 ? (
+                            filteredMedicines.map((med) => {
+                              const isEditing = editingMedId === med.id;
+                              return (
+                                <tr
+                                  key={med.id}
+                                  className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                                >
+                                  <td className="px-6 py-4 font-black text-sm">
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={editMedName}
+                                        onChange={(e) =>
+                                          setEditMedName(e.target.value)
+                                        }
+                                        className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-full max-w-[200px]"
+                                      />
+                                    ) : (
+                                      med.name
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
+                                    {isEditing ? (
+                                      <div className="flex items-center space-x-1">
+                                        <span className="text-slate-400">
+                                          ₹
+                                        </span>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          value={editMedPrice}
+                                          onChange={(e) =>
+                                            setEditMedPrice(e.target.value)
+                                          }
+                                          className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-20"
+                                        />
+                                      </div>
+                                    ) : (
+                                      `₹${med.price.toFixed(2)}`
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4 font-bold text-slate-500 dark:text-slate-400">
+                                    {isEditing ? (
+                                      <input
+                                        type="number"
+                                        value={editMedStock}
+                                        onChange={(e) =>
+                                          setEditMedStock(e.target.value)
+                                        }
+                                        className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none w-20"
+                                      />
+                                    ) : (
+                                      `${med.stock} units`
+                                    )}
+                                  </td>
+                                  <td className="px-6 py-4">
+                                    <span
+                                      className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                        med.stock > 10
+                                          ? "bg-emerald-500/10 text-emerald-500"
+                                          : med.stock > 0
+                                            ? "bg-amber-500/10 text-amber-500"
+                                            : "bg-red-500/10 text-red-500"
+                                      }`}
+                                    >
+                                      {med.stock > 10
+                                        ? "Available"
+                                        : med.stock > 0
+                                          ? "Low Stock"
+                                          : "Out of stock"}
+                                    </span>
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    {isEditing ? (
+                                      <div className="flex items-center justify-end space-x-2">
+                                        <button
+                                          onClick={() =>
+                                            handleUpdateMedicine(med.id)
+                                          }
+                                          className="p-1.5 text-emerald-500 hover:bg-emerald-500/10 rounded-xl cursor-pointer"
+                                          title="Save Changes"
+                                        >
+                                          <Save className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingMedId(null)}
+                                          className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-xl cursor-pointer"
+                                          title="Cancel"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-end space-x-2">
+                                        <button
+                                          onClick={() => {
+                                            setEditingMedId(med.id);
+                                            setEditMedName(med.name);
+                                            setEditMedPrice(
+                                              med.price.toString(),
+                                            );
+                                            setEditMedStock(
+                                              med.stock.toString(),
+                                            );
+                                          }}
+                                          className="p-1.5 text-slate-500 hover:bg-slate-500/10 dark:text-slate-400 rounded-xl cursor-pointer"
+                                          title="Edit Medicine"
+                                        >
+                                          <Pencil className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() =>
+                                            handleDeleteMedicine(
+                                              med.id,
+                                              med.name,
+                                            )
+                                          }
+                                          className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-xl cursor-pointer"
+                                          title="Delete Medicine"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
-                              <td colSpan={4} className="px-4 py-8 text-center text-slate-400 italic">
-                                No appointments currently need rescheduling.
+                              <td
+                                colSpan={5}
+                                className="px-6 py-12 text-center text-slate-400 font-semibold"
+                              >
+                                {medSearchQuery
+                                  ? "No medicines matching your search."
+                                  : "Pharmacy inventory is empty. Click 'Add New Medicine' to register stock."}
                               </td>
                             </tr>
                           )}
@@ -5856,108 +6741,1057 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+              )}
 
-                {/* RESCHEDULING ASSIGN MODAL */}
-                <FloatingPanelRoot isOpen={isRescheduleModalOpen} onOpenChange={setIsRescheduleModalOpen}>
-                  <FloatingPanelContent className="w-80 sm:w-96 text-left">
-                    <FloatingPanelBody>
-                      {activeRescheduleItem && (
-                        <form
-                          onSubmit={async (e) => {
-                            e.preventDefault();
-                            if (!reschedNewSlotId) return;
+              {/* TAB: ANALYTICS DASHBOARD */}
+              {activeTab === "analytics" && (
+                <div className="space-y-8">
+                  {/* 1. Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                          Total Patients Treated
+                        </span>
+                        <h3 className="text-3xl font-black mt-1">
+                          {analytics?.patients_weekly?.reduce(
+                            (s, p) => s + p.value,
+                            0,
+                          ) || 0}
+                        </h3>
+                        <p className="text-[10px] text-indigo-500 font-semibold mt-1">
+                          Completed slots (past 7 days)
+                        </p>
+                      </div>
+                      <div className="p-3.5 bg-indigo-500/10 text-indigo-500 rounded-2xl">
+                        <Users className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                          Revenue (Past 30 Days)
+                        </span>
+                        <h3 className="text-3xl font-black mt-1 text-emerald-500">
+                          ₹
+                          {(
+                            analytics?.revenue_daily?.reduce(
+                              (s, r) => s + r.value,
+                              0,
+                            ) || 0
+                          ).toLocaleString("en-IN")}
+                        </h3>
+                        <p className="text-[10px] text-emerald-500 font-semibold mt-1">
+                          Gross Invoiced
+                        </p>
+                      </div>
+                      <div className="p-3.5 bg-emerald-500/10 text-emerald-500 rounded-2xl">
+                        <DollarSign className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                          Upcoming Agenda Slots
+                        </span>
+                        <h3 className="text-3xl font-black mt-1 text-amber-500">
+                          {analytics?.appointments_future?.reduce(
+                            (s, a) => s + a.value,
+                            0,
+                          ) || 0}
+                        </h3>
+                        <p className="text-[10px] text-amber-500 font-semibold mt-1">
+                          Next 14 Days
+                        </p>
+                      </div>
+                      <div className="p-3.5 bg-amber-500/10 text-amber-500 rounded-2xl">
+                        <Calendar className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. Graphs Grid */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Treated Patients Histogram */}
+                    <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                            Patients Treated (Completed)
+                          </h4>
+                          <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                            Historical performance data
+                          </p>
+                        </div>
+                        <div className="flex border border-[var(--border)] dark:border-zinc-800 rounded-xl overflow-hidden text-[10px] font-bold">
+                          {(["weekly", "monthly", "yearly"] as const).map(
+                            (t) => (
+                              <button
+                                key={t}
+                                onClick={() => setPatientTimeframe(t)}
+                                className={`px-3 py-1.5 cursor-pointer uppercase transition ${
+                                  patientTimeframe === t
+                                    ? "bg-indigo-600 text-white"
+                                    : "hover:bg-[var(--card-hover)] text-[var(--text-muted)] dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                }`}
+                              >
+                                {t}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="h-64 flex items-center justify-center p-2">
+                        {analytics ? (
+                          patientTimeframe === "weekly" ? (
+                            renderHistogram(analytics.patients_weekly)
+                          ) : patientTimeframe === "monthly" ? (
+                            renderHistogram(analytics.patients_monthly)
+                          ) : (
+                            renderHistogram(analytics.patients_yearly)
+                          )
+                        ) : (
+                          <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                            Loading chart data...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Daily Revenue Line Chart */}
+                    <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
+                      <div>
+                        <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                          Daily Revenue Trend
+                        </h4>
+                        <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                          Invoices generated in the past 30 days
+                        </p>
+                      </div>
+
+                      <div className="h-64 flex items-center justify-center p-2">
+                        {analytics?.revenue_daily ? (
+                          renderLineChart(analytics.revenue_daily)
+                        ) : (
+                          <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                            Loading chart data...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Future Appointments Histogram */}
+                    <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm lg:col-span-2 space-y-4 text-[var(--foreground)] dark:text-white">
+                      <div>
+                        <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                          Upcoming Booking Density (Next 14 Days)
+                        </h4>
+                        <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                          Future slots scheduled date-wise
+                        </p>
+                      </div>
+
+                      <div className="h-64 flex items-center justify-center p-2">
+                        {analytics?.appointments_future ? (
+                          renderHistogram(analytics.appointments_future)
+                        ) : (
+                          <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                            Loading chart data...
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: WHATSAPP LINKING */}
+              {activeTab === "whatsapp" && (
+                <div className="max-w-xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-6">
+                  <WhatsAppPanel setToast={setToast} />
+
+                  {/* Message Templates Section */}
+                  <div className="border-t border-[var(--border)] pt-6 mt-6 space-y-4">
+                    <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
+                      Message Templates
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Customize your automated WhatsApp messages. Use the chips
+                      as placeholders.
+                    </p>
+
+                    {(
+                      [
+                        "bill_notification",
+                        "overdue_reminder",
+                        "prescription_notification",
+                        "appointment_reminder",
+                        "appointment_confirmation",
+                      ] as const
+                    ).map((key) => {
+                      const isEditing = editingTemplate === key;
+                      const tmpl = waTemplates[key];
+                      const label =
+                        key === "bill_notification"
+                          ? "Bill Notification Template"
+                          : key === "overdue_reminder"
+                            ? "Overdue Reminder Template"
+                            : key === "prescription_notification"
+                              ? "Prescription Notification Template"
+                              : key === "appointment_reminder"
+                                ? "Appointment Reminder Template"
+                                : "Appointment Confirmation Template";
+                      const chips =
+                        key === "bill_notification"
+                          ? [
+                              "{patient_name}",
+                              "{total_amount}",
+                              "{remaining_amount}",
+                              "{clinic_name}",
+                              "{items_list}",
+                              "{bill_link}",
+                              "{payment_details}",
+                              "{description}",
+                            ]
+                          : key === "overdue_reminder"
+                            ? [
+                                "{patient_name}",
+                                "{remaining_amount}",
+                                "{clinic_name}",
+                                "{bill_link}",
+                                "{description}",
+                              ]
+                            : key === "prescription_notification"
+                              ? [
+                                  "{patient_name}",
+                                  "{doctor_name}",
+                                  "{clinic_name}",
+                                  "{diagnosis}",
+                                  "{notes}",
+                                ]
+                              : [
+                                  "{patient_name}",
+                                  "{doctor_name}",
+                                  "{clinic_name}",
+                                  "{appointment_time}",
+                                  "{reason}",
+                                ];
+
+                      return (
+                        <div
+                          key={key}
+                          className="border border-[var(--border)] rounded-2xl p-4 bg-[var(--nav-bg)] space-y-3"
+                        >
+                          <div className="flex justify-between items-center">
+                            <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                              {label}
+                            </h4>
+                            <button
+                              onClick={() => {
+                                if (isEditing) {
+                                  setEditingTemplate(null);
+                                } else {
+                                  setEditingTemplate(key);
+                                }
+                              }}
+                              className="text-xs text-indigo-500 hover:underline font-semibold flex items-center space-x-1 cursor-pointer"
+                            >
+                              {isEditing ? (
+                                <>
+                                  <X className="w-3 h-3" />
+                                  <span>Cancel</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Pencil className="w-3 h-3" />
+                                  <span>Edit</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Chips list */}
+                          <div className="flex flex-wrap gap-1.5">
+                            {chips.map((chip) => (
+                              <span
+                                key={chip}
+                                onClick={() => {
+                                  if (isEditing) {
+                                    setWaTemplates((prev) => ({
+                                      ...prev,
+                                      [key]: {
+                                        ...prev[key],
+                                        body: prev[key].body + chip,
+                                      },
+                                    }));
+                                  }
+                                }}
+                                className={`text-[9px] font-mono px-2 py-0.5 rounded-md ${
+                                  isEditing
+                                    ? "bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 cursor-pointer"
+                                    : "bg-slate-500/10 text-slate-400"
+                                }`}
+                              >
+                                {chip}
+                              </span>
+                            ))}
+                          </div>
+
+                          {isEditing ? (
+                            <div className="space-y-3 pt-2">
+                              <div>
+                                <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">
+                                  Greeting
+                                </label>
+                                <input
+                                  type="text"
+                                  value={tmpl.greeting}
+                                  onChange={(e) =>
+                                    setWaTemplates((prev) => ({
+                                      ...prev,
+                                      [key]: {
+                                        ...prev[key],
+                                        greeting: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">
+                                  Body Text
+                                </label>
+                                <textarea
+                                  value={tmpl.body}
+                                  rows={4}
+                                  onChange={(e) =>
+                                    setWaTemplates((prev) => ({
+                                      ...prev,
+                                      [key]: {
+                                        ...prev[key],
+                                        body: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[9px] font-bold uppercase text-slate-400 block mb-1">
+                                  Footer
+                                </label>
+                                <input
+                                  type="text"
+                                  value={tmpl.footer}
+                                  onChange={(e) =>
+                                    setWaTemplates((prev) => ({
+                                      ...prev,
+                                      [key]: {
+                                        ...prev[key],
+                                        footer: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+
+                              <div className="flex justify-end space-x-2 pt-1">
+                                <button
+                                  onClick={() =>
+                                    loadWhatsAppTemplates().then(() =>
+                                      setEditingTemplate(null),
+                                    )
+                                  }
+                                  className="px-3 py-1.5 border border-[var(--border)] text-slate-500 font-bold rounded-xl text-[10px] hover:bg-[var(--card-hover)] cursor-pointer"
+                                >
+                                  Reset
+                                </button>
+                                <button
+                                  onClick={() => handleSaveTemplate(key)}
+                                  disabled={templateSaving}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[10px] shadow-sm flex items-center space-x-1 cursor-pointer"
+                                >
+                                  {templateSaving ? (
+                                    <span>Saving...</span>
+                                  ) : (
+                                    <>
+                                      <Save className="w-3.5 h-3.5" />
+                                      <span>Save Template</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-[var(--input-bg)] border border-[var(--border)] rounded-xl p-3 text-[11px] font-mono text-slate-600 dark:text-white whitespace-pre-wrap leading-relaxed">
+                              <span className="font-bold text-slate-400 block text-[9px] uppercase tracking-wider mb-1">
+                                Preview
+                              </span>
+                              {tmpl.greeting
+                                ? tmpl.greeting
+                                : "Dear {patient_name},"}
+                              {"\n\n"}
+                              {tmpl.body ? tmpl.body : "..."}
+                              {"\n\n"}
+                              {tmpl.footer ? tmpl.footer : "..."}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: SLOT SETTINGS */}
+              {activeTab === "availability" && (
+                <div className="space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-xl font-black">
+                        Availability & Slot Settings
+                      </h2>
+                      <p className="text-xs text-slate-400">
+                        Configure weekly operational hours and generate discrete
+                        appointment slots.
+                      </p>
+                    </div>
+                  </div>
+
+                  {doctorInfo?.role === "HOSPITAL_ADMIN" && (
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm space-y-2 border-white">
+                      <label className="text-[12px] font-bold uppercase text-slate-400">
+                        Select Doctor to Configure
+                      </label>
+                      <select
+                        value={configDoctorId}
+                        onChange={(e) => {
+                          setConfigDoctorId(e.target.value);
+                          loadDoctorAvailability(e.target.value);
+                          setSlotPreviews([]);
+                        }}
+                        className="w-full sm:w-72 mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                      >
+                        <option value="">-- Choose Doctor --</option>
+                        {facilityDoctors.map((doc) => (
+                          <option key={doc.id} value={doc.id}>
+                            Dr. {doc.name} ({doc.specialization || "General"})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {(configDoctorId || doctorInfo?.role === "DOCTOR") && (
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {/* Weekly Schedule Planner */}
+                      <div className="lg:col-span-2 bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                        <h3 className="text-sm font-black">
+                          Weekly Availability Template
+                        </h3>
+                        <div className="space-y-3">
+                          {configWeeklyAvail.map((day, idx) => {
+                            const daysName = [
+                              "Sunday",
+                              "Monday",
+                              "Tuesday",
+                              "Wednesday",
+                              "Thursday",
+                              "Friday",
+                              "Saturday",
+                            ];
+                            return (
+                              <div
+                                key={idx}
+                                className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border border-[var(--border)] rounded-2xl bg-[var(--nav-bg)] gap-2"
+                              >
+                                <div className="flex items-center space-x-3 w-32">
+                                  <input
+                                    type="checkbox"
+                                    checked={day.is_active}
+                                    onChange={(e) => {
+                                      const updated = [...configWeeklyAvail];
+                                      updated[idx].is_active = e.target.checked;
+                                      setConfigWeeklyAvail(updated);
+                                    }}
+                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500"
+                                  />
+                                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    {daysName[idx]}
+                                  </span>
+                                </div>
+
+                                {day.is_active ? (
+                                  <div className="flex flex-1 flex-wrap items-center gap-3 text-xs justify-start sm:justify-end">
+                                    <div className="flex items-center space-x-1">
+                                      <span className="text-slate-400">
+                                        Start:
+                                      </span>
+                                      <input
+                                        type="time"
+                                        value={day.start_time}
+                                        onChange={(e) => {
+                                          const updated = [
+                                            ...configWeeklyAvail,
+                                          ];
+                                          updated[idx].start_time =
+                                            e.target.value;
+                                          setConfigWeeklyAvail(updated);
+                                        }}
+                                        className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                      />
+                                    </div>
+                                    <div className="flex items-center space-x-1">
+                                      <span className="text-slate-400">
+                                        End:
+                                      </span>
+                                      <input
+                                        type="time"
+                                        value={day.end_time}
+                                        onChange={(e) => {
+                                          const updated = [
+                                            ...configWeeklyAvail,
+                                          ];
+                                          updated[idx].end_time =
+                                            e.target.value;
+                                          setConfigWeeklyAvail(updated);
+                                        }}
+                                        className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                      />
+                                    </div>
+                                    <div className="flex items-center space-x-1">
+                                      <span className="text-slate-400">
+                                        Max Qty:
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min={1}
+                                        value={day.max_patients_per_slot}
+                                        onChange={(e) => {
+                                          const updated = [
+                                            ...configWeeklyAvail,
+                                          ];
+                                          updated[idx].max_patients_per_slot =
+                                            parseInt(e.target.value) || 1;
+                                          setConfigWeeklyAvail(updated);
+                                        }}
+                                        className="w-12 px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-center focus:ring-1 focus:ring-indigo-500 outline-none animate-fade-in"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="text-[11px] text-slate-400 italic">
+                                    Closed / Unavailable
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <button
+                          onClick={async () => {
                             setIsSubmitting(true);
                             try {
-                              await fetchAPI("/api/reschedule-queue", {
-                                method: "PUT",
+                              const activeDays = configWeeklyAvail.filter(
+                                (d) => d.is_active,
+                              );
+                              await fetchAPI("/api/doctors/availability", {
+                                method: "POST",
                                 body: JSON.stringify({
-                                  reschedule_id: activeRescheduleItem.id,
-                                  new_slot_id: parseInt(reschedNewSlotId)
-                                })
+                                  doctor_id: configDoctorId
+                                    ? parseInt(configDoctorId)
+                                    : 0,
+                                  availabilities: activeDays,
+                                }),
                               });
-                              setToast({ message: "Patient rescheduled successfully!", type: "success" });
-                              setIsRescheduleModalOpen(false);
-                              loadRescheduleQueue();
-                              loadAppointments();
+                              setToast({
+                                message: "Weekly availability template saved!",
+                                type: "success",
+                              });
                             } catch (err: any) {
-                              setToast({ message: err.message || "Rescheduling failed", type: "error" });
+                              setToast({
+                                message:
+                                  err.message || "Failed to save availability",
+                                type: "error",
+                              });
                             } finally {
                               setIsSubmitting(false);
                             }
                           }}
-                          className="space-y-4 text-xs text-[var(--foreground)] animate-fade-in"
+                          disabled={isSubmitting}
+                          className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer"
                         >
-                          <div>
-                            <h3 className="text-sm font-black">Reschedule Appointment</h3>
-                            <p className="text-[10px] text-slate-400 mt-0.5">
-                              Patient: {activeRescheduleItem.patient_name} | Doctor: Dr. {activeRescheduleItem.doctor_name}
-                            </p>
-                          </div>
+                          Save Availability Template
+                        </button>
+                      </div>
 
+                      {/* Discrete Slots Generator */}
+                      <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit">
+                        <h3 className="text-sm font-black">
+                          Generate Discrete Slots
+                        </h3>
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          Roll out slots in bulk for a date range based on your
+                          weekly template. Overlapping slots are automatically
+                          skipped.
+                        </p>
+
+                        <div className="space-y-3 text-xs">
                           <div>
-                            <label className="text-[10px] font-bold uppercase text-slate-400">Select Date</label>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Start Date
+                            </label>
                             <input
                               type="date"
-                              required
-                              value={reschedDate}
-                              onChange={(e) => {
-                                setReschedDate(e.target.value);
-                                setReschedNewSlotId("");
-                                fetchRescheduleSlots(activeRescheduleItem.doctor_id, e.target.value);
-                              }}
+                              value={generateStartDate}
+                              onChange={(e) =>
+                                setGenerateStartDate(e.target.value)
+                              }
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              End Date
+                            </label>
+                            <input
+                              type="date"
+                              value={generateEndDate}
+                              onChange={(e) =>
+                                setGenerateEndDate(e.target.value)
+                              }
                               className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                             />
                           </div>
 
-                          {reschedDate && (
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-bold uppercase text-slate-400">Select Available Slot</label>
-                              {reschedSlots.length > 0 ? (
-                                <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
-                                  {reschedSlots.map((slot) => {
-                                    const isSelected = reschedNewSlotId === slot.id.toString();
-                                    const isFull = slot.booked_count >= slot.max_patients || slot.status !== "available";
-                                    return (
-                                      <button
-                                        key={slot.id}
-                                        type="button"
-                                        disabled={isFull && !isSelected}
-                                        onClick={() => setReschedNewSlotId(slot.id.toString())}
-                                        className={cn(
-                                          "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
-                                          isSelected
-                                            ? "bg-indigo-600 border-indigo-600 text-white"
-                                            : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]"
-                                        )}
-                                      >
-                                        <span className="block">{slot.start_time.substring(0, 5)} - {slot.end_time.substring(0, 5)}</span>
-                                        <span className="block text-[8px] opacity-60">
-                                          {isFull ? "Full" : `${slot.booked_count}/${slot.max_patients} Booked`}
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <p className="text-[10px] text-red-500 italic mt-1">No slots available for this date.</p>
-                              )}
-                            </div>
-                          )}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!generateStartDate || !generateEndDate) {
+                                setToast({
+                                  message: "Select start and end dates",
+                                  type: "error",
+                                });
+                                return;
+                              }
+                              setIsSubmitting(true);
+                              try {
+                                const data = await fetchAPI(
+                                  "/api/slots/generate",
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      doctor_id: configDoctorId
+                                        ? parseInt(configDoctorId)
+                                        : 0,
+                                      start_date: generateStartDate,
+                                      end_date: generateEndDate,
+                                    }),
+                                  },
+                                );
+                                setSlotPreviews(data || []);
+                                if (!data || data.length === 0) {
+                                  setToast({
+                                    message:
+                                      "No slots to generate on these dates",
+                                    type: "error",
+                                  });
+                                }
+                              } catch (err: any) {
+                                setToast({
+                                  message:
+                                    err.message ||
+                                    "Failed to generate previews",
+                                  type: "error",
+                                });
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="w-full py-2.5 border border-indigo-500/20 text-indigo-500 hover:bg-indigo-500/10 rounded-2xl font-bold transition cursor-pointer text-center"
+                          >
+                            Preview Slots List
+                          </button>
+                        </div>
 
-                          <div className="flex space-x-2 pt-2 text-xs">
-                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                            <FloatingPanelSubmitButton
-                              label="Confirm Reschedule"
-                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                            />
+                        {slotPreviews.length > 0 && (
+                          <div className="space-y-3 pt-3 border-t border-[var(--border)] animate-fade-in">
+                            <span className="text-[10px] font-black uppercase text-slate-400 block">
+                              Preview Generated ({slotPreviews.length} slots)
+                            </span>
+                            <div className="max-h-40 overflow-y-auto space-y-1.5 border border-[var(--border)] rounded-2xl p-2 bg-[var(--nav-bg)] text-[10px]">
+                              {slotPreviews.map((p, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex justify-between text-slate-500"
+                                >
+                                  <span className="font-bold">
+                                    {p.slot_date}
+                                  </span>
+                                  <span>
+                                    {p.start_time} - {p.end_time}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <button
+                              onClick={async () => {
+                                setIsSubmitting(true);
+                                try {
+                                  await fetchAPI("/api/slots/confirm", {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      doctor_id: configDoctorId
+                                        ? parseInt(configDoctorId)
+                                        : 0,
+                                      slots: slotPreviews,
+                                    }),
+                                  });
+                                  setToast({
+                                    message:
+                                      "Discrete slots generated successfully!",
+                                    type: "success",
+                                  });
+                                  setSlotPreviews([]);
+                                } catch (err: any) {
+                                  setToast({
+                                    message:
+                                      err.message || "Failed to confirm slots",
+                                    type: "error",
+                                  });
+                                } finally {
+                                  setIsSubmitting(false);
+                                }
+                              }}
+                              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
+                            >
+                              Generate & Save Slots
+                            </button>
                           </div>
-                        </form>
-                      )}
-                    </FloatingPanelBody>
-                  </FloatingPanelContent>
-                </FloatingPanelRoot>
-              </div>
-            )}
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: RESCHEDULE QUEUE */}
+              {activeTab === "reschedule-queue" && (
+                <div className="space-y-6 animate-fade-in">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Mark Unavailability form */}
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 h-fit lg:col-span-1">
+                      <h3 className="text-sm font-black">
+                        Register Unavailability
+                      </h3>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Marking a doctor unavailable cancels all slots and
+                        automatically moves bookings into the reschedule queue.
+                        WhatsApp notifications are dispatched instantly.
+                      </p>
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!unavailDoctorId || !unavailDate) return;
+                          setIsSubmitting(true);
+                          try {
+                            await fetchAPI("/api/doctors/unavailable", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                doctor_id: parseInt(unavailDoctorId),
+                                unavailable_date: unavailDate,
+                                reason: unavailReason,
+                              }),
+                            });
+                            setToast({
+                              message:
+                                "Doctor registered unavailable. Alerts queued!",
+                              type: "success",
+                            });
+                            setUnavailDoctorId("");
+                            setUnavailDate("");
+                            setUnavailReason("");
+                            loadRescheduleQueue();
+                          } catch (err: any) {
+                            setToast({
+                              message: err.message || "Operation failed",
+                              type: "error",
+                            });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }}
+                        className="space-y-3 text-xs text-[var(--foreground)]"
+                      >
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Select Doctor
+                          </label>
+                          <select
+                            required
+                            value={unavailDoctorId}
+                            onChange={(e) => setUnavailDoctorId(e.target.value)}
+                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          >
+                            <option value="">-- Choose Doctor --</option>
+                            {facilityDoctors.map((doc) => (
+                              <option key={doc.id} value={doc.id}>
+                                Dr. {doc.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Unavailable Date
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={unavailDate}
+                            onChange={(e) => setUnavailDate(e.target.value)}
+                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Reason / Notes
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Conference, Medical Leave"
+                            value={unavailReason}
+                            onChange={(e) => setUnavailReason(e.target.value)}
+                            className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-bold shadow-md transition cursor-pointer text-center"
+                        >
+                          {isSubmitting ? "Processing..." : "Mark Unavailable"}
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Reschedule List Table */}
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4 lg:col-span-2">
+                      <h3 className="text-sm font-black">
+                        Rescheduling Active Queue
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 font-bold uppercase">
+                              <th className="px-4 py-3">Patient</th>
+                              <th className="px-4 py-3">Doctor Name</th>
+                              <th className="px-4 py-3">Original Date</th>
+                              <th className="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rescheduleQueue.length > 0 ? (
+                              rescheduleQueue.map((item) => (
+                                <tr
+                                  key={item.id}
+                                  className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                                >
+                                  <td className="px-4 py-3">
+                                    <div className="font-bold">
+                                      {item.patient_name}
+                                    </div>
+                                    <div className="text-[9px] text-slate-400">
+                                      {item.patient_phone}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-600 dark:text-slate-400">
+                                    Dr. {item.doctor_name}
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-500">
+                                    {item.original_date}{" "}
+                                    {item.original_slot_time
+                                      ? `(${item.original_slot_time})`
+                                      : ""}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      onClick={() => {
+                                        setActiveRescheduleItem(item);
+                                        setReschedDate("");
+                                        setReschedNewSlotId("");
+                                        setReschedSlots([]);
+                                        setIsRescheduleModalOpen(true);
+                                      }}
+                                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-sm transition cursor-pointer"
+                                    >
+                                      Assign Slot
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td
+                                  colSpan={4}
+                                  className="px-4 py-8 text-center text-slate-400 italic"
+                                >
+                                  No appointments currently need rescheduling.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RESCHEDULING ASSIGN MODAL */}
+                  <FloatingPanelRoot
+                    isOpen={isRescheduleModalOpen}
+                    onOpenChange={setIsRescheduleModalOpen}
+                  >
+                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                      <FloatingPanelBody>
+                        {activeRescheduleItem && (
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!reschedNewSlotId) return;
+                              setIsSubmitting(true);
+                              try {
+                                await fetchAPI("/api/reschedule-queue", {
+                                  method: "PUT",
+                                  body: JSON.stringify({
+                                    reschedule_id: activeRescheduleItem.id,
+                                    new_slot_id: parseInt(reschedNewSlotId),
+                                  }),
+                                });
+                                setToast({
+                                  message: "Patient rescheduled successfully!",
+                                  type: "success",
+                                });
+                                setIsRescheduleModalOpen(false);
+                                loadRescheduleQueue();
+                                loadAppointments();
+                              } catch (err: any) {
+                                setToast({
+                                  message: err.message || "Rescheduling failed",
+                                  type: "error",
+                                });
+                              } finally {
+                                setIsSubmitting(false);
+                              }
+                            }}
+                            className="space-y-4 text-xs text-[var(--foreground)] animate-fade-in"
+                          >
+                            <div>
+                              <h3 className="text-sm font-black">
+                                Reschedule Appointment
+                              </h3>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                Patient: {activeRescheduleItem.patient_name} |
+                                Doctor: Dr. {activeRescheduleItem.doctor_name}
+                              </p>
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Select Date
+                              </label>
+                              <input
+                                type="date"
+                                required
+                                value={reschedDate}
+                                onChange={(e) => {
+                                  setReschedDate(e.target.value);
+                                  setReschedNewSlotId("");
+                                  fetchRescheduleSlots(
+                                    activeRescheduleItem.doctor_id,
+                                    e.target.value,
+                                  );
+                                }}
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              />
+                            </div>
+
+                            {reschedDate && (
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Select Available Slot
+                                </label>
+                                {reschedSlots.length > 0 ? (
+                                  <div className="grid grid-cols-2 gap-2 mt-1 max-h-40 overflow-y-auto p-1">
+                                    {reschedSlots.map((slot) => {
+                                      const isSelected =
+                                        reschedNewSlotId === slot.id.toString();
+                                      const isFull =
+                                        slot.booked_count >=
+                                          slot.max_patients ||
+                                        slot.status !== "available";
+                                      return (
+                                        <button
+                                          key={slot.id}
+                                          type="button"
+                                          disabled={isFull && !isSelected}
+                                          onClick={() =>
+                                            setReschedNewSlotId(
+                                              slot.id.toString(),
+                                            )
+                                          }
+                                          className={cn(
+                                            "px-3 py-2 border rounded-xl text-center text-xs font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
+                                            isSelected
+                                              ? "bg-indigo-600 border-indigo-600 text-white"
+                                              : "bg-[var(--input-bg)] border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--card-hover)]",
+                                          )}
+                                        >
+                                          <span className="block">
+                                            {slot.start_time.substring(0, 5)} -{" "}
+                                            {slot.end_time.substring(0, 5)}
+                                          </span>
+                                          <span className="block text-[8px] opacity-60">
+                                            {isFull
+                                              ? "Full"
+                                              : `${slot.booked_count}/${slot.max_patients} Booked`}
+                                          </span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <p className="text-[10px] text-red-500 italic mt-1">
+                                    No slots available for this date.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            <div className="flex space-x-2 pt-2 text-xs">
+                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                              <FloatingPanelSubmitButton
+                                label="Confirm Reschedule"
+                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                              />
+                            </div>
+                          </form>
+                        )}
+                      </FloatingPanelBody>
+                    </FloatingPanelContent>
+                  </FloatingPanelRoot>
+                </div>
+              )}
             </TabTransition>
           </div>
         ) : viewState.type === "patient" ? (
@@ -5978,7 +7812,10 @@ export default function Dashboard() {
               <button
                 onClick={() => {
                   if (currentPatientData) {
-                    setViewState({ type: "patient_vitals", patientId: currentPatientData.patient.id });
+                    setViewState({
+                      type: "patient_vitals",
+                      patientId: currentPatientData.patient.id,
+                    });
                     loadVitals(currentPatientData.patient.id);
                   }
                 }}
@@ -5994,29 +7831,50 @@ export default function Dashboard() {
                 {/* Profile Card */}
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-5 lg:col-span-1">
                   <div>
-                    <h2 className="text-2xl font-black">{currentPatientData.patient.name}</h2>
-                    <p className="text-xs text-slate-400 font-bold uppercase mt-1">Patient ID: #PAT-{currentPatientData.patient.id}</p>
+                    <h2 className="text-2xl font-black">
+                      {currentPatientData.patient.name}
+                    </h2>
+                    <p className="text-xs text-slate-400 font-bold uppercase mt-1">
+                      Patient ID: #PAT-{currentPatientData.patient.id}
+                    </p>
                   </div>
 
                   <div className="space-y-3.5 border-t border-[var(--border)] pt-4 text-xs">
                     <div>
-                      <span className="text-slate-400 font-semibold block">Phone Contact</span>
-                      <span className="font-bold">{currentPatientData.patient.phone}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 font-semibold block">Gender / Age</span>
-                      <span className="font-bold">{currentPatientData.patient.gender} ({currentPatientData.patient.age} yrs)</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 font-semibold block">Medical Records Summary</span>
-                      <span className="font-medium text-slate-500 dark:text-slate-400 block whitespace-pre-wrap mt-1">
-                        {currentPatientData.patient.medical_history || "No logs on file."}
+                      <span className="text-slate-400 font-semibold block">
+                        Phone Contact
+                      </span>
+                      <span className="font-bold">
+                        {currentPatientData.patient.phone}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 font-semibold block">Outstanding Ledger Balance</span>
+                      <span className="text-slate-400 font-semibold block">
+                        Gender / Age
+                      </span>
+                      <span className="font-bold">
+                        {currentPatientData.patient.gender} (
+                        {currentPatientData.patient.age} yrs)
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-semibold block">
+                        Medical Records Summary
+                      </span>
+                      <span className="font-medium text-slate-500 dark:text-slate-400 block whitespace-pre-wrap mt-1">
+                        {currentPatientData.patient.medical_history ||
+                          "No logs on file."}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 font-semibold block">
+                        Outstanding Ledger Balance
+                      </span>
                       <span className="font-black text-red-500 text-lg block mt-0.5">
-                        ₹{currentPatientData.patient.total_dues.toLocaleString("en-IN")}
+                        ₹
+                        {currentPatientData.patient.total_dues.toLocaleString(
+                          "en-IN",
+                        )}
                       </span>
                     </div>
                   </div>
@@ -6026,7 +7884,9 @@ export default function Dashboard() {
                 <div className="lg:col-span-2 space-y-6">
                   {/* Appointments grid */}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-black">Agenda Log (Appointments)</h3>
+                    <h3 className="text-sm font-black">
+                      Agenda Log (Appointments)
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
@@ -6039,17 +7899,26 @@ export default function Dashboard() {
                         <tbody>
                           {currentPatientData.appointments.length > 0 ? (
                             currentPatientData.appointments.map((ap) => (
-                              <tr key={ap.id} className="border-b border-[var(--border)]">
-                                <td className="px-4 py-3 font-semibold">{new Date(ap.appointment_date).toLocaleString()}</td>
-                                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{ap.reason}</td>
+                              <tr
+                                key={ap.id}
+                                className="border-b border-[var(--border)]"
+                              >
+                                <td className="px-4 py-3 font-semibold">
+                                  {new Date(
+                                    ap.appointment_date,
+                                  ).toLocaleString()}
+                                </td>
+                                <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                                  {ap.reason}
+                                </td>
                                 <td className="px-4 py-3 text-right">
                                   <span
                                     className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${
                                       ap.status === "COMPLETED"
                                         ? "bg-emerald-500/10 text-emerald-500"
                                         : ap.status === "CANCELLED"
-                                        ? "bg-red-500/10 text-red-500"
-                                        : "bg-amber-500/10 text-amber-500"
+                                          ? "bg-red-500/10 text-red-500"
+                                          : "bg-amber-500/10 text-amber-500"
                                     }`}
                                   >
                                     {ap.status}
@@ -6059,7 +7928,10 @@ export default function Dashboard() {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={3} className="px-4 py-6 text-center text-slate-400 font-semibold">
+                              <td
+                                colSpan={3}
+                                className="px-4 py-6 text-center text-slate-400 font-semibold"
+                              >
                                 No appointments on record.
                               </td>
                             </tr>
@@ -6091,22 +7963,33 @@ export default function Dashboard() {
                                 key={bill.id}
                                 className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
                                 onClick={() => {
-                                 setActiveTab("patients");
-                                 setViewState({ type: "bill", billId: bill.id });
-                               }}
+                                  setActiveTab("patients");
+                                  setViewState({
+                                    type: "bill",
+                                    billId: bill.id,
+                                  });
+                                }}
                               >
-                                <td className="px-4 py-3 font-bold">#INV-{bill.id}</td>
-                                <td className="px-4 py-3 text-slate-400 max-w-xs truncate">{bill.description}</td>
-                                <td className="px-4 py-3 font-semibold">₹{bill.total_amount.toFixed(2)}</td>
-                                <td className="px-4 py-3 font-bold text-red-500">₹{bill.remaining_amount.toFixed(2)}</td>
+                                <td className="px-4 py-3 font-bold">
+                                  #INV-{bill.id}
+                                </td>
+                                <td className="px-4 py-3 text-slate-400 max-w-xs truncate">
+                                  {bill.description}
+                                </td>
+                                <td className="px-4 py-3 font-semibold">
+                                  ₹{bill.total_amount.toFixed(2)}
+                                </td>
+                                <td className="px-4 py-3 font-bold text-red-500">
+                                  ₹{bill.remaining_amount.toFixed(2)}
+                                </td>
                                 <td className="px-4 py-3">
                                   <span
                                     className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
                                       bill.status === "SETTLED"
                                         ? "bg-emerald-500/10 text-emerald-500"
                                         : bill.status === "PARTIALLY_PAID"
-                                        ? "bg-amber-500/10 text-amber-500"
-                                        : "bg-red-500/10 text-red-500"
+                                          ? "bg-amber-500/10 text-amber-500"
+                                          : "bg-red-500/10 text-red-500"
                                     }`}
                                   >
                                     {bill.status}
@@ -6121,7 +8004,10 @@ export default function Dashboard() {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={6} className="px-4 py-6 text-center text-slate-400 font-semibold">
+                              <td
+                                colSpan={6}
+                                className="px-4 py-6 text-center text-slate-400 font-semibold"
+                              >
                                 No billing records on file.
                               </td>
                             </tr>
@@ -6145,11 +8031,16 @@ export default function Dashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {currentPatientData.prescriptions && currentPatientData.prescriptions.length > 0 ? (
+                          {currentPatientData.prescriptions &&
+                          currentPatientData.prescriptions.length > 0 ? (
                             currentPatientData.prescriptions.map((rx) => (
                               <React.Fragment key={rx.id}>
-                                <tr 
-                                  onClick={() => setExpandedRxId(expandedRxId === rx.id ? null : rx.id)}
+                                <tr
+                                  onClick={() =>
+                                    setExpandedRxId(
+                                      expandedRxId === rx.id ? null : rx.id,
+                                    )
+                                  }
                                   className="border-b border-[var(--border)] cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                                 >
                                   <td className="px-4 py-3 font-bold text-indigo-500">
@@ -6161,28 +8052,38 @@ export default function Dashboard() {
                                     </div>
                                   </td>
                                   <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
-                                    <div className="font-medium text-slate-700 dark:text-slate-200">{rx.diagnosis || "N/A"}</div>
-                                    {rx.lab_requests && rx.lab_requests.length > 0 && (
-                                      <div className="flex flex-wrap gap-1 mt-1.5">
-                                        {rx.lab_requests.map((test: string, idx: number) => (
-                                          <span key={idx} className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20">
-                                            🔬 {test}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    )}
+                                    <div className="font-medium text-slate-700 dark:text-slate-200">
+                                      {rx.diagnosis || "N/A"}
+                                    </div>
+                                    {rx.lab_requests &&
+                                      rx.lab_requests.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                          {rx.lab_requests.map(
+                                            (test: string, idx: number) => (
+                                              <span
+                                                key={idx}
+                                                className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20"
+                                              >
+                                                🔬 {test}
+                                              </span>
+                                            ),
+                                          )}
+                                        </div>
+                                      )}
                                   </td>
-                                  <td className="px-4 py-3 text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
+                                  <td className="px-4 py-3 text-slate-400">
+                                    {new Date(rx.created_at).toLocaleString()}
+                                  </td>
                                   <td className="px-4 py-3 text-right">
                                     <span
                                       className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
                                         rx.status === "dispensed"
                                           ? "bg-emerald-500/10 text-emerald-500"
                                           : rx.status === "partially_dispensed"
-                                          ? "bg-blue-500/10 text-blue-500"
-                                          : rx.status === "cancelled"
-                                          ? "bg-red-500/10 text-red-500"
-                                          : "bg-amber-500/10 text-amber-500"
+                                            ? "bg-blue-500/10 text-blue-500"
+                                            : rx.status === "cancelled"
+                                              ? "bg-red-500/10 text-red-500"
+                                              : "bg-amber-500/10 text-amber-500"
                                       }`}
                                     >
                                       {rx.status}
@@ -6191,67 +8092,129 @@ export default function Dashboard() {
                                 </tr>
                                 {expandedRxId === rx.id && (
                                   <tr className="bg-slate-50/50 dark:bg-slate-900/30">
-                                    <td colSpan={4} className="px-6 py-4 border-b border-[var(--border)]">
+                                    <td
+                                      colSpan={4}
+                                      className="px-6 py-4 border-b border-[var(--border)]"
+                                    >
                                       <div className="space-y-3.5 text-xs text-slate-600 dark:text-slate-300">
                                         {/* Consultation Charges */}
                                         <div className="flex justify-between items-center bg-indigo-500/5 border border-indigo-500/10 p-3 rounded-2xl">
                                           <div>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block">Consultation Fee / Visit Charges:</span>
-                                            <span className="text-xs text-slate-500">Specified by Doctor on prescription creation</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block">
+                                              Consultation Fee / Visit Charges:
+                                            </span>
+                                            <span className="text-xs text-slate-500">
+                                              Specified by Doctor on
+                                              prescription creation
+                                            </span>
                                           </div>
                                           <div className="text-right font-mono">
-                                            <span className="text-sm font-black text-indigo-500">₹{rx.consultation_charges?.toFixed(2) || "0.00"}</span>
+                                            <span className="text-sm font-black text-indigo-500">
+                                              ₹
+                                              {rx.consultation_charges?.toFixed(
+                                                2,
+                                              ) || "0.00"}
+                                            </span>
                                             {rx.amount_paid > 0 && (
-                                              <span className="block text-[10px] text-emerald-500 font-bold mt-0.5">Paid: ₹{rx.amount_paid.toFixed(2)}</span>
+                                              <span className="block text-[10px] text-emerald-500 font-bold mt-0.5">
+                                                Paid: ₹
+                                                {rx.amount_paid.toFixed(2)}
+                                              </span>
                                             )}
                                           </div>
                                         </div>
                                         {/* Notes Section */}
                                         {rx.notes && (
                                           <div>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">Clinical Notes / Advice:</span>
-                                            <p className="pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 italic">{rx.notes}</p>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">
+                                              Clinical Notes / Advice:
+                                            </span>
+                                            <p className="pl-2.5 border-l-2 border-slate-300 dark:border-slate-700 italic">
+                                              {rx.notes}
+                                            </p>
                                           </div>
                                         )}
                                         {/* Medicines Section */}
                                         {rx.items && rx.items.length > 0 ? (
                                           <div>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1.5">Prescribed Medicines:</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1.5">
+                                              Prescribed Medicines:
+                                            </span>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-2.5">
-                                              {rx.items.map((item: any, itemIdx: number) => (
-                                                <div key={itemIdx} className="bg-white dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm relative space-y-1">
-                                                  <div className="font-bold text-slate-800 dark:text-slate-100 flex justify-between">
-                                                    <span>{item.medicine_name}</span>
-                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase font-mono">Qty: {item.quantity || 1}</span>
-                                                  </div>
-                                                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                                    Dosage: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.dosage || "N/A"}</span> | Freq: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.frequency || "N/A"}</span> | Dur: <span className="font-semibold text-slate-700 dark:text-slate-300">{item.duration || "N/A"}</span>
-                                                  </div>
-                                                  {item.instructions && (
-                                                    <div className="text-[10px] text-indigo-500 dark:text-indigo-400 italic">
-                                                      ★ Instructions: {item.instructions}
+                                              {rx.items.map(
+                                                (
+                                                  item: any,
+                                                  itemIdx: number,
+                                                ) => (
+                                                  <div
+                                                    key={itemIdx}
+                                                    className="bg-white dark:bg-slate-800/50 p-3 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm relative space-y-1"
+                                                  >
+                                                    <div className="font-bold text-slate-800 dark:text-slate-100 flex justify-between">
+                                                      <span>
+                                                        {item.medicine_name}
+                                                      </span>
+                                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase font-mono">
+                                                        Qty:{" "}
+                                                        {item.quantity || 1}
+                                                      </span>
                                                     </div>
-                                                  )}
-                                                </div>
-                                              ))}
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                                      Dosage:{" "}
+                                                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                        {item.dosage || "N/A"}
+                                                      </span>{" "}
+                                                      | Freq:{" "}
+                                                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                        {item.frequency ||
+                                                          "N/A"}
+                                                      </span>{" "}
+                                                      | Dur:{" "}
+                                                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                        {item.duration || "N/A"}
+                                                      </span>
+                                                    </div>
+                                                    {item.instructions && (
+                                                      <div className="text-[10px] text-indigo-500 dark:text-indigo-400 italic">
+                                                        ★ Instructions:{" "}
+                                                        {item.instructions}
+                                                      </div>
+                                                    )}
+                                                  </div>
+                                                ),
+                                              )}
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="text-slate-400 italic">No medicines prescribed.</div>
-                                        )}
-                                        {/* Lab Tests Section */}
-                                        {rx.lab_requests && rx.lab_requests.length > 0 && (
-                                          <div>
-                                            <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">Recommended Diagnostic / Lab Tests:</span>
-                                            <div className="flex flex-wrap gap-1.5 pl-2.5">
-                                              {rx.lab_requests.map((test: string, testIdx: number) => (
-                                                <span key={testIdx} className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20 shadow-sm">
-                                                  🔬 {test}
-                                                </span>
-                                              ))}
-                                            </div>
+                                          <div className="text-slate-400 italic">
+                                            No medicines prescribed.
                                           </div>
                                         )}
+                                        {/* Lab Tests Section */}
+                                        {rx.lab_requests &&
+                                          rx.lab_requests.length > 0 && (
+                                            <div>
+                                              <span className="font-bold text-slate-700 dark:text-slate-200 uppercase text-[10px] tracking-wider block mb-1">
+                                                Recommended Diagnostic / Lab
+                                                Tests:
+                                              </span>
+                                              <div className="flex flex-wrap gap-1.5 pl-2.5">
+                                                {rx.lab_requests.map(
+                                                  (
+                                                    test: string,
+                                                    testIdx: number,
+                                                  ) => (
+                                                    <span
+                                                      key={testIdx}
+                                                      className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-400 border border-indigo-500/20 shadow-sm"
+                                                    >
+                                                      🔬 {test}
+                                                    </span>
+                                                  ),
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
                                       </div>
                                     </td>
                                   </tr>
@@ -6260,7 +8223,10 @@ export default function Dashboard() {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={4} className="px-4 py-6 text-center text-slate-400 font-semibold">
+                              <td
+                                colSpan={4}
+                                className="px-4 py-6 text-center text-slate-400 font-semibold"
+                              >
                                 No prescriptions on record.
                               </td>
                             </tr>
@@ -6272,7 +8238,9 @@ export default function Dashboard() {
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-slate-400 animate-pulse">Loading profile data...</div>
+              <div className="text-xs text-slate-400 animate-pulse">
+                Loading profile data...
+              </div>
             )}
           </div>
         ) : viewState.type === "bill" ? (
@@ -6281,7 +8249,10 @@ export default function Dashboard() {
             <button
               onClick={() => {
                 if (currentPatientData) {
-                  setViewState({ type: "patient", patientId: currentPatientData.patient.id });
+                  setViewState({
+                    type: "patient",
+                    patientId: currentPatientData.patient.id,
+                  });
                 } else {
                   setViewState({ type: "list" });
                 }
@@ -6297,7 +8268,9 @@ export default function Dashboard() {
                 {/* Summary Card */}
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-6 lg:col-span-1">
                   <div>
-                    <h2 className="text-xl font-black">Invoice #INV-{currentBillData.bill.id}</h2>
+                    <h2 className="text-xl font-black">
+                      Invoice #INV-{currentBillData.bill.id}
+                    </h2>
                     <p className="text-[9px] text-slate-400 uppercase tracking-widest mt-1">
                       Clinic: {currentBillData.bill.clinic_name}
                     </p>
@@ -6305,22 +8278,38 @@ export default function Dashboard() {
 
                   <div className="space-y-4 border-t border-[var(--border)] pt-4 text-xs">
                     <div>
-                      <span className="text-slate-400 block">Total Invoiced</span>
-                      <span className="text-xl font-black">₹{currentBillData.bill.total_amount.toLocaleString("en-IN")}</span>
+                      <span className="text-slate-400 block">
+                        Total Invoiced
+                      </span>
+                      <span className="text-xl font-black">
+                        ₹
+                        {currentBillData.bill.total_amount.toLocaleString(
+                          "en-IN",
+                        )}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block">Remaining Balance Due</span>
-                      <span className="text-xl font-black text-red-500">₹{currentBillData.bill.remaining_amount.toLocaleString("en-IN")}</span>
+                      <span className="text-slate-400 block">
+                        Remaining Balance Due
+                      </span>
+                      <span className="text-xl font-black text-red-500">
+                        ₹
+                        {currentBillData.bill.remaining_amount.toLocaleString(
+                          "en-IN",
+                        )}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block">Billing Status</span>
+                      <span className="text-slate-400 block">
+                        Billing Status
+                      </span>
                       <span
                         className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold mt-1 ${
                           currentBillData.bill.status === "SETTLED"
                             ? "bg-emerald-500/10 text-emerald-500"
                             : currentBillData.bill.status === "PARTIALLY_PAID"
-                            ? "bg-amber-500/10 text-amber-500"
-                            : "bg-red-500/10 text-red-500"
+                              ? "bg-amber-500/10 text-amber-500"
+                              : "bg-red-500/10 text-red-500"
                         }`}
                       >
                         {currentBillData.bill.status}
@@ -6338,7 +8327,10 @@ export default function Dashboard() {
                     </button>
 
                     {currentBillData.bill.remaining_amount > 0 && (
-                      <FloatingPanelRoot isOpen={isLogPaymentOpen} onOpenChange={setIsLogPaymentOpen}>
+                      <FloatingPanelRoot
+                        isOpen={isLogPaymentOpen}
+                        onOpenChange={setIsLogPaymentOpen}
+                      >
                         <FloatingPanelTrigger
                           title="Record Payment installment"
                           className="w-full py-2.5 border border-indigo-600/30 text-indigo-500 hover:bg-indigo-500/10 font-bold rounded-2xl text-xs transition cursor-pointer justify-center"
@@ -6347,9 +8339,14 @@ export default function Dashboard() {
                         </FloatingPanelTrigger>
                         <FloatingPanelContent className="w-80 sm:w-96 text-left">
                           <FloatingPanelBody>
-                            <form onSubmit={handleLogPayment} className="space-y-4 text-xs text-[var(--foreground)]">
+                            <form
+                              onSubmit={handleLogPayment}
+                              className="space-y-4 text-xs text-[var(--foreground)]"
+                            >
                               <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Amount Paid (INR)</label>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Amount Paid (INR)
+                                </label>
                                 <input
                                   type="number"
                                   step="0.01"
@@ -6361,10 +8358,14 @@ export default function Dashboard() {
                               </div>
 
                               <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Payment Mode</label>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Payment Mode
+                                </label>
                                 <select
                                   value={payMode}
-                                  onChange={(e) => setPayMode(e.target.value as any)}
+                                  onChange={(e) =>
+                                    setPayMode(e.target.value as any)
+                                  }
                                   className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                                 >
                                   <option>CASH</option>
@@ -6374,12 +8375,16 @@ export default function Dashboard() {
                               </div>
 
                               <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">Remarks</label>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Remarks
+                                </label>
                                 <input
                                   type="text"
                                   placeholder="Installment remarks"
                                   value={payRemarks}
-                                  onChange={(e) => setPayRemarks(e.target.value)}
+                                  onChange={(e) =>
+                                    setPayRemarks(e.target.value)
+                                  }
                                   className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                                 />
                               </div>
@@ -6403,7 +8408,9 @@ export default function Dashboard() {
                 <div className="lg:col-span-2 space-y-6">
                   {/* Prescribed Items */}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-black">Prescribed Medicines & Consultation Lines</h3>
+                    <h3 className="text-sm font-black">
+                      Prescribed Medicines & Consultation Lines
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
@@ -6417,11 +8424,22 @@ export default function Dashboard() {
                         </thead>
                         <tbody>
                           {currentBillData.items.map((item) => (
-                            <tr key={item.id} className="border-b border-[var(--border)]">
-                              <td className="px-4 py-3 font-bold">{item.item_name}</td>
-                              <td className="px-4 py-3 font-semibold text-slate-500 dark:text-slate-400">{item.quantity}</td>
-                              <td className="px-4 py-3 text-slate-500 dark:text-slate-400">₹{item.unit_price.toFixed(2)}</td>
-                              <td className="px-4 py-3 text-slate-400">{item.dosage || "As advised"}</td>
+                            <tr
+                              key={item.id}
+                              className="border-b border-[var(--border)]"
+                            >
+                              <td className="px-4 py-3 font-bold">
+                                {item.item_name}
+                              </td>
+                              <td className="px-4 py-3 font-semibold text-slate-500 dark:text-slate-400">
+                                {item.quantity}
+                              </td>
+                              <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
+                                ₹{item.unit_price.toFixed(2)}
+                              </td>
+                              <td className="px-4 py-3 text-slate-400">
+                                {item.dosage || "As advised"}
+                              </td>
                               <td className="px-4 py-3 text-right font-semibold">
                                 ₹{(item.quantity * item.unit_price).toFixed(2)}
                               </td>
@@ -6434,7 +8452,9 @@ export default function Dashboard() {
 
                   {/* Payment install history */}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-black">Payment Installment Timeline</h3>
+                    <h3 className="text-sm font-black">
+                      Payment Installment Timeline
+                    </h3>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
@@ -6443,14 +8463,21 @@ export default function Dashboard() {
                             <th className="px-4 py-3">Date</th>
                             <th className="px-4 py-3">Mode</th>
                             <th className="px-4 py-3">Notes / Remarks</th>
-                            <th className="px-4 py-3 text-right">Amount Paid</th>
+                            <th className="px-4 py-3 text-right">
+                              Amount Paid
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
                           {currentBillData.payments.length > 0 ? (
                             currentBillData.payments.map((p) => (
-                              <tr key={p.id} className="border-b border-[var(--border)]">
-                                <td className="px-4 py-3 font-bold">#PAY-{p.id}</td>
+                              <tr
+                                key={p.id}
+                                className="border-b border-[var(--border)]"
+                              >
+                                <td className="px-4 py-3 font-bold">
+                                  #PAY-{p.id}
+                                </td>
                                 <td className="px-4 py-3 text-slate-500 dark:text-slate-400">
                                   {new Date(p.payment_date).toLocaleString()}
                                 </td>
@@ -6459,7 +8486,9 @@ export default function Dashboard() {
                                     {p.payment_mode}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-slate-400">{p.remarks || "-"}</td>
+                                <td className="px-4 py-3 text-slate-400">
+                                  {p.remarks || "-"}
+                                </td>
                                 <td className="px-4 py-3 text-right font-black text-emerald-500">
                                   + ₹{p.amount_paid.toFixed(2)}
                                 </td>
@@ -6467,7 +8496,10 @@ export default function Dashboard() {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={5} className="px-4 py-6 text-center text-slate-400 font-semibold">
+                              <td
+                                colSpan={5}
+                                className="px-4 py-6 text-center text-slate-400 font-semibold"
+                              >
                                 No payments logged yet.
                               </td>
                             </tr>
@@ -6476,10 +8508,117 @@ export default function Dashboard() {
                       </table>
                     </div>
                   </div>
+
+                  {/* Prescription Details (Medicines, Tests, Notes) */}
+                  {currentBillData.prescription && (
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                      <h3 className="text-sm font-black text-indigo-500">
+                        Associated Prescription Details
+                      </h3>
+
+                      {currentBillData.prescription.diagnosis && (
+                        <div className="text-xs space-y-1">
+                          <span className="font-bold text-slate-400 block uppercase tracking-wider text-[10px]">
+                            Diagnosis
+                          </span>
+                          <span className="font-semibold text-zinc-950 dark:text-zinc-50">
+                            {currentBillData.prescription.diagnosis}
+                          </span>
+                        </div>
+                      )}
+
+                      {currentBillData.prescription.notes && (
+                        <div className="text-xs space-y-1">
+                          <span className="font-bold text-slate-400 block uppercase tracking-wider text-[10px]">
+                            Doctor Notes
+                          </span>
+                          <span className="text-zinc-950 dark:text-zinc-50 whitespace-pre-wrap">
+                            {currentBillData.prescription.notes}
+                          </span>
+                        </div>
+                      )}
+
+                      {currentBillData.prescription.items &&
+                        currentBillData.prescription.items.length > 0 && (
+                          <div className="space-y-2">
+                            <span className="font-bold text-slate-400 block uppercase tracking-wider text-[10px]">
+                              Prescribed Medicines
+                            </span>
+                            <div className="overflow-x-auto border border-[var(--border)] rounded-2xl">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                  <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase text-[10px]">
+                                    <th className="px-4 py-2">Medicine Name</th>
+                                    <th className="px-4 py-2">Dosage</th>
+                                    <th className="px-4 py-2">Frequency</th>
+                                    <th className="px-4 py-2">Duration</th>
+                                    <th className="px-4 py-2">Qty</th>
+                                    <th className="px-4 py-2">Instructions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {currentBillData.prescription.items.map(
+                                    (med, idx) => (
+                                      <tr
+                                        key={idx}
+                                        className="border-b border-[var(--border)] last:border-none"
+                                      >
+                                        <td className="px-4 py-2 font-bold">
+                                          {med.medicine_name}
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
+                                          {med.dosage || "-"}
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
+                                          {med.frequency || "-"}
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
+                                          {med.duration || "-"}
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
+                                          {med.quantity}
+                                        </td>
+                                        <td className="px-4 py-2 text-slate-400">
+                                          {med.instructions || "-"}
+                                        </td>
+                                      </tr>
+                                    ),
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                      {currentBillData.prescription.lab_requests &&
+                        currentBillData.prescription.lab_requests.length >
+                          0 && (
+                          <div className="space-y-2">
+                            <span className="font-bold text-slate-400 block uppercase tracking-wider text-[10px]">
+                              Prescribed Diagnostic Tests
+                            </span>
+                            <div className="flex flex-wrap gap-2">
+                              {currentBillData.prescription.lab_requests.map(
+                                (test, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-3 py-1 bg-amber-500/10 text-amber-500 font-bold rounded-xl text-xs"
+                                  >
+                                    {test}
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
-              <div className="text-xs text-slate-400 animate-pulse">Loading billing details...</div>
+              <div className="text-xs text-slate-400 animate-pulse">
+                Loading billing details...
+              </div>
             )}
           </div>
         ) : (
@@ -6488,7 +8627,10 @@ export default function Dashboard() {
             <button
               onClick={() => {
                 if (viewState.patientId) {
-                  setViewState({ type: "patient", patientId: viewState.patientId });
+                  setViewState({
+                    type: "patient",
+                    patientId: viewState.patientId,
+                  });
                   loadPatientDetails(viewState.patientId);
                 } else {
                   setViewState({ type: "list" });
@@ -6503,7 +8645,10 @@ export default function Dashboard() {
             <div className="flex justify-between items-center">
               <div>
                 <h2 className="text-xl font-black">Health Vitals & Trends</h2>
-                <p className="text-xs text-slate-400">Track heart rate, blood pressure, weight, temperature, and SpO2 metrics over time.</p>
+                <p className="text-xs text-slate-400">
+                  Track heart rate, blood pressure, weight, temperature, and
+                  SpO2 metrics over time.
+                </p>
               </div>
             </div>
 
@@ -6513,30 +8658,40 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* SVG Trend Chart for Heart Rate */}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-black text-slate-200">Heart Rate (bpm) Trend</h3>
+                    <h3 className="text-sm font-black text-slate-200">
+                      Heart Rate (bpm) Trend
+                    </h3>
                     <div className="h-64 flex items-center justify-center">
-                      {renderLineChart(vitalsHistory.map(v => ({
-                        label: new Date(v.recorded_at).toLocaleDateString(),
-                        value: v.pulse || v.heart_rate || 70
-                      })))}
+                      {renderLineChart(
+                        vitalsHistory.map((v) => ({
+                          label: new Date(v.recorded_at).toLocaleDateString(),
+                          value: v.pulse || v.heart_rate || 70,
+                        })),
+                      )}
                     </div>
                   </div>
 
                   {/* SVG Trend Chart for Weight */}
                   <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                    <h3 className="text-sm font-black text-slate-200">Weight History (kg)</h3>
+                    <h3 className="text-sm font-black text-slate-200">
+                      Weight History (kg)
+                    </h3>
                     <div className="h-64 flex items-center justify-center">
-                      {renderHistogram(vitalsHistory.map(v => ({
-                        label: new Date(v.recorded_at).toLocaleDateString(),
-                        value: v.weight_kg || 0
-                      })))}
+                      {renderHistogram(
+                        vitalsHistory.map((v) => ({
+                          label: new Date(v.recorded_at).toLocaleDateString(),
+                          value: v.weight_kg || 0,
+                        })),
+                      )}
                     </div>
                   </div>
                 </div>
 
                 {/* Vitals Log Table */}
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
-                  <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">Logs History</h3>
+                  <h3 className="text-sm font-black text-slate-200 uppercase tracking-widest">
+                    Logs History
+                  </h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
@@ -6553,56 +8708,109 @@ export default function Dashboard() {
                       </thead>
                       <tbody>
                         {vitalsHistory.map((v) => {
-                          const bpAlert = v.blood_pressure ? checkBPRange(v.blood_pressure)[0] : false;
-                          const hrAlert = v.heart_rate ? checkHRRange(v.heart_rate)[0] : false;
-                          const pulseAlert = v.pulse ? checkHRRange(v.pulse)[0] : false;
+                          const bpAlert = v.blood_pressure
+                            ? checkBPRange(v.blood_pressure)[0]
+                            : false;
+                          const hrAlert = v.heart_rate
+                            ? checkHRRange(v.heart_rate)[0]
+                            : false;
+                          const pulseAlert = v.pulse
+                            ? checkHRRange(v.pulse)[0]
+                            : false;
                           const spo2Alert = v.spo2 ? v.spo2 < 95 : false;
-                          const tempAlert = v.temperature ? (v.temperature > 37.8 || v.temperature < 35.5) : false;
-                          
-                          const hasAlert = bpAlert || hrAlert || pulseAlert || spo2Alert || tempAlert;
+                          const tempAlert = v.temperature
+                            ? v.temperature > 37.8 || v.temperature < 35.5
+                            : false;
+
+                          const hasAlert =
+                            bpAlert ||
+                            hrAlert ||
+                            pulseAlert ||
+                            spo2Alert ||
+                            tempAlert;
                           return (
-                            <tr key={v.id} className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition">
-                              <td className="px-4 py-3 text-slate-400 font-medium">{new Date(v.recorded_at).toLocaleString()}</td>
-                              <td className="px-4 py-3 font-semibold">{v.weight_kg ? `${v.weight_kg} kg` : "-"}</td>
+                            <tr
+                              key={v.id}
+                              className="border-b border-[var(--border)] hover:bg-[var(--card-hover)] transition"
+                            >
+                              <td className="px-4 py-3 text-slate-400 font-medium">
+                                {new Date(v.recorded_at).toLocaleString()}
+                              </td>
+                              <td className="px-4 py-3 font-semibold">
+                                {v.weight_kg ? `${v.weight_kg} kg` : "-"}
+                              </td>
                               <td className="px-4 py-3">
-                                <span className={cn(bpAlert && "text-red-500 font-bold")}>
+                                <span
+                                  className={cn(
+                                    bpAlert && "text-red-500 font-bold",
+                                  )}
+                                >
                                   {v.blood_pressure || "-"}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={cn((hrAlert || pulseAlert) && "text-red-500 font-bold")}>
-                                  {v.pulse ? `${v.pulse} bpm` : (v.heart_rate ? `${v.heart_rate} bpm` : "-")}
+                                <span
+                                  className={cn(
+                                    (hrAlert || pulseAlert) &&
+                                      "text-red-500 font-bold",
+                                  )}
+                                >
+                                  {v.pulse
+                                    ? `${v.pulse} bpm`
+                                    : v.heart_rate
+                                      ? `${v.heart_rate} bpm`
+                                      : "-"}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={cn(spo2Alert && "text-red-500 font-bold")}>
+                                <span
+                                  className={cn(
+                                    spo2Alert && "text-red-500 font-bold",
+                                  )}
+                                >
                                   {v.spo2 ? `${v.spo2}%` : "-"}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
-                                <span className={cn(tempAlert && "text-red-500 font-bold")}>
+                                <span
+                                  className={cn(
+                                    tempAlert && "text-red-500 font-bold",
+                                  )}
+                                >
                                   {v.temperature ? `${v.temperature}°C` : "-"}
                                 </span>
                               </td>
                               <td className="px-4 py-3">
-                                {v.custom_metrics && Object.keys(v.custom_metrics).length > 0 ? (
+                                {v.custom_metrics &&
+                                Object.keys(v.custom_metrics).length > 0 ? (
                                   <div className="flex flex-wrap gap-1">
-                                    {Object.entries(v.custom_metrics).map(([key, val]: any) => (
-                                      <span key={key} className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium">
-                                        {key}: {val}
-                                      </span>
-                                    ))}
+                                    {Object.entries(v.custom_metrics).map(
+                                      ([key, val]: any) => (
+                                        <span
+                                          key={key}
+                                          className="inline-block px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 font-medium"
+                                        >
+                                          {key}: {val}
+                                        </span>
+                                      ),
+                                    )}
                                   </div>
                                 ) : (
                                   "-"
                                 )}
                               </td>
                               <td className="px-4 py-3 text-right">
-                                <span className={cn(
-                                  "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
-                                  hasAlert ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
-                                )}>
-                                  {hasAlert ? "⚠️ Out of Range" : "✓ Safe Range"}
+                                <span
+                                  className={cn(
+                                    "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold",
+                                    hasAlert
+                                      ? "bg-red-500/10 text-red-500"
+                                      : "bg-emerald-500/10 text-emerald-500",
+                                  )}
+                                >
+                                  {hasAlert
+                                    ? "⚠️ Out of Range"
+                                    : "✓ Safe Range"}
                                 </span>
                               </td>
                             </tr>
@@ -6615,7 +8823,8 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="text-xs text-slate-400 py-10 text-center font-bold">
-                No vitals logged yet. Vitals can be recorded when writing prescriptions.
+                No vitals logged yet. Vitals can be recorded when writing
+                prescriptions.
               </div>
             )}
           </div>
@@ -6631,14 +8840,14 @@ export default function Dashboard() {
               { id: "appointments", label: "Slots", icon: Calendar },
               { id: "labs", label: "Labs", icon: BriefcaseMedical },
               { id: "billing", label: "Billing", icon: FileText },
-              { id: "queue", label: "Queue", icon: Clock }
+              { id: "queue", label: "Queue", icon: Clock },
             ];
           } else if (role === "PHARMACIST") {
             return [
               { id: "pharmacy", label: "Pharmacy", icon: BriefcaseMedical },
               { id: "medicines", label: "Medicines", icon: Plus },
               { id: "billing", label: "Ledger", icon: FileText },
-              { id: "whatsapp", label: "WhatsApp", icon: Smartphone }
+              { id: "whatsapp", label: "WhatsApp", icon: Smartphone },
             ];
           } else if (role === "HOSPITAL_ADMIN") {
             return [
@@ -6646,51 +8855,83 @@ export default function Dashboard() {
               { id: "patients", label: "Patients", icon: Users },
               { id: "appointments", label: "Slots", icon: Calendar },
               { id: "queue", label: "Queue", icon: Clock },
-              { id: "more", label: "More", icon: Settings }
+              { id: "more", label: "More", icon: Settings },
             ];
           } else {
             // Default to DOCTOR
             return [
-              { id: "patients", label: isClinicMode ? "Patients" : "Treated", icon: Users },
+              {
+                id: "patients",
+                label: isClinicMode ? "Patients" : "Treated",
+                icon: Users,
+              },
               { id: "prescriptions", label: "Rx", icon: FileText },
               { id: "appointments", label: "Slots", icon: Calendar },
               { id: "queue", label: "Queue", icon: Clock },
-              { id: "more", label: "More", icon: Settings }
+              { id: "more", label: "More", icon: Settings },
             ];
           }
         };
 
         const getMoreTabs = () => {
           const role = doctorInfo?.role || "DOCTOR";
-          const primaryIds = getMobileTabs().map(t => t.id);
+          const primaryIds = getMobileTabs().map((t) => t.id);
           const allTabs = [];
           if (role === "HOSPITAL_ADMIN") {
             allTabs.push(
               { id: "staff", label: "Staff Directory", icon: Users },
               { id: "patients", label: "Patient Directory", icon: Users },
-              { id: "appointments", label: "Appointment Slots", icon: Calendar },
-              { id: "availability", label: "Availability Settings", icon: Settings },
+              {
+                id: "appointments",
+                label: "Appointment Slots",
+                icon: Calendar,
+              },
+              {
+                id: "availability",
+                label: "Availability Settings",
+                icon: Settings,
+              },
               { id: "queue", label: "Active Hospital Queue", icon: Clock },
-              { id: "pharmacy", label: "Pharmacy Queue", icon: BriefcaseMedical },
+              {
+                id: "pharmacy",
+                label: "Pharmacy Queue",
+                icon: BriefcaseMedical,
+              },
               { id: "billing", label: "Organization Ledger", icon: FileText },
               { id: "medicines", label: "Pharmacy Stock", icon: Plus },
               { id: "analytics", label: "Facility Analytics", icon: Activity },
-              { id: "reschedule-queue", label: "Reschedule Queue", icon: AlertTriangle },
-              { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone }
+              {
+                id: "reschedule-queue",
+                label: "Reschedule Queue",
+                icon: AlertTriangle,
+              },
+              { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone },
             );
           } else if (role === "DOCTOR") {
             allTabs.push(
-              { id: "patients", label: isClinicMode ? "Patient Directory" : "Treated Patients", icon: Users },
+              {
+                id: "patients",
+                label: isClinicMode ? "Patient Directory" : "Treated Patients",
+                icon: Users,
+              },
               { id: "prescriptions", label: "Prescriptions", icon: FileText },
-              { id: "appointments", label: "Appointment Slots", icon: Calendar },
+              {
+                id: "appointments",
+                label: "Appointment Slots",
+                icon: Calendar,
+              },
               { id: "queue", label: "Patient Queue", icon: Clock },
-              { id: "availability", label: "Slot Settings", icon: Settings }
+              { id: "availability", label: "Slot Settings", icon: Settings },
             );
             if (isClinicMode) {
-              allTabs.push({ id: "whatsapp", label: "WhatsApp Link", icon: Smartphone });
+              allTabs.push({
+                id: "whatsapp",
+                label: "WhatsApp Link",
+                icon: Smartphone,
+              });
             }
           }
-          return allTabs.filter(t => !primaryIds.includes(t.id));
+          return allTabs.filter((t) => !primaryIds.includes(t.id));
         };
 
         const primaryTabs = getMobileTabs();
@@ -6710,9 +8951,17 @@ export default function Dashboard() {
                         if (tab.id === "more") {
                           setIsMobileMenuOpen(true);
                         } else {
-                          const prevIndex = primaryTabs.findIndex((t) => t.id === activeTab);
-                          const newIndex = primaryTabs.findIndex((t) => t.id === tab.id);
-                          if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                          const prevIndex = primaryTabs.findIndex(
+                            (t) => t.id === activeTab,
+                          );
+                          const newIndex = primaryTabs.findIndex(
+                            (t) => t.id === tab.id,
+                          );
+                          if (
+                            prevIndex !== -1 &&
+                            newIndex !== -1 &&
+                            prevIndex !== newIndex
+                          ) {
                             setDirection(newIndex > prevIndex ? 1 : -1);
                           }
                           setActiveTab(tab.id as any);
@@ -6724,11 +8973,13 @@ export default function Dashboard() {
                         "flex flex-col items-center justify-center w-14 py-1 transition cursor-pointer select-none space-y-0.5",
                         isTabActive
                           ? "text-indigo-600 dark:text-indigo-400"
-                          : "text-slate-400 dark:text-slate-500 hover:text-slate-600"
+                          : "text-slate-400 dark:text-slate-500 hover:text-slate-600",
                       )}
                     >
                       <Icon className="w-5 h-5" />
-                      <span className="truncate w-full text-center">{tab.label}</span>
+                      <span className="truncate w-full text-center">
+                        {tab.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -6737,13 +8988,18 @@ export default function Dashboard() {
 
             {/* Mobile "More" Drawer bottom sheet */}
             {isMobileMenuOpen && (
-              <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-all duration-200" onClick={() => setIsMobileMenuOpen(false)}>
-                <div 
+              <div
+                className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-all duration-200"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <div
                   className="absolute bottom-0 left-0 right-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-[32px] p-6 max-h-[80vh] overflow-y-auto shadow-2xl animate-in slide-in-from-bottom duration-300"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mx-auto mb-6" />
-                  <h3 className="text-base font-black mb-4 tracking-tight">More Options</h3>
+                  <h3 className="text-base font-black mb-4 tracking-tight">
+                    More Options
+                  </h3>
                   <div className="grid grid-cols-3 gap-3">
                     {moreTabs.map((tab) => {
                       const Icon = tab.icon;
@@ -6753,9 +9009,17 @@ export default function Dashboard() {
                           key={tab.id}
                           onClick={() => {
                             const allMobileTabs = [...primaryTabs, ...moreTabs];
-                            const prevIndex = allMobileTabs.findIndex((t) => t.id === activeTab);
-                            const newIndex = allMobileTabs.findIndex((t) => t.id === tab.id);
-                            if (prevIndex !== -1 && newIndex !== -1 && prevIndex !== newIndex) {
+                            const prevIndex = allMobileTabs.findIndex(
+                              (t) => t.id === activeTab,
+                            );
+                            const newIndex = allMobileTabs.findIndex(
+                              (t) => t.id === tab.id,
+                            );
+                            if (
+                              prevIndex !== -1 &&
+                              newIndex !== -1 &&
+                              prevIndex !== newIndex
+                            ) {
                               setDirection(newIndex > prevIndex ? 1 : -1);
                             }
                             setActiveTab(tab.id as any);
@@ -6766,11 +9030,13 @@ export default function Dashboard() {
                             "flex flex-col items-center justify-center p-3 rounded-2xl border text-center transition cursor-pointer select-none space-y-1.5",
                             isTabActive
                               ? "bg-indigo-600 border-indigo-600 text-white shadow-md"
-                              : "bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              : "bg-slate-50 dark:bg-slate-800/40 border-slate-100 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800",
                           )}
                         >
                           <Icon className="w-5 h-5" />
-                          <span className="text-[9px] font-bold leading-tight">{tab.label}</span>
+                          <span className="text-[9px] font-bold leading-tight">
+                            {tab.label}
+                          </span>
                         </button>
                       );
                     })}
@@ -6785,8 +9051,16 @@ export default function Dashboard() {
   );
 }
 
-function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: () => void }) {
-  const [selectedRole, setSelectedRole] = useState<"USER" | "DOCTOR" | "HOSPITAL_ADMIN">("USER");
+function RoleSelectionScreen({
+  user,
+  onCompleted,
+}: {
+  user: any;
+  onCompleted: () => void;
+}) {
+  const [selectedRole, setSelectedRole] = useState<
+    "USER" | "DOCTOR" | "HOSPITAL_ADMIN"
+  >("USER");
   const [name, setName] = useState(user.name || "");
   const [phone, setPhone] = useState(user.phone || "");
   const [location, setLocation] = useState("");
@@ -6836,7 +9110,8 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
             Choose Your Portal Role
           </h1>
           <p className="text-sm text-slate-400 max-w-md mx-auto">
-            Welcome to Clinically! Please select your system role to unlock custom workflows and tools.
+            Welcome to Clinically! Please select your system role to unlock
+            custom workflows and tools.
           </p>
         </div>
 
@@ -6876,22 +9151,34 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
                     "backdrop-blur-xl rounded-3xl p-6 border text-left cursor-pointer transition-all duration-300 relative group overflow-hidden shadow-xl",
                     isSelected
                       ? "bg-slate-900/90 border-indigo-500 shadow-indigo-500/10 scale-[1.02]"
-                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/50"
+                      : "bg-slate-900/40 border-slate-800 hover:border-slate-700 hover:bg-slate-900/50",
                   )}
                 >
-                  <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-tr shadow-md mb-4",
-                    roleOption.color
-                  )}>
+                  <div
+                    className={cn(
+                      "w-12 h-12 rounded-2xl flex items-center justify-center bg-gradient-to-tr shadow-md mb-4",
+                      roleOption.color,
+                    )}
+                  >
                     <Icon className="w-6 h-6 text-white" />
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2">{roleOption.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">{roleOption.desc}</p>
-                  <div className={cn(
-                    "absolute top-4 right-4 w-4 h-4 rounded-full border flex items-center justify-center transition-colors duration-200",
-                    isSelected ? "border-indigo-500 bg-indigo-500" : "border-slate-700"
-                  )}>
-                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  <h3 className="text-lg font-bold text-white mb-2">
+                    {roleOption.title}
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {roleOption.desc}
+                  </p>
+                  <div
+                    className={cn(
+                      "absolute top-4 right-4 w-4 h-4 rounded-full border flex items-center justify-center transition-colors duration-200",
+                      isSelected
+                        ? "border-indigo-500 bg-indigo-500"
+                        : "border-slate-700",
+                    )}
+                  >
+                    {isSelected && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                    )}
                   </div>
                 </div>
               );
@@ -6901,7 +9188,13 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
           {/* Profile Setup Form Fields */}
           <div className="backdrop-blur-2xl bg-slate-900/60 border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 max-w-2xl mx-auto">
             <h2 className="text-lg font-bold border-b border-slate-800 pb-3 text-slate-200">
-              Complete {selectedRole === "USER" ? "Patient" : selectedRole === "DOCTOR" ? "Doctor" : "Hospital Admin"} Profile
+              Complete{" "}
+              {selectedRole === "USER"
+                ? "Patient"
+                : selectedRole === "DOCTOR"
+                  ? "Doctor"
+                  : "Hospital Admin"}{" "}
+              Profile
             </h2>
 
             {error && (
@@ -6912,7 +9205,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-left">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-400">Full Name</label>
+                <label className="text-[10px] font-bold uppercase text-slate-400">
+                  Full Name
+                </label>
                 <input
                   type="text"
                   required
@@ -6923,7 +9218,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase text-slate-400">Phone Contact</label>
+                <label className="text-[10px] font-bold uppercase text-slate-400">
+                  Phone Contact
+                </label>
                 <input
                   type="tel"
                   required
@@ -6936,7 +9233,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
               {selectedRole === "HOSPITAL_ADMIN" && (
                 <>
                   <div className="space-y-1 sm:col-span-2">
-                    <label className="text-[10px] font-bold uppercase text-slate-400">Hospital / Facility Name</label>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Hospital / Facility Name
+                    </label>
                     <input
                       type="text"
                       required
@@ -6947,7 +9246,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
                     />
                   </div>
                   <div className="space-y-1 sm:col-span-2">
-                    <label className="text-[10px] font-bold uppercase text-slate-400">Facility Address</label>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Facility Address
+                    </label>
                     <input
                       type="text"
                       required
@@ -6963,7 +9264,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
               {selectedRole === "DOCTOR" && (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-slate-400">Specialization</label>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Specialization
+                    </label>
                     <input
                       type="text"
                       required
@@ -6974,7 +9277,9 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase text-slate-400">Clinic Room / Location</label>
+                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                      Clinic Room / Location
+                    </label>
                     <input
                       type="text"
                       required
@@ -7000,7 +9305,8 @@ function RoleSelectionScreen({ user, onCompleted }: { user: any; onCompleted: ()
       </div>
 
       <footer className="text-center text-[10px] text-slate-600 mt-6">
-        &copy; {new Date().getFullYear()} Clinically. Secure Patient EMR & Ledger.
+        &copy; {new Date().getFullYear()} Clinically. Secure Patient EMR &
+        Ledger.
       </footer>
     </div>
   );

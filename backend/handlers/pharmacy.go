@@ -295,13 +295,13 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	billQuery := `
-		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, facility_id, promised_due_date, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, facility_id, promised_due_date, created_at, prescription_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 		RETURNING id
 	`
 	// Promise due date defaults to 7 days from now
 	promisedDate := time.Now().AddDate(0, 0, 7)
-	err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, remainingAmount, billStatus, facilityID, promisedDate).Scan(&billID)
+	err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, remainingAmount, billStatus, facilityID, promisedDate, input.PrescriptionID).Scan(&billID)
 	if err != nil {
 		log.Printf("DispensePrescription create bill error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to auto-generate bill"})

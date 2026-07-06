@@ -192,12 +192,12 @@ func CreatePrescription(w http.ResponseWriter, r *http.Request) {
 		}
 
 		billQuery := `
-			INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, promised_due_date, created_at, facility_id)
-			VALUES ($1, $2, 'Consultation / Visit Charges', $3, $4, $5, NULL, $6, $7)
+			INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, promised_due_date, created_at, facility_id, prescription_id)
+			VALUES ($1, $2, 'Consultation / Visit Charges', $3, $4, $5, NULL, $6, $7, $8)
 			RETURNING id
 		`
 		var billID int
-		err = tx.QueryRow(r.Context(), billQuery, input.PatientID, doctorID, *input.VisitCharges, remainingAmount, billStatus, createdAt, facilityID).Scan(&billID)
+		err = tx.QueryRow(r.Context(), billQuery, input.PatientID, doctorID, *input.VisitCharges, remainingAmount, billStatus, createdAt, facilityID, rxID).Scan(&billID)
 		if err != nil {
 			log.Printf("CreatePrescription insert bill error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to create consultation bill"})

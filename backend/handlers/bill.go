@@ -52,10 +52,29 @@ type Bill struct {
 	FacilityID      *int       `json:"facility_id,omitempty"`
 }
 
+type BillPrescriptionItem struct {
+	MedicineName string `json:"medicine_name"`
+	Dosage       string `json:"dosage"`
+	Frequency    string `json:"frequency"`
+	Duration     string `json:"duration"`
+	Quantity     int    `json:"quantity"`
+	Instructions string `json:"instructions"`
+}
+
+type BillPrescriptionDetail struct {
+	ID          int                    `json:"id"`
+	Diagnosis   string                 `json:"diagnosis"`
+	Notes       string                 `json:"notes"`
+	CreatedAt   time.Time              `json:"created_at"`
+	Items       []BillPrescriptionItem `json:"items"`
+	LabRequests []string               `json:"lab_requests"`
+}
+
 type BillDetail struct {
-	Bill     Bill            `json:"bill"`
-	Items    []BillItem      `json:"items"`
-	Payments []PaymentRecord `json:"payments"`
+	Bill         Bill                    `json:"bill"`
+	Items        []BillItem              `json:"items"`
+	Payments     []PaymentRecord         `json:"payments"`
+	Prescription *BillPrescriptionDetail `json:"prescription,omitempty"`
 }
 
 // CreateBill generates a new bill and registers its item lines, logging payments and sending to WhatsApp.
@@ -528,10 +547,69 @@ func GetBillDetails(w http.ResponseWriter, r *http.Request) {
 		payments = append(payments, pr)
 	}
 
+	// Load associated prescription if present
+	var prescriptionID *int
+	_ = db.Pool.QueryRow(ctx, "SELECT prescription_id FROM bills WHERE id = $1", id).Scan(&prescriptionID)
+	if prescriptionID == nil {
+		// Fallback to checking dispensing records link
+		_ = db.Pool.QueryRow(ctx, "SELECT prescription_id FROM dispensing_records WHERE bill_id = $1 LIMIT 1", id).Scan(&prescriptionID)
+	}
+
+	var rxDetail *BillPrescriptionDetail
+	if prescriptionID != nil {
+		var rx BillPrescriptionDetail
+		rx.ID = *prescriptionID
+		err = db.Pool.QueryRow(ctx, `
+			SELECT diagnosis, notes, created_at
+			FROM prescriptions
+			WHERE id = $1
+		`, rx.ID).Scan(&rx.Diagnosis, &rx.Notes, &rx.CreatedAt)
+		if err == nil {
+			// Query items
+			rowsRxItems, err := db.Pool.Query(ctx, `
+				SELECT medicine_name, dosage, frequency, duration, quantity, instructions
+				FROM prescription_items
+				WHERE prescription_id = $1
+				ORDER BY id ASC
+			`, rx.ID)
+			if err == nil {
+				rx.Items = []BillPrescriptionItem{}
+				for rowsRxItems.Next() {
+					var item BillPrescriptionItem
+					if err := rowsRxItems.Scan(&item.MedicineName, &item.Dosage, &item.Frequency, &item.Duration, &item.Quantity, &item.Instructions); err == nil {
+						rx.Items = append(rx.Items, item)
+					}
+				}
+				rowsRxItems.Close()
+			}
+
+			// Query lab requests
+			rowsLabs, err := db.Pool.Query(ctx, `
+				SELECT test_name
+				FROM lab_requests
+				WHERE prescription_id = $1
+				ORDER BY id ASC
+			`, rx.ID)
+			if err == nil {
+				rx.LabRequests = []string{}
+				for rowsLabs.Next() {
+					var testName string
+					if err := rowsLabs.Scan(&testName); err == nil {
+						rx.LabRequests = append(rx.LabRequests, testName)
+					}
+				}
+				rowsLabs.Close()
+			}
+
+			rxDetail = &rx
+		}
+	}
+
 	writeJSON(w, http.StatusOK, BillDetail{
-		Bill:     b,
-		Items:    items,
-		Payments: payments,
+		Bill:         b,
+		Items:        items,
+		Payments:     payments,
+		Prescription: rxDetail,
 	})
 }
 
