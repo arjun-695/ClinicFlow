@@ -59,7 +59,9 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 
 	query := `
 		SELECT rx.id, rx.patient_id, p.name as patient_name, rx.doctor_id, u.name as doctor_name, 
-		       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at
+		       rx.appointment_id, rx.diagnosis, rx.notes, rx.status, rx.created_at,
+		       COALESCE(rx.consultation_charges, 0.0) as consultation_charges,
+		       COALESCE(rx.amount_paid, 0.0) as amount_paid
 		FROM prescriptions rx
 		JOIN patients p ON rx.patient_id = p.id
 		JOIN users u ON rx.doctor_id = u.id
@@ -78,7 +80,7 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 	prescriptions := []Prescription{}
 	for rows.Next() {
 		var rx Prescription
-		err := rows.Scan(&rx.ID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt)
+		err := rows.Scan(&rx.ID, &rx.PatientID, &rx.PatientName, &rx.DoctorID, &rx.DoctorName, &rx.AppointmentID, &rx.Diagnosis, &rx.Notes, &rx.Status, &rx.CreatedAt, &rx.ConsultationCharges, &rx.AmountPaid)
 		if err != nil {
 			log.Printf("ListPendingPrescriptions scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to scan records"})
@@ -104,6 +106,28 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 			rx.Items = items
 		}
 
+		// Load lab requests for this prescription
+		labQuery := `
+			SELECT test_name
+			FROM lab_requests
+			WHERE prescription_id = $1
+			ORDER BY id ASC
+		`
+		lRows, err := db.Pool.Query(r.Context(), labQuery, rx.ID)
+		if err == nil {
+			labs := []string{}
+			for lRows.Next() {
+				var tn string
+				if errScan := lRows.Scan(&tn); errScan == nil {
+					labs = append(labs, tn)
+				}
+			}
+			lRows.Close()
+			rx.LabRequests = labs
+		} else {
+			rx.LabRequests = []string{}
+		}
+
 		prescriptions = append(prescriptions, rx)
 	}
 
@@ -114,9 +138,10 @@ func ListPendingPrescriptions(w http.ResponseWriter, r *http.Request) {
 // Restricts to PHARMACIST role.
 func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		PrescriptionID int     `json:"prescription_id"`
-		AmountPaid     float64 `json:"amount_paid"`
-		Items          []struct {
+		PrescriptionID      int     `json:"prescription_id"`
+		AmountPaid          float64 `json:"amount_paid"`
+		ConsultationCharges float64 `json:"consultation_charges"`
+		Items               []struct {
 			PrescriptionItemID int     `json:"prescription_item_id"`
 			MedicineID         *int    `json:"medicine_id"`
 			TabletsGiven       int     `json:"tablets_given"`
@@ -124,6 +149,10 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 			IsNIL              bool    `json:"is_nil"`
 			NILReason          string  `json:"nil_reason"`
 		} `json:"items"`
+		Tests []struct {
+			Name   string  `json:"name"`
+			Amount float64 `json:"amount"`
+		} `json:"tests"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -131,8 +160,8 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.PrescriptionID <= 0 || len(input.Items) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Prescription ID and items are required"})
+	if input.PrescriptionID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Prescription ID is required"})
 		return
 	}
 
@@ -193,7 +222,22 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		Dosage    string
 	}
 
-	grandTotal := 0.0
+	// Add Consultation Fee if > 0
+	if input.ConsultationCharges > 0 {
+		invoiceItems = append(invoiceItems, struct {
+			Name      string
+			Quantity  int
+			UnitPrice float64
+			Dosage    string
+		}{
+			Name:      "Consultation Fee",
+			Quantity:  1,
+			UnitPrice: input.ConsultationCharges,
+			Dosage:    "",
+		})
+	}
+
+	grandTotal := input.ConsultationCharges
 	isFullyDispensed := true
 
 	// 2. Process items
@@ -279,33 +323,100 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Auto-generate Bill Invoice
-	var billID int
-	description := fmt.Sprintf("Pharmacy Invoice — Rx #%d", input.PrescriptionID)
-
-	remainingAmount := grandTotal - input.AmountPaid
-	var billStatus string
-	if remainingAmount <= 0 {
-		billStatus = "SETTLED"
-		remainingAmount = 0
-	} else if input.AmountPaid > 0 {
-		billStatus = "PARTIALLY_PAID"
-	} else {
-		billStatus = "PENDING"
+	// Add Tests if any
+	for _, t := range input.Tests {
+		if t.Amount > 0 {
+			grandTotal += t.Amount
+			invoiceItems = append(invoiceItems, struct {
+				Name      string
+				Quantity  int
+				UnitPrice float64
+				Dosage    string
+			}{
+				Name:      t.Name,
+				Quantity:  1,
+				UnitPrice: t.Amount,
+				Dosage:    "",
+			})
+		}
 	}
 
-	billQuery := `
-		INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, facility_id, promised_due_date, created_at, prescription_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
-		RETURNING id
-	`
-	// Promise due date defaults to 7 days from now
-	promisedDate := time.Now().AddDate(0, 0, 7)
-	err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, remainingAmount, billStatus, facilityID, promisedDate, input.PrescriptionID).Scan(&billID)
-	if err != nil {
-		log.Printf("DispensePrescription create bill error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to auto-generate bill"})
-		return
+	// 3. Auto-generate or Update Bill Invoice
+	var billID int
+	var remainingAmount float64
+	var billStatus string
+
+	// Check if a consultation bill already exists for this prescription
+	var existingBillID int
+	var existingTotalAmount, existingRemainingAmount float64
+	err = tx.QueryRow(r.Context(), `
+		SELECT id, total_amount, remaining_amount 
+		FROM bills 
+		WHERE prescription_id = $1 AND facility_id = $2
+		LIMIT 1
+	`, input.PrescriptionID, facilityID).Scan(&existingBillID, &existingTotalAmount, &existingRemainingAmount)
+
+	if err == nil {
+		// A bill already exists (consultation bill). We update it!
+		billID = existingBillID
+
+		// Delete existing items for this bill to recreate them in unified combined format
+		_, err = tx.Exec(r.Context(), "DELETE FROM bill_items WHERE bill_id = $1", billID)
+		if err != nil {
+			log.Printf("DispensePrescription delete existing bill items error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update existing invoice"})
+			return
+		}
+
+		// Calculate updated remaining amount
+		previousAmountPaid := existingTotalAmount - existingRemainingAmount
+		newTotalPaid := previousAmountPaid + input.AmountPaid
+		remainingAmount = grandTotal - newTotalPaid
+		if remainingAmount <= 0 {
+			billStatus = "SETTLED"
+			remainingAmount = 0
+		} else if newTotalPaid > 0 {
+			billStatus = "PARTIALLY_PAID"
+		} else {
+			billStatus = "PENDING"
+		}
+
+		// Update existing bill total, remaining and status
+		_, err = tx.Exec(r.Context(), `
+			UPDATE bills
+			SET total_amount = $1, remaining_amount = $2, status = $3, description = $4
+			WHERE id = $5
+		`, grandTotal, remainingAmount, billStatus, fmt.Sprintf("Combined Invoice — Rx #%d", input.PrescriptionID), billID)
+		if err != nil {
+			log.Printf("DispensePrescription update bill error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update invoice totals"})
+			return
+		}
+	} else {
+		// No bill exists yet. Create a new combined bill!
+		remainingAmount = grandTotal - input.AmountPaid
+		if remainingAmount <= 0 {
+			billStatus = "SETTLED"
+			remainingAmount = 0
+		} else if input.AmountPaid > 0 {
+			billStatus = "PARTIALLY_PAID"
+		} else {
+			billStatus = "PENDING"
+		}
+
+		description := fmt.Sprintf("Combined Invoice — Rx #%d", input.PrescriptionID)
+		billQuery := `
+			INSERT INTO bills (patient_id, doctor_id, description, total_amount, remaining_amount, status, facility_id, promised_due_date, created_at, prescription_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
+			RETURNING id
+		`
+		promisedDate := time.Now().AddDate(0, 0, 7)
+		err = tx.QueryRow(r.Context(), billQuery, patientID, doctorID, description, grandTotal, remainingAmount, billStatus, facilityID, promisedDate, input.PrescriptionID).Scan(&billID)
+		if err != nil {
+			log.Printf("DispensePrescription create bill error: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to auto-generate bill"})
+			return
+		}
 	}
 
 	// Insert invoice items into bill_items
@@ -325,7 +436,7 @@ func DispensePrescription(w http.ResponseWriter, r *http.Request) {
 	if input.AmountPaid > 0 {
 		_, err = tx.Exec(r.Context(), `
 			INSERT INTO payments (bill_id, amount_paid, payment_mode, remarks, payment_date)
-			VALUES ($1, $2, 'CASH', 'Upfront co-payment during dispensing', now())
+			VALUES ($1, $2, 'CASH', 'Upfront payment during billing', now())
 		`, billID, input.AmountPaid)
 		if err != nil {
 			log.Printf("DispensePrescription create payment error: %v", err)

@@ -48,6 +48,8 @@ func InitDB() {
 		ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS consultation_charges NUMERIC(12, 2) NOT NULL DEFAULT 0.0;
 		ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(12, 2) NOT NULL DEFAULT 0.0;
 		ALTER TABLE bills ADD COLUMN IF NOT EXISTS prescription_id INT REFERENCES prescriptions(id) ON DELETE SET NULL;
+		ALTER TABLE facilities ADD COLUMN IF NOT EXISTS address TEXT;
+		ALTER TABLE facilities ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
 
 		CREATE INDEX IF NOT EXISTS idx_bills_recurring_reminder ON bills(last_reminder_sent_at, remaining_amount) WHERE status != 'SETTLED';
 		CREATE INDEX IF NOT EXISTS idx_appointments_reminder ON appointments(status, reminder_sent, appointment_date);

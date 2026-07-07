@@ -216,6 +216,7 @@ interface Bill {
   pulse?: string;
   temp?: string;
   doctor_id: number;
+  doctor_name?: string;
   clinic_name: string;
   description: string;
   total_amount: number;
@@ -342,7 +343,7 @@ export default function Dashboard() {
     specialization?: string;
     hospital_name?: string;
     active_facility_id?: number;
-    facilities?: { id: number; name: string; type: string; role: string }[];
+    facilities?: { id: number; name: string; type: string; role: string; address?: string; phone?: string }[];
   } | null>(null);
 
   const isClinicMode =
@@ -373,6 +374,25 @@ export default function Dashboard() {
   const [direction, setDirection] = useState(0);
   const [contentRef, contentBounds] = useMeasure();
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const [billingSubTab, setBillingSubTab] = useState<"queue" | "ledger" | "settings">("queue");
+  const [billingSettingsName, setBillingSettingsName] = useState("");
+  const [billingSettingsAddress, setBillingSettingsAddress] = useState("");
+  const [billingSettingsPhone, setBillingSettingsPhone] = useState("");
+  const [testPrices, setTestPrices] = useState<{[key: string]: string}>({});
+
+  useEffect(() => {
+    if (doctorInfo) {
+      const activeFac = doctorInfo.facilities?.find(
+        (f) => f.id === doctorInfo.active_facility_id
+      );
+      if (activeFac) {
+        setBillingSettingsName(activeFac.name || "");
+        setBillingSettingsAddress(activeFac.address || "");
+        setBillingSettingsPhone(activeFac.phone || "");
+      }
+    }
+  }, [doctorInfo]);
 
   const lastFacilityIdRef = useRef<number | null>(null);
 
@@ -2268,184 +2288,234 @@ export default function Dashboard() {
     const doc = new jsPDF();
     const { bill, items, payments, prescription } = detail;
 
-    // Draw top header box
-    doc.setDrawColor(148, 163, 184);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+    // Helper for number to words
+    const numberToWords = (num: number): string => {
+      const a = [
+        "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+        "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"
+      ];
+      const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
 
-    // Hospital Name / Clinic Name
+      const roundedNum = Math.round(num * 100) / 100;
+      const intPart = Math.floor(roundedNum);
+      const decimals = Math.round((roundedNum - intPart) * 100);
+
+      const convertLessThanOneThousand = (n: number): string => {
+        let str = "";
+        if (n >= 100) {
+          str += a[Math.floor(n / 100)] + " Hundred ";
+          n %= 100;
+        }
+        if (n >= 20) {
+          str += b[Math.floor(n / 10)] + " ";
+          n %= 10;
+        }
+        if (n > 0) {
+          str += a[n] + " ";
+        }
+        return str.trim();
+      };
+
+      const convertToIndianWords = (n: number): string => {
+        if (n === 0) return "";
+        let str = "";
+
+        // Crores (1,00,00,000)
+        const crores = Math.floor(n / 10000000);
+        if (crores > 0) {
+          str += convertToIndianWords(crores) + " Crore ";
+          n %= 10000000;
+        }
+
+        // Lakhs (1,00,000)
+        const lakhs = Math.floor(n / 100000);
+        if (lakhs > 0) {
+          str += convertLessThanOneThousand(lakhs) + " Lakh ";
+          n %= 100000;
+        }
+
+        // Thousands (1,000)
+        const thousands = Math.floor(n / 1000);
+        if (thousands > 0) {
+          str += convertLessThanOneThousand(thousands) + " Thousand ";
+          n %= 1000;
+        }
+
+        // Hundreds and below
+        if (n > 0) {
+          str += convertLessThanOneThousand(n);
+        }
+
+        return str.trim();
+      };
+
+      if (intPart === 0 && decimals === 0) return "Zero Rupees Only";
+
+      let rupeeStr = "";
+      if (intPart > 0) {
+        rupeeStr = convertToIndianWords(intPart) + " Rupees";
+      }
+
+      let paiseStr = "";
+      if (decimals > 0) {
+        if (rupeeStr !== "") {
+          paiseStr = " and ";
+        }
+        paiseStr += convertLessThanOneThousand(decimals) + " Paise";
+      }
+
+      return (rupeeStr + paiseStr + " Only").trim().replace(/\s+/g, " ");
+    };
+
+    // Get active facility details
+    const activeFacility = doctorInfo?.facilities?.find(
+      (f) => f.id === doctorInfo.active_facility_id
+    );
+    const facilityName = activeFacility?.name || bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital";
+    const facilityAddress = activeFacility?.address || "Personal Clinic Workspace";
+    const facilityPhone = activeFacility?.phone || doctorInfo?.phone || "";
+
+    // Draw top header box
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(15, 15, 180, 36, 2, 2, "S");
+
+    // Hospital Name / Clinic Name (Centered)
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
     doc.setTextColor(30, 41, 59);
-    doc.text(
-      bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital",
-      105,
-      25,
-      { align: "center" },
-    );
+    doc.text(facilityName, 105, 23, { align: "center" });
 
-    // Row 1 metadata
-    doc.setFontSize(10);
+    // Address under it (Centered, small font)
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
     doc.setTextColor(71, 85, 105);
+    const addressLines = doc.splitTextToSize(facilityAddress, 160);
+    let addressY = 28;
+    addressLines.forEach((line: string) => {
+      doc.text(line, 105, addressY, { align: "center" });
+      addressY += 3.5;
+    });
+
+    // Phone number centered underneath
+    if (facilityPhone) {
+      doc.text(`Tel: ${facilityPhone}`, 105, addressY, { align: "center" });
+    }
+
+    // Document Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.text("PATIENT INVOICE", 105, 57, { align: "center" });
+
+    // Patient Details Box
+    doc.roundedRect(15, 62, 180, 34, 2, 2, "S");
 
     const formattedDate = bill.created_at
-      ? new Date(bill.created_at).toLocaleDateString()
-      : new Date().toLocaleDateString();
+      ? new Date(bill.created_at).toLocaleString()
+      : new Date().toLocaleString();
 
-    doc.setFont("helvetica", "bold");
-    doc.text("Name:", 20, 36);
-    doc.setFont("helvetica", "normal");
-    doc.text(bill.patient_name || "N/A", 35, 36);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Gender:", 90, 36);
-    doc.setFont("helvetica", "normal");
-    doc.text(bill.patient_gender || "N/A", 108, 36);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Date:", 145, 36);
-    doc.setFont("helvetica", "normal");
-    doc.text(formattedDate, 158, 36);
-
-    // Row 2 metadata
-    doc.setFont("helvetica", "bold");
-    doc.text("Age:", 20, 46);
-    doc.setFont("helvetica", "normal");
-    doc.text(bill.patient_age ? bill.patient_age.toString() : "N/A", 35, 46);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("Weight:", 90, 46);
-    doc.setFont("helvetica", "normal");
-    doc.text(bill.weight ? `${bill.weight} kg` : "N/A", 108, 46);
-
-    doc.setFont("helvetica", "bold");
-    doc.text("B/P:", 145, 46);
-    doc.setFont("helvetica", "normal");
-    doc.text(bill.bp || "N/A", 158, 46);
-
-    // Draw Left Box (Staff)
-    doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text("Staff:", 20, 70);
-
-    // List other doctors in the left column
+    // Patient Details Columns
     doc.setFontSize(9);
-    let staffY = 78;
-    const currentDoctorId = doctorInfo?.id;
-    const otherDocs = facilityDoctors.filter(
-      (doc: any) => doc.id !== currentDoctorId,
-    );
-
-    if (otherDocs.length > 0) {
-      otherDocs.forEach((d: any) => {
-        if (staffY > 260) return;
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(51, 65, 85);
-        const nameLines = doc.splitTextToSize(`Dr. ${d.name}`, 45);
-        nameLines.forEach((line: string) => {
-          doc.text(line, 20, staffY);
-          staffY += 4.5;
-        });
-
-        doc.setFont("helvetica", "italic");
-        doc.setTextColor(100, 116, 139);
-        const specLines = doc.splitTextToSize(
-          d.specialization || "General Medicine",
-          45,
-        );
-        specLines.forEach((line: string) => {
-          doc.text(line, 20, staffY);
-          staffY += 4.5;
-        });
-        staffY += 4;
-      });
-    } else {
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(148, 163, 184);
-      doc.text("No other doctors", 20, staffY);
-    }
-
-    // Draw Right Box (Billing)
-    doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text("Billing Details:", 80, 70);
-
-    doc.setFontSize(10);
-    let billY = 78;
-
-    // Invoice ID
-    doc.setFont("helvetica", "bold");
-    doc.text("Invoice ID:", 80, billY);
+    doc.text("PATIENT DETAILS", 20, 68);
     doc.setFont("helvetica", "normal");
-    doc.text(`#INV-${bill.id}`, 105, billY);
-    billY += 8;
-
-    // Description
-    if (bill.description) {
-      doc.setFont("helvetica", "bold");
-      doc.text("Description:", 80, billY);
-      doc.setFont("helvetica", "normal");
-      doc.text(bill.description, 105, billY);
-      billY += 8;
+    doc.text(bill.patient_name || "N/A", 20, 74);
+    
+    let ageGen = "";
+    if (bill.patient_age) ageGen += `Age: ${bill.patient_age} YRS`;
+    if (bill.patient_gender) {
+      if (ageGen) ageGen += " | ";
+      ageGen += `Gender: ${bill.patient_gender}`;
     }
+    doc.text(ageGen || "N/A", 20, 80);
+    doc.text(`Phone: ${bill.patient_phone || "N/A"}`, 20, 86);
 
-    // Items List
+    // Right Column inside details box
+    doc.setFont("helvetica", "bold");
+    doc.text("Bill No:", 110, 74);
+    doc.setFont("helvetica", "normal");
+    doc.text(`#INV-${bill.id}`, 128, 74);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Bill Date/Time:", 110, 80);
+    doc.setFont("helvetica", "normal");
+    doc.text(formattedDate, 138, 80);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Physician:", 110, 86);
+    doc.setFont("helvetica", "normal");
+    doc.text(bill.doctor_name || doctorInfo?.name || "Attending Doctor", 130, 86);
+
+    // DETAILS Title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("DETAILS", 105, 103, { align: "center" });
+
+    // Table Header
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("Service / Item Name", 20, 110);
+    doc.text("Qty", 125, 110, { align: "center" });
+    doc.text("Unit Price", 155, 110, { align: "right" });
+    doc.text("Amount (Rs.)", 190, 110, { align: "right" });
+    
+    doc.setDrawColor(71, 85, 105);
+    doc.setLineWidth(0.5);
+    doc.line(15, 112, 195, 112);
+
+    // Table Items list
+    let billY = 118;
+    doc.setFont("helvetica", "normal");
     if (items && items.length > 0) {
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(79, 70, 229);
-      doc.text("Billing Items:", 80, billY);
-      billY += 6;
-
-      doc.setFontSize(9);
-      doc.setFont("helvetica", "bold");
-      doc.setTextColor(51, 65, 85);
-      doc.text("Item Name", 82, billY);
-      doc.text("Qty", 140, billY);
-      doc.text("Subtotal", 165, billY);
-      billY += 5;
-      doc.line(80, billY - 1, 185, billY - 1);
-      billY += 5;
-
-      doc.setFont("helvetica", "normal");
       items.forEach((item: any) => {
         if (billY > 230) return;
-        doc.text(item.item_name, 82, billY);
-        doc.text(item.quantity.toString(), 142, billY);
-        doc.text(
-          `Rs. ${(item.quantity * item.unit_price).toFixed(2)}`,
-          165,
-          billY,
-        );
-        billY += 6;
+        const nameText = item.dosage ? `${item.item_name} (${item.dosage})` : item.item_name;
+        doc.text(nameText, 20, billY);
+        doc.text(item.quantity.toString(), 125, billY, { align: "center" });
+        doc.text(item.unit_price.toFixed(2), 155, billY, { align: "right" });
+        doc.text((item.quantity * item.unit_price).toFixed(2), 190, billY, { align: "right" });
+        billY += 7;
       });
-      billY += 4;
-      doc.setFontSize(10);
     }
+
+    doc.line(15, billY, 195, billY);
+    billY += 6;
 
     // Totals Box
     if (billY < 240) {
-      doc.line(80, billY, 185, billY);
-      billY += 6;
-
       doc.setFont("helvetica", "bold");
-      doc.setTextColor(51, 65, 85);
-      doc.text("Total Amount:", 115, billY);
-      doc.text(`Rs. ${bill.total_amount.toFixed(2)}`, 165, billY);
+      doc.text("Bill Amount:", 140, billY);
+      doc.text(bill.total_amount.toFixed(2), 190, billY, { align: "right" });
       billY += 6;
 
       const totalPaid = bill.total_amount - bill.remaining_amount;
-      doc.text("Amount Paid:", 115, billY);
-      doc.text(`Rs. ${totalPaid.toFixed(2)}`, 165, billY);
+      doc.text("Amount Paid:", 140, billY);
+      doc.text(totalPaid.toFixed(2), 190, billY, { align: "right" });
       billY += 6;
 
-      doc.setTextColor(239, 68, 68);
-      doc.text("Outstanding Dues:", 115, billY);
-      doc.text(`Rs. ${bill.remaining_amount.toFixed(2)}`, 165, billY);
+      doc.setTextColor(220, 38, 38);
+      doc.text("Outstanding Dues:", 140, billY);
+      doc.text(bill.remaining_amount.toFixed(2), 190, billY, { align: "right" });
+      doc.setTextColor(30, 41, 59);
+      billY += 8;
+
+      doc.line(15, billY, 195, billY);
+      billY += 6;
+
+      // In Words
+      doc.setFont("helvetica", "bold");
+      doc.text("In Words :", 20, billY);
+      doc.setFont("helvetica", "normal");
+      const wordsText = numberToWords(bill.total_amount);
+      const wordsLines = doc.splitTextToSize(wordsText, 140);
+      let wordY = billY;
+      wordsLines.forEach((line: string) => {
+        doc.text(line, 42, wordY);
+        wordY += 4.5;
+      });
+      billY = wordY + 2;
     }
 
     let isOnNewPage = false;
@@ -2455,53 +2525,57 @@ export default function Dashboard() {
         isOnNewPage = true;
 
         // Draw header on page 2
-        doc.setDrawColor(148, 163, 184);
+        doc.setDrawColor(30, 41, 59);
         doc.setLineWidth(0.5);
-        doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+        doc.roundedRect(15, 15, 180, 36, 2, 2, "S");
 
         doc.setFont("helvetica", "bold");
         doc.setFontSize(16);
         doc.setTextColor(30, 41, 59);
-        doc.text(
-          bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital",
-          105,
-          25,
-          { align: "center" },
-        );
+        doc.text(facilityName, 105, 23, { align: "center" });
 
-        doc.setFontSize(10);
+        doc.setFontSize(8);
         doc.setFont("helvetica", "normal");
         doc.setTextColor(71, 85, 105);
+        let addressY2 = 28;
+        addressLines.forEach((line: string) => {
+          doc.text(line, 105, addressY2, { align: "center" });
+          addressY2 += 3.5;
+        });
+        if (facilityPhone) {
+          doc.text(`Tel: ${facilityPhone}`, 105, addressY2, { align: "center" });
+        }
 
+        doc.setFontSize(10);
         const formattedDate = bill.created_at
           ? new Date(bill.created_at).toLocaleDateString()
           : new Date().toLocaleDateString();
         doc.setFont("helvetica", "bold");
-        doc.text("Invoice ID:", 20, 36);
+        doc.text("Invoice ID:", 20, 56);
         doc.setFont("helvetica", "normal");
-        doc.text(`#INV-${bill.id}`, 45, 36);
+        doc.text(`#INV-${bill.id}`, 45, 56);
 
         doc.setFont("helvetica", "bold");
-        doc.text("Date:", 145, 36);
+        doc.text("Date:", 145, 56);
         doc.setFont("helvetica", "normal");
-        doc.text(formattedDate, 158, 36);
+        doc.text(formattedDate, 158, 56);
 
         // Draw content box for prescription
-        doc.roundedRect(15, 62, 180, 215, 4, 4, "S");
+        doc.roundedRect(15, 62, 180, 215, 2, 2, "S");
         billY = 70;
       } else {
         billY += 6;
-        doc.line(80, billY, 185, billY);
+        doc.line(15, billY, 195, billY);
         billY += 6;
       }
 
-      const contentX = isOnNewPage ? 22 : 82;
-      const textValX = isOnNewPage ? 55 : 105;
+      const contentX = isOnNewPage ? 22 : 22;
+      const textValX = isOnNewPage ? 55 : 55;
 
       doc.setFont("helvetica", "bold");
       doc.setTextColor(79, 70, 229);
       doc.setFontSize(11);
-      doc.text("Prescription Details:", isOnNewPage ? 20 : 80, billY);
+      doc.text("Prescription Details:", contentX, billY);
       billY += 6;
 
       doc.setFontSize(9);
@@ -2521,7 +2595,7 @@ export default function Dashboard() {
         doc.setFont("helvetica", "normal");
         const notesLines = doc.splitTextToSize(
           prescription.notes,
-          isOnNewPage ? 140 : 80,
+          140,
         );
         notesLines.forEach((line: string) => {
           if (billY > 260) return;
@@ -3027,13 +3101,8 @@ export default function Dashboard() {
               );
             } else if (role === "PHARMACIST") {
               allTabs.push(
-                {
-                  id: "pharmacy",
-                  label: "Pharmacy Queue",
-                  icon: BriefcaseMedical,
-                },
+                { id: "billing", label: "Billing & Queue", icon: FileText },
                 { id: "medicines", label: "Medicines Inventory", icon: Plus },
-                { id: "billing", label: "Bills & Invoices", icon: FileText },
                 { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone },
               );
             } else if (role === "HOSPITAL_ADMIN") {
@@ -3051,12 +3120,7 @@ export default function Dashboard() {
                   icon: Settings,
                 },
                 { id: "queue", label: "Active Hospital Queue", icon: Clock },
-                {
-                  id: "pharmacy",
-                  label: "Pharmacy Queue",
-                  icon: BriefcaseMedical,
-                },
-                { id: "billing", label: "Organization Ledger", icon: FileText },
+                { id: "billing", label: "Billing & Ledger", icon: FileText },
                 { id: "medicines", label: "Pharmacy Stock", icon: Plus },
                 {
                   id: "analytics",
@@ -5716,43 +5780,705 @@ export default function Dashboard() {
               )}
 
               {/* TAB: PHARMACY DISPENSING */}
-              {activeTab === "pharmacy" && (
-                <div className="space-y-6">
-                  <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-black">
-                      Pharmacy Dispensing Queue
-                    </h2>
-                    <button
-                      onClick={loadPendingPrescriptions}
-                      className="px-4 py-2 border border-[var(--border)] rounded-2xl text-xs hover:bg-[var(--card-hover)] transition cursor-pointer"
-                    >
-                      Refresh Queue
-                    </button>
+
+
+              {/* TAB: BILLING & PRESCRIPTIONS */}
+              {activeTab === "billing" && (
+                <div className="space-y-6 animate-in fade-in duration-200">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="text-xl font-black">Billing & Pharmacy Dashboard</h2>
+                    
+                    {billingSubTab === "ledger" && (
+                      <FloatingPanelRoot
+                        isOpen={isCreateBillOpen}
+                        onOpenChange={setIsCreateBillOpen}
+                      >
+                        <FloatingPanelTrigger
+                          title="Generate Bill"
+                          className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
+                        >
+                          <Plus className="w-4 h-4 mr-1.5" />
+                          <span>Compose Bill</span>
+                        </FloatingPanelTrigger>
+                        <FloatingPanelContent className="w-80 sm:w-[32rem] max-h-[80vh] overflow-y-auto text-left">
+                          <FloatingPanelBody>
+                            <form
+                              onSubmit={handleCreateBill}
+                              className="space-y-4 text-xs text-[var(--foreground)]"
+                            >
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Select Patient
+                                  </label>
+                                  <select
+                                    required
+                                    value={billPatientId}
+                                    onChange={(e) =>
+                                      setBillPatientId(e.target.value)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  >
+                                    <option value="">-- Choose Patient --</option>
+                                    {patients.map((pt) => (
+                                      <option key={pt.id} value={pt.id}>
+                                        {pt.name} ({pt.phone})
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Diagnosis / Bill Name
+                                  </label>
+                                  <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Dental cleaning, Viral fever"
+                                    value={billDesc}
+                                    onChange={(e) => setBillDesc(e.target.value)}
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Multiple Items Composer */}
+                              <div className="space-y-3">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-bold uppercase text-slate-400">
+                                    Bill Items / Other Entries
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={addBillItemRow}
+                                    className="flex items-center space-x-1.5 text-indigo-500 hover:text-indigo-600 text-[10px] font-bold cursor-pointer"
+                                  >
+                                    <PlusCircle className="w-3.5 h-3.5" />
+                                    <span>Add Entry</span>
+                                  </button>
+                                </div>
+
+                                <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
+                                  {billItems.map((item, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="flex flex-col sm:flex-row gap-2.5 items-end sm:items-center bg-[var(--nav-bg)] p-3 rounded-2xl border border-[var(--border)]"
+                                    >
+                                      <div className="w-full sm:flex-1 relative">
+                                        <label className="text-[8px] font-bold uppercase text-slate-400">
+                                          Entry / Item Name
+                                        </label>
+                                        <input
+                                          type="text"
+                                          required
+                                          placeholder="e.g. Consultation Fee, Lab Test, Procedure"
+                                          value={item.item_name}
+                                          onChange={(e) =>
+                                            handleBillItemChange(
+                                              idx,
+                                              "item_name",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                        />
+                                      </div>
+                                      <div className="w-20">
+                                        <label className="text-[8px] font-bold uppercase text-slate-400">
+                                          Qty
+                                        </label>
+                                        <input
+                                          type="number"
+                                          required
+                                          value={item.quantity}
+                                          onChange={(e) =>
+                                            handleBillItemChange(
+                                              idx,
+                                              "quantity",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                        />
+                                      </div>
+                                      <div className="w-28">
+                                        <label className="text-[8px] font-bold uppercase text-slate-400">
+                                          Price (INR)
+                                        </label>
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          required
+                                          value={item.unit_price || ""}
+                                          onChange={(e) =>
+                                            handleBillItemChange(
+                                              idx,
+                                              "unit_price",
+                                              e.target.value,
+                                            )
+                                          }
+                                          className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
+                                        />
+                                      </div>
+                                      {billItems.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeBillItemRow(idx)}
+                                          className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg cursor-pointer"
+                                        >
+                                          <MinusCircle className="w-4 h-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Total Display */}
+                              <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded-2xl text-xs font-bold text-indigo-500">
+                                <span>Calculated Total:</span>
+                                <span className="text-sm font-black">
+                                  ₹{getBillTotal().toFixed(2)}
+                                </span>
+                              </div>
+
+                              {/* Upfront payment details */}
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[var(--border)] pt-4">
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Upfront Amount Paid
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="Keep blank for 0"
+                                    value={billAmountPaid}
+                                    onChange={(e) =>
+                                      setBillAmountPaid(e.target.value)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Payment Mode
+                                  </label>
+                                  <select
+                                    value={billPayMode}
+                                    onChange={(e) =>
+                                      setBillPayMode(e.target.value as any)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  >
+                                    <option>CASH</option>
+                                    <option>ONLINE_UPI</option>
+                                    <option>BANK_TRANSFER</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-bold uppercase text-slate-400">
+                                    Promise Due Date
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={billDueDate}
+                                    onChange={(e) =>
+                                      setBillDueDate(e.target.value)
+                                    }
+                                    className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Upfront Payment Remarks */}
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400">
+                                  Remarks / Log Note
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Remarks"
+                                  value={billPayRemarks}
+                                  onChange={(e) =>
+                                    setBillPayRemarks(e.target.value)
+                                  }
+                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                />
+                              </div>
+
+                              <div className="flex space-x-2 pt-2 text-xs">
+                                <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                                <FloatingPanelSubmitButton
+                                  label="Generate Invoice"
+                                  className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                                />
+                              </div>
+                            </form>
+                          </FloatingPanelBody>
+                        </FloatingPanelContent>
+                      </FloatingPanelRoot>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {pendingPrescriptions.length > 0 ? (
-                      pendingPrescriptions.map((rx) => (
-                        <div
-                          key={rx.id}
-                          className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between space-y-4"
+                  {/* Sub-tab selection */}
+                  <div className="flex border-b border-[var(--border)]">
+                    <button
+                      onClick={() => setBillingSubTab("queue")}
+                      className={`px-4 py-2.5 text-xs font-black border-b-2 transition uppercase ${
+                        billingSubTab === "queue"
+                          ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                          : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      Pharmacy & Billing Queue
+                    </button>
+                    <button
+                      onClick={() => setBillingSubTab("ledger")}
+                      className={`px-4 py-2.5 text-xs font-black border-b-2 transition uppercase ${
+                        billingSubTab === "ledger"
+                          ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                          : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      Invoice History
+                    </button>
+                    {((doctorInfo?.role === "DOCTOR" && isClinicMode) ||
+                      doctorInfo?.role === "HOSPITAL_ADMIN") && (
+                      <button
+                        onClick={() => setBillingSubTab("settings")}
+                        className={`px-4 py-2.5 text-xs font-black border-b-2 transition uppercase ${
+                          billingSubTab === "settings"
+                            ? "border-indigo-500 text-indigo-600 dark:text-indigo-400"
+                            : "border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                        }`}
+                      >
+                        Bill Settings
+                      </button>
+                    )}
+                  </div>
+
+                  {/* SECTION 1: Pharmacy Queue */}
+                  {billingSubTab === "queue" && (
+                    <div className="space-y-6">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-slate-400 font-semibold">
+                          Active prescriptions generated by doctors. Click to process.
+                        </span>
+                        <button
+                          onClick={loadPendingPrescriptions}
+                          className="px-4 py-2 border border-[var(--border)] rounded-2xl text-xs hover:bg-[var(--card-hover)] transition cursor-pointer"
                         >
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="text-[10px] font-black uppercase text-indigo-500">
-                                Rx #{rx.id}
-                              </span>
-                              <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">
-                                {rx.status}
-                              </span>
-                            </div>
-                            <div>
-                              <h3
-                                onClick={() => {
-                                  if (activeRxToDispense?.id === rx.id) {
-                                    setActiveRxToDispense(null);
-                                    setDispenseItems([]);
-                                  } else {
+                          Refresh Queue
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {pendingPrescriptions.length > 0 ? (
+                          pendingPrescriptions.map((rx) => (
+                            <div
+                              key={rx.id}
+                              className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-5 shadow-sm flex flex-col justify-between space-y-4"
+                            >
+                              <div className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] font-black uppercase text-indigo-500">
+                                    Rx #{rx.id}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full uppercase">
+                                    {rx.status}
+                                  </span>
+                                </div>
+                                <div>
+                                  <h3
+                                    onClick={() => {
+                                      if (activeRxToDispense?.id === rx.id) {
+                                        setActiveRxToDispense(null);
+                                        setDispenseItems([]);
+                                        setTestPrices({});
+                                      } else {
+                                        setActiveRxToDispense(rx);
+                                        const itemsToDispense = rx.items.map(
+                                          (item: any) => {
+                                            const matchedMed = medicines.find(
+                                              (m) =>
+                                                m.name.toLowerCase() ===
+                                                item.medicine_name.toLowerCase(),
+                                            );
+                                            return {
+                                              prescription_item_id: item.id,
+                                              medicine_name: item.medicine_name,
+                                              medicine_id:
+                                                item.medicine_id ||
+                                                (matchedMed ? matchedMed.id : null),
+                                              prescribed_qty: item.quantity,
+                                              dosage: item.dosage,
+                                              duration: item.duration || "N/A",
+                                              tablets_given: item.quantity,
+                                              cost_per_tablet: matchedMed ? matchedMed.price.toString() : "0",
+                                              is_nil: false,
+                                              nil_reason: "",
+                                              line_total: matchedMed ? item.quantity * matchedMed.price : 0,
+                                            };
+                                          },
+                                        );
+                                        setDispenseItems(itemsToDispense);
+
+                                        // Default test prices to 0
+                                        const initialTestPrices: {[key: string]: string} = {};
+                                        if (rx.lab_requests) {
+                                          rx.lab_requests.forEach((test: string) => {
+                                            initialTestPrices[test] = "0";
+                                          });
+                                        }
+                                        setTestPrices(initialTestPrices);
+                                      }
+                                    }}
+                                    className="text-sm font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 cursor-pointer transition flex items-center justify-between"
+                                  >
+                                    <span>{rx.patient_name}</span>
+                                    <span className="text-[10px] text-indigo-500 font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
+                                      {activeRxToDispense?.id === rx.id
+                                        ? "Hide details ▲"
+                                        : "View details ▼"}
+                                    </span>
+                                  </h3>
+                                  <p className="text-[10px] text-slate-400">
+                                    Dr. {rx.doctor_name}
+                                  </p>
+                                </div>
+
+                                {activeRxToDispense?.id !== rx.id && (
+                                  <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
+                                    {rx.items && rx.items.length > 0 && (
+                                      <>
+                                        <span className="text-[9px] font-black uppercase text-slate-400 block">
+                                          Prescribed Meds:
+                                        </span>
+                                        {rx.items.map((it: any) => (
+                                          <div
+                                            key={it.id}
+                                            className="text-xs flex justify-between text-slate-500 dark:text-slate-400"
+                                          >
+                                            <span>
+                                              {it.medicine_name} ({it.dosage})
+                                            </span>
+                                            <span className="font-semibold">
+                                              x{it.quantity}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </>
+                                    )}
+                                    {rx.lab_requests && rx.lab_requests.length > 0 && (
+                                      <div className="pt-1">
+                                        <span className="text-[9px] font-black uppercase text-slate-400 block">
+                                          Requested Tests:
+                                        </span>
+                                        {rx.lab_requests.map((test: string, idx: number) => (
+                                          <div key={idx} className="text-xs text-slate-500 dark:text-slate-400">
+                                            • {test}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {activeRxToDispense?.id === rx.id ? (
+                                <form
+                                  onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    if (isSubmitting) return;
+                                    setIsSubmitting(true);
+                                    try {
+                                      await fetchAPI("/api/pharmacy/dispense", {
+                                        method: "POST",
+                                        body: JSON.stringify({
+                                          prescription_id: rx.id,
+                                          amount_paid: parseFloat(dispenseAmountPaid) || 0,
+                                          consultation_charges: rx.consultation_charges || 0,
+                                          items: dispenseItems.map((item) => ({
+                                            prescription_item_id: item.prescription_item_id,
+                                            medicine_id: item.medicine_id,
+                                            tablets_given: parseInt(item.tablets_given as any) || 0,
+                                            cost_per_tablet: parseFloat(item.cost_per_tablet as any) || 0,
+                                            is_nil: item.is_nil,
+                                            nil_reason: item.nil_reason,
+                                          })),
+                                          tests: rx.lab_requests?.map((t: string) => ({
+                                            name: t,
+                                            amount: parseFloat(testPrices[t] || "0") || 0,
+                                          })) || [],
+                                        }),
+                                      });
+                                      setToast({
+                                        message: "Combined bill generated and finalized!",
+                                        type: "success",
+                                      });
+                                      setActiveRxToDispense(null);
+                                      setDispenseItems([]);
+                                      setTestPrices({});
+                                      setDispenseAmountPaid("");
+                                      loadPendingPrescriptions();
+                                      loadRecentBills();
+                                      loadPrescriptions();
+                                      loadPatients();
+                                      loadMedicines();
+                                      if (currentPatientData) {
+                                        loadPatientDetails(currentPatientData.patient.id);
+                                      }
+                                    } catch (err: any) {
+                                      setToast({
+                                        message: err.message || "Failed to finalize bill",
+                                        type: "error",
+                                      });
+                                    } finally {
+                                      setIsSubmitting(false);
+                                    }
+                                  }}
+                                  className="mt-4 border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200"
+                                >
+                                  <p className="text-[10px] text-slate-400 uppercase font-black">
+                                    Diagnosis: {rx.diagnosis || "N/A"}
+                                  </p>
+                                  <div className="space-y-3">
+                                    {/* Consultation Fee Section */}
+                                    <div className="p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] flex justify-between items-center">
+                                      <div>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                                          Consultation Fee
+                                        </span>
+                                        <span className="text-[9px] text-slate-400">
+                                          Written by Doctor
+                                        </span>
+                                      </div>
+                                      <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                                        ₹{rx.consultation_charges?.toFixed(2) || "0.00"}
+                                      </span>
+                                    </div>
+
+                                    {/* Medicines Section */}
+                                    {dispenseItems.map((item, idx) => (
+                                      <div
+                                        key={idx}
+                                        className={`p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5 ${item.is_nil ? "opacity-60 border-red-500/20 bg-red-500/5" : ""}`}
+                                      >
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black rounded-lg border border-indigo-200 dark:border-indigo-800/40">
+                                            {item.dosage} | {item.duration}
+                                          </span>
+                                          <span className="font-bold text-slate-800 dark:text-slate-200">
+                                            {item.medicine_name}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400">
+                                            Prescribed: {item.prescribed_qty}
+                                          </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center space-x-1.5">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                              Amt:
+                                            </span>
+                                            <input
+                                              type="text"
+                                              placeholder="0.00"
+                                              value={item.cost_per_tablet}
+                                              disabled={item.is_nil}
+                                              onChange={(e) => {
+                                                const val = e.target.value;
+                                                if (
+                                                  val === "" ||
+                                                  /^[0-9]*\.?[0-9]*$/.test(val)
+                                                ) {
+                                                  const updated = [
+                                                    ...dispenseItems,
+                                                  ];
+                                                  updated[idx].cost_per_tablet =
+                                                    val;
+                                                  const price =
+                                                    parseFloat(val) || 0;
+                                                  updated[idx].line_total =
+                                                    item.tablets_given * price;
+                                                  setDispenseItems(updated);
+                                                }
+                                              }}
+                                              className="w-20 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                            />
+                                          </div>
+
+                                          <div className="flex items-center space-x-1.5">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                              Qty:
+                                            </span>
+                                            <input
+                                              type="number"
+                                              min={0}
+                                              required
+                                              disabled={item.is_nil}
+                                              value={item.tablets_given}
+                                              onChange={(e) => {
+                                                const val =
+                                                  parseInt(e.target.value) || 0;
+                                                const updated = [...dispenseItems];
+                                                updated[idx].tablets_given = val;
+                                                const price =
+                                                  parseFloat(
+                                                    item.cost_per_tablet,
+                                                  ) || 0;
+                                                updated[idx].line_total =
+                                                  val * price;
+                                                setDispenseItems(updated);
+                                              }}
+                                              className="w-14 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                            />
+                                          </div>
+
+                                          <div className="flex items-center space-x-1">
+                                            <input
+                                              type="checkbox"
+                                              id={`nil-${rx.id}-${idx}`}
+                                              checked={item.is_nil}
+                                              onChange={(e) => {
+                                                const checked = e.target.checked;
+                                                const updated = [...dispenseItems];
+                                                updated[idx].is_nil = checked;
+                                                if (checked) {
+                                                  updated[idx].line_total = 0;
+                                                } else {
+                                                  const price =
+                                                    parseFloat(
+                                                      item.cost_per_tablet,
+                                                    ) || 0;
+                                                  updated[idx].line_total =
+                                                    item.tablets_given * price;
+                                                }
+                                                setDispenseItems(updated);
+                                              }}
+                                              className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
+                                            />
+                                            <label
+                                              htmlFor={`nil-${rx.id}-${idx}`}
+                                              className="text-[10px] font-black text-red-500 uppercase cursor-pointer"
+                                            >
+                                              NIL
+                                            </label>
+                                          </div>
+                                        </div>
+
+                                        {item.is_nil && (
+                                          <input
+                                            type="text"
+                                            required
+                                            placeholder="Reason (e.g. Out of Stock)"
+                                            value={item.nil_reason}
+                                            onChange={(e) => {
+                                              const updated = [...dispenseItems];
+                                              updated[idx].nil_reason =
+                                                e.target.value;
+                                              setDispenseItems(updated);
+                                            }}
+                                            className="w-full px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
+                                          />
+                                        )}
+                                      </div>
+                                    ))}
+
+                                    {/* Tests Section */}
+                                    {rx.lab_requests && rx.lab_requests.map((testName: string, testIdx: number) => (
+                                      <div
+                                        key={testIdx}
+                                        className="p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5"
+                                      >
+                                        <div className="flex justify-between items-center">
+                                          <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                                            {testName}
+                                          </span>
+                                          <span className="text-[9px] text-slate-400 font-bold uppercase">
+                                            Test / Lab Request
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center space-x-1.5">
+                                          <span className="text-[10px] font-bold text-slate-400 uppercase">
+                                            Amt:
+                                          </span>
+                                          <input
+                                            type="text"
+                                            placeholder="0"
+                                            value={testPrices[testName] || "0"}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              if (
+                                                val === "" ||
+                                                /^[0-9]*\.?[0-9]*$/.test(val)
+                                              ) {
+                                                setTestPrices((prev) => ({
+                                                  ...prev,
+                                                  [testName]: val,
+                                                }));
+                                              }
+                                            }}
+                                            className="w-24 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-2 border-t border-[var(--border)]">
+                                    <span>CALCULATED GRAND TOTAL:</span>
+                                    <span className="text-base font-black text-slate-800 dark:text-slate-200">
+                                      ₹
+                                      {(
+                                        dispenseItems.reduce(
+                                          (acc, it) =>
+                                            acc + (it.is_nil ? 0 : it.line_total),
+                                          0,
+                                        ) +
+                                        (rx.consultation_charges || 0) +
+                                        Object.values(testPrices).reduce(
+                                          (acc, val) => acc + (parseFloat(val) || 0),
+                                          0,
+                                        )
+                                      ).toFixed(2)}
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase text-slate-400">
+                                      Amount Paid Upfront (INR)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="0.00"
+                                      value={dispenseAmountPaid}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (
+                                          val === "" ||
+                                          /^[0-9]*\.?[0-9]*$/.test(val)
+                                        ) {
+                                          setDispenseAmountPaid(val);
+                                        }
+                                      }}
+                                      className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold"
+                                    />
+                                  </div>
+
+                                  <button
+                                    type="submit"
+                                    disabled={isSubmitting}
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center disabled:opacity-50"
+                                  >
+                                    {isSubmitting
+                                      ? "Processing..."
+                                      : "Dispense, Save Bill & Send WhatsApp"}
+                                  </button>
+                                </form>
+                              ) : (
+                                <button
+                                  onClick={() => {
                                     setActiveRxToDispense(rx);
                                     const itemsToDispense = rx.items.map(
                                       (item: any) => {
@@ -5771,636 +6497,76 @@ export default function Dashboard() {
                                           dosage: item.dosage,
                                           duration: item.duration || "N/A",
                                           tablets_given: item.quantity,
-                                          cost_per_tablet: "", // Blank field!
+                                          cost_per_tablet: matchedMed ? matchedMed.price.toString() : "0",
                                           is_nil: false,
                                           nil_reason: "",
-                                          line_total: 0,
+                                          line_total: matchedMed ? item.quantity * matchedMed.price : 0,
                                         };
                                       },
                                     );
                                     setDispenseItems(itemsToDispense);
-                                  }
-                                }}
-                                className="text-sm font-bold text-slate-800 dark:text-slate-200 hover:text-indigo-600 cursor-pointer transition flex items-center justify-between"
-                              >
-                                <span>{rx.patient_name}</span>
-                                <span className="text-[10px] text-indigo-500 font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/50">
-                                  {activeRxToDispense?.id === rx.id
-                                    ? "Hide details ▲"
-                                    : "View details ▼"}
-                                </span>
-                              </h3>
-                              <p className="text-[10px] text-slate-400">
-                                Dr. {rx.doctor_name}
-                              </p>
-                            </div>
 
-                            {activeRxToDispense?.id !== rx.id && (
-                              <div className="border-t border-[var(--border)] pt-2 mt-2 space-y-1">
-                                <span className="text-[9px] font-black uppercase text-slate-400 block">
-                                  Prescribed Meds:
-                                </span>
-                                {rx.items &&
-                                  rx.items.map((it: any) => (
-                                    <div
-                                      key={it.id}
-                                      className="text-xs flex justify-between text-slate-500 dark:text-slate-400"
-                                    >
-                                      <span>
-                                        {it.medicine_name} ({it.dosage})
-                                      </span>
-                                      <span className="font-semibold">
-                                        x{it.quantity}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            )}
-                          </div>
-
-                          {activeRxToDispense?.id === rx.id ? (
-                            <form
-                              onSubmit={handleDispensePrescription}
-                              className="mt-4 border-t border-[var(--border)] pt-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200"
-                            >
-                              <p className="text-[10px] text-slate-400 uppercase font-black">
-                                Diagnosis: {rx.diagnosis || "N/A"}
-                              </p>
-                              <div className="space-y-3">
-                                {dispenseItems.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    className={`p-3 rounded-2xl border border-[var(--border)] bg-[var(--nav-bg)] space-y-2.5 ${item.is_nil ? "opacity-60 border-red-500/20 bg-red-500/5" : ""}`}
-                                  >
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {/* Block in front showing dosage and number of days (duration) */}
-                                      <span className="px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-black rounded-lg border border-indigo-200 dark:border-indigo-800/40">
-                                        {item.dosage} | {item.duration}
-                                      </span>
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                                        {item.medicine_name}
-                                      </span>
-                                      <span className="text-[10px] text-slate-400">
-                                        Prescribed: {item.prescribed_qty}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex items-center space-x-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                          Amt:
-                                        </span>
-                                        <input
-                                          type="text"
-                                          placeholder="0.00"
-                                          value={item.cost_per_tablet}
-                                          disabled={item.is_nil}
-                                          onChange={(e) => {
-                                            const val = e.target.value;
-                                            if (
-                                              val === "" ||
-                                              /^[0-9]*\.?[0-9]*$/.test(val)
-                                            ) {
-                                              const updated = [
-                                                ...dispenseItems,
-                                              ];
-                                              updated[idx].cost_per_tablet =
-                                                val;
-                                              const price =
-                                                parseFloat(val) || 0;
-                                              updated[idx].line_total =
-                                                item.tablets_given * price;
-                                              setDispenseItems(updated);
-                                            }
-                                          }}
-                                          className="w-20 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
-                                        />
-                                      </div>
-
-                                      <div className="flex items-center space-x-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase">
-                                          Qty:
-                                        </span>
-                                        <input
-                                          type="number"
-                                          min={0}
-                                          required
-                                          disabled={item.is_nil}
-                                          value={item.tablets_given}
-                                          onChange={(e) => {
-                                            const val =
-                                              parseInt(e.target.value) || 0;
-                                            const updated = [...dispenseItems];
-                                            updated[idx].tablets_given = val;
-                                            const price =
-                                              parseFloat(
-                                                item.cost_per_tablet,
-                                              ) || 0;
-                                            updated[idx].line_total =
-                                              val * price;
-                                            setDispenseItems(updated);
-                                          }}
-                                          className="w-14 px-2 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none text-center"
-                                        />
-                                      </div>
-
-                                      <div className="flex items-center space-x-1">
-                                        <input
-                                          type="checkbox"
-                                          id={`nil-${rx.id}-${idx}`}
-                                          checked={item.is_nil}
-                                          onChange={(e) => {
-                                            const checked = e.target.checked;
-                                            const updated = [...dispenseItems];
-                                            updated[idx].is_nil = checked;
-                                            if (checked) {
-                                              updated[idx].line_total = 0;
-                                            } else {
-                                              const price =
-                                                parseFloat(
-                                                  item.cost_per_tablet,
-                                                ) || 0;
-                                              updated[idx].line_total =
-                                                item.tablets_given * price;
-                                            }
-                                            setDispenseItems(updated);
-                                          }}
-                                          className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer"
-                                        />
-                                        <label
-                                          htmlFor={`nil-${rx.id}-${idx}`}
-                                          className="text-[10px] font-black text-red-500 uppercase cursor-pointer"
-                                        >
-                                          NIL
-                                        </label>
-                                      </div>
-                                    </div>
-
-                                    {item.is_nil && (
-                                      <input
-                                        type="text"
-                                        required
-                                        placeholder="Reason (e.g. Out of Stock)"
-                                        value={item.nil_reason}
-                                        onChange={(e) => {
-                                          const updated = [...dispenseItems];
-                                          updated[idx].nil_reason =
-                                            e.target.value;
-                                          setDispenseItems(updated);
-                                        }}
-                                        className="w-full px-2 py-1 border border-red-300 rounded-lg bg-[var(--input-bg)] text-[10px] focus:ring-1 focus:ring-red-500 outline-none"
-                                      />
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-
-                              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 pt-1 border-t border-[var(--border)]">
-                                <span>TOTAL VALUE:</span>
-                                <span className="text-sm font-black text-slate-800 dark:text-slate-200">
-                                  ₹
-                                  {dispenseItems
-                                    .reduce(
-                                      (acc, it) =>
-                                        acc + (it.is_nil ? 0 : it.line_total),
-                                      0,
-                                    )
-                                    .toFixed(2)}
-                                </span>
-                              </div>
-
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Amount Paid (INR)
-                                </label>
-                                <input
-                                  type="text"
-                                  placeholder="0.00"
-                                  value={dispenseAmountPaid}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    if (
-                                      val === "" ||
-                                      /^[0-9]*\.?[0-9]*$/.test(val)
-                                    ) {
-                                      setDispenseAmountPaid(val);
+                                    const initialTestPrices: {[key: string]: string} = {};
+                                    if (rx.lab_requests) {
+                                      rx.lab_requests.forEach((test: string) => {
+                                        initialTestPrices[test] = "0";
+                                      });
                                     }
+                                    setTestPrices(initialTestPrices);
                                   }}
-                                  className="w-full px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none text-center"
-                                />
-                              </div>
-
-                              <button
-                                type="submit"
-                                disabled={isSubmitting}
-                                className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center disabled:opacity-50"
-                              >
-                                {isSubmitting
-                                  ? "Processing..."
-                                  : "Dispense & Generate Bill"}
-                              </button>
-                            </form>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setActiveRxToDispense(rx);
-                                const itemsToDispense = rx.items.map(
-                                  (item: any) => {
-                                    const matchedMed = medicines.find(
-                                      (m) =>
-                                        m.name.toLowerCase() ===
-                                        item.medicine_name.toLowerCase(),
-                                    );
-                                    return {
-                                      prescription_item_id: item.id,
-                                      medicine_name: item.medicine_name,
-                                      medicine_id:
-                                        item.medicine_id ||
-                                        (matchedMed ? matchedMed.id : null),
-                                      prescribed_qty: item.quantity,
-                                      dosage: item.dosage,
-                                      duration: item.duration || "N/A",
-                                      tablets_given: item.quantity,
-                                      cost_per_tablet: "", // Blank field!
-                                      is_nil: false,
-                                      nil_reason: "",
-                                      line_total: 0,
-                                    };
-                                  },
-                                );
-                                setDispenseItems(itemsToDispense);
-                              }}
-                              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
-                            >
-                              Dispense Medication
-                            </button>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <div className="col-span-full bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-slate-400 font-semibold">
-                        No prescriptions in the pending dispensing queue.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB: BILLING & PRESCRIPTIONS */}
-              {activeTab === "billing" && (
-                <div className="space-y-6">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h2 className="text-xl font-black">Clinic Billings</h2>
-                    <FloatingPanelRoot
-                      isOpen={isCreateBillOpen}
-                      onOpenChange={setIsCreateBillOpen}
-                    >
-                      <FloatingPanelTrigger
-                        title="Generate Bill"
-                        className="flex items-center space-x-1.5 px-4 py-2 bg-zinc-950 text-white hover:bg-primary hover:text-black dark:bg-white dark:text-zinc-950 dark:hover:bg-primary dark:hover:text-black font-bold rounded-2xl text-xs shadow-md transition cursor-pointer self-stretch sm:self-auto justify-center border-none"
-                      >
-                        <Plus className="w-4 h-4 mr-1.5" />
-                        <span>Compose Bill</span>
-                      </FloatingPanelTrigger>
-                      <FloatingPanelContent className="w-80 sm:w-[32rem] max-h-[80vh] overflow-y-auto text-left">
-                        <FloatingPanelBody>
-                          <form
-                            onSubmit={handleCreateBill}
-                            className="space-y-4 text-xs text-[var(--foreground)]"
-                          >
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Select Patient
-                                </label>
-                                <select
-                                  required
-                                  value={billPatientId}
-                                  onChange={(e) =>
-                                    setBillPatientId(e.target.value)
-                                  }
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-md transition cursor-pointer text-center"
                                 >
-                                  <option value="">-- Choose Patient --</option>
-                                  {patients.map((pt) => (
-                                    <option key={pt.id} value={pt.id}>
-                                      {pt.name} ({pt.phone})
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Diagnosis / Bill Name
-                                </label>
-                                <input
-                                  type="text"
-                                  required
-                                  placeholder="e.g. Dental cleaning, Viral fever"
-                                  value={billDesc}
-                                  onChange={(e) => setBillDesc(e.target.value)}
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Multiple Items Composer */}
-                            <div className="space-y-3">
-                              <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold uppercase text-slate-400">
-                                  Bill Items / Other Entries
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={addBillItemRow}
-                                  className="flex items-center space-x-1.5 text-indigo-500 hover:text-indigo-600 text-[10px] font-bold cursor-pointer"
-                                >
-                                  <PlusCircle className="w-3.5 h-3.5" />
-                                  <span>Add Entry</span>
+                                  Process & Bill
                                 </button>
-                              </div>
-
-                              <div className="space-y-2.5 max-h-48 overflow-y-auto pr-1">
-                                {billItems.map((item, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="flex flex-col sm:flex-row gap-2.5 items-end sm:items-center bg-[var(--nav-bg)] p-3 rounded-2xl border border-[var(--border)]"
-                                  >
-                                    <div className="w-full sm:flex-1 relative">
-                                      <label className="text-[8px] font-bold uppercase text-slate-400">
-                                        Entry / Item Name
-                                      </label>
-                                      <input
-                                        type="text"
-                                        required
-                                        placeholder="e.g. Consultation Fee, Lab Test, Procedure"
-                                        value={item.item_name}
-                                        onChange={(e) =>
-                                          handleBillItemChange(
-                                            idx,
-                                            "item_name",
-                                            e.target.value,
-                                          )
-                                        }
-                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                      />
-                                    </div>
-                                    <div className="w-20">
-                                      <label className="text-[8px] font-bold uppercase text-slate-400">
-                                        Qty
-                                      </label>
-                                      <input
-                                        type="number"
-                                        required
-                                        value={item.quantity}
-                                        onChange={(e) =>
-                                          handleBillItemChange(
-                                            idx,
-                                            "quantity",
-                                            e.target.value,
-                                          )
-                                        }
-                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                      />
-                                    </div>
-                                    <div className="w-28">
-                                      <label className="text-[8px] font-bold uppercase text-slate-400">
-                                        Price (INR)
-                                      </label>
-                                      <input
-                                        type="number"
-                                        step="0.01"
-                                        required
-                                        value={item.unit_price || ""}
-                                        onChange={(e) =>
-                                          handleBillItemChange(
-                                            idx,
-                                            "unit_price",
-                                            e.target.value,
-                                          )
-                                        }
-                                        className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs outline-none"
-                                      />
-                                    </div>
-                                    {billItems.length > 1 && (
-                                      <button
-                                        type="button"
-                                        onClick={() => removeBillItemRow(idx)}
-                                        className="p-1.5 text-red-500 hover:bg-red-500/10 rounded-lg cursor-pointer"
-                                      >
-                                        <MinusCircle className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
+                              )}
                             </div>
-
-                            {/* Total Display */}
-                            <div className="flex justify-between items-center bg-indigo-500/10 p-3 rounded-2xl text-xs font-bold text-indigo-500">
-                              <span>Calculated Total:</span>
-                              <span className="text-sm font-black">
-                                ₹{getBillTotal().toFixed(2)}
-                              </span>
-                            </div>
-
-                            {/* Upfront payment details */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-[var(--border)] pt-4">
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Upfront Amount Paid
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="Keep blank for 0"
-                                  value={billAmountPaid}
-                                  onChange={(e) =>
-                                    setBillAmountPaid(e.target.value)
-                                  }
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Payment Mode
-                                </label>
-                                <select
-                                  value={billPayMode}
-                                  onChange={(e) =>
-                                    setBillPayMode(e.target.value as any)
-                                  }
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                >
-                                  <option>CASH</option>
-                                  <option>ONLINE_UPI</option>
-                                  <option>BANK_TRANSFER</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Promise Due Date
-                                </label>
-                                <input
-                                  type="date"
-                                  value={billDueDate}
-                                  onChange={(e) =>
-                                    setBillDueDate(e.target.value)
-                                  }
-                                  className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Upfront Payment Remarks */}
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-400">
-                                Remarks / Log Note
-                              </label>
-                              <input
-                                type="text"
-                                placeholder="Remarks"
-                                value={billPayRemarks}
-                                onChange={(e) =>
-                                  setBillPayRemarks(e.target.value)
-                                }
-                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                            </div>
-
-                            <div className="flex space-x-2 pt-2 text-xs">
-                              <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
-                              <FloatingPanelSubmitButton
-                                label="Generate Invoice"
-                                className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
-                              />
-                            </div>
-                          </form>
-                        </FloatingPanelBody>
-                      </FloatingPanelContent>
-                    </FloatingPanelRoot>
-                  </div>
-
-                  {/* Search Bar */}
-                  <div className="relative w-full md:max-w-xs">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Search bills by patient name..."
-                      value={billSearchQuery}
-                      onChange={(e) => {
-                        setBillSearchQuery(e.target.value);
-                        loadRecentBills(e.target.value, 0);
-                      }}
-                      className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                    />
-                  </div>
-
-                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
-                    {/* Mobile Card List View for Billings */}
-                    <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
-                      {recentBills.length > 0 ? (
-                        recentBills.map((bill) => (
-                          <div
-                            key={bill.id}
-                            onClick={() => {
-                              setActiveTab("patients");
-                              setViewState({ type: "bill", billId: bill.id });
-                            }}
-                            className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
-                          >
-                            <div className="flex justify-between items-start">
-                              <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
-                                {bill.patient_name}
-                              </span>
-                              <span
-                                className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                  bill.status === "SETTLED"
-                                    ? "bg-emerald-500/10 text-emerald-500"
-                                    : bill.status === "PARTIALLY_PAID"
-                                      ? "bg-amber-500/10 text-amber-500"
-                                      : "bg-red-500/10 text-red-500"
-                                }`}
-                              >
-                                {bill.status}
-                              </span>
-                            </div>
-
-                            <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
-                              <span>
-                                Total: ₹{bill.total_amount.toFixed(2)}
-                              </span>
-                              <span className="font-bold text-red-500">
-                                Dues: ₹{bill.remaining_amount.toFixed(2)}
-                              </span>
-                            </div>
-
-                            <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
-                              <span className="truncate max-w-[60%]">
-                                {bill.description}
-                              </span>
-                              <span>
-                                {new Date(bill.created_at).toLocaleDateString()}
-                              </span>
-                            </div>
+                          ))
+                        ) : (
+                          <div className="col-span-full bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-slate-400 font-semibold">
+                            No prescriptions in the pending queue.
                           </div>
-                        ))
-                      ) : (
-                        <div className="p-8 text-center text-slate-400 font-semibold">
-                          {billsLoading
-                            ? "Loading bills..."
-                            : "No billing records found."}
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
+                  )}
 
-                    {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                            <th className="px-6 py-4">Date</th>
-                            <th className="px-6 py-4">Patient Name</th>
-                            <th className="px-6 py-4">Diagnosis / Details</th>
-                            <th className="px-6 py-4">Total Amount</th>
-                            <th className="px-6 py-4">Outstanding Balance</th>
-                            <th className="px-6 py-4">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                  {/* SECTION 2: Invoice History Ledger */}
+                  {billingSubTab === "ledger" && (
+                    <div className="space-y-6 animate-in fade-in duration-200">
+                      {/* Search Bar */}
+                      <div className="relative w-full md:max-w-xs">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search bills by patient name..."
+                          value={billSearchQuery}
+                          onChange={(e) => {
+                            setBillSearchQuery(e.target.value);
+                            loadRecentBills(e.target.value, 0);
+                          }}
+                          className="w-full pl-10 pr-4 py-2 bg-[var(--card)] border border-[var(--border)] rounded-2xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+
+                      <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl overflow-hidden transition-all shadow-sm">
+                        {/* Mobile Card List View for Billings */}
+                        <div className="block md:hidden divide-y divide-[var(--border)] bg-[var(--card)]">
                           {recentBills.length > 0 ? (
                             recentBills.map((bill) => (
-                              <tr
+                              <div
                                 key={bill.id}
                                 onClick={() => {
                                   setActiveTab("patients");
-                                  setViewState({
-                                    type: "bill",
-                                    billId: bill.id,
-                                  });
+                                  setViewState({ type: "bill", billId: bill.id });
                                 }}
-                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
+                                className="p-4 hover:bg-[var(--accent)] transition cursor-pointer space-y-2"
                               >
-                                <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
-                                  {new Date(
-                                    bill.created_at,
-                                  ).toLocaleDateString()}
-                                </td>
-                                <td className="px-6 py-4 font-normal">
-                                  {bill.patient_name}
-                                </td>
-                                <td className="px-6 py-4 text-slate-400 max-w-xs truncate">
-                                  {bill.description}
-                                </td>
-                                <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
-                                  ₹{bill.total_amount.toFixed(2)}
-                                </td>
-                                <td className="px-6 py-4 font-black text-red-500">
-                                  ₹{bill.remaining_amount.toFixed(2)}
-                                </td>
-                                <td className="px-6 py-4">
+                                <div className="flex justify-between items-start">
+                                  <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">
+                                    {bill.patient_name}
+                                  </span>
                                   <span
-                                    className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                    className={`inline-block px-2 py-0.5 rounded-full text-[9px] font-bold ${
                                       bill.status === "SETTLED"
                                         ? "bg-emerald-500/10 text-emerald-500"
                                         : bill.status === "PARTIALLY_PAID"
@@ -6410,49 +6576,246 @@ export default function Dashboard() {
                                   >
                                     {bill.status}
                                   </span>
-                                </td>
-                              </tr>
+                                </div>
+
+                                <div className="flex justify-between items-center text-xs text-slate-500 dark:text-slate-400">
+                                  <span>
+                                    Total: ₹{bill.total_amount.toFixed(2)}
+                                  </span>
+                                  <span className="font-bold text-red-500">
+                                    Dues: ₹{bill.remaining_amount.toFixed(2)}
+                                  </span>
+                                </div>
+
+                                <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1">
+                                  <span className="truncate max-w-[60%]">
+                                    {bill.description}
+                                  </span>
+                                  <span>
+                                    {new Date(bill.created_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
                             ))
                           ) : (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="px-6 py-12 text-center text-slate-400 font-semibold"
-                              >
-                                {billsLoading
-                                  ? "Loading bills..."
-                                  : "No billing records found."}
-                              </td>
-                            </tr>
+                            <div className="p-8 text-center text-slate-400 font-semibold">
+                              {billsLoading
+                                ? "Loading bills..."
+                                : "No billing records found."}
+                            </div>
                           )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                        </div>
 
-                  {/* Pagination */}
-                  {recentBills.length < billsTotalCount && (
-                    <div className="flex justify-center pt-2">
-                      <button
-                        onClick={() =>
-                          loadRecentBills(
-                            billSearchQuery,
-                            billsOffset + 20,
-                            true,
-                          )
-                        }
-                        disabled={billsLoading}
-                        className="px-6 py-2 border border-indigo-600/30 text-indigo-500 hover:bg-indigo-500/10 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center space-x-1.5"
+                        {/* Desktop Table View */}
+                        <div className="hidden md:block overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
+                                <th className="px-6 py-4">Date</th>
+                                <th className="px-6 py-4">Patient Name</th>
+                                <th className="px-6 py-4">Diagnosis / Details</th>
+                                <th className="px-6 py-4">Total Amount</th>
+                                <th className="px-6 py-4">Outstanding Balance</th>
+                                <th className="px-6 py-4">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {recentBills.length > 0 ? (
+                                recentBills.map((bill) => (
+                                  <tr
+                                    key={bill.id}
+                                    onClick={() => {
+                                      setActiveTab("patients");
+                                      setViewState({
+                                        type: "bill",
+                                        billId: bill.id,
+                                      });
+                                    }}
+                                    className="border-b border-[var(--border)] hover:bg-table-row-hover transition cursor-pointer"
+                                  >
+                                    <td className="px-6 py-4 font-semibold text-slate-500 dark:text-slate-400">
+                                      {new Date(
+                                        bill.created_at,
+                                      ).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-4 font-normal">
+                                      {bill.patient_name}
+                                    </td>
+                                    <td className="px-6 py-4 text-slate-400 max-w-xs truncate">
+                                      {bill.description}
+                                    </td>
+                                    <td className="px-6 py-4 font-bold text-slate-700 dark:text-slate-300">
+                                      ₹{bill.total_amount.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 font-black text-red-500">
+                                      ₹{bill.remaining_amount.toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4">
+                                      <span
+                                        className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                          bill.status === "SETTLED"
+                                            ? "bg-emerald-500/10 text-emerald-500"
+                                            : bill.status === "PARTIALLY_PAID"
+                                              ? "bg-amber-500/10 text-amber-500"
+                                              : "bg-red-500/10 text-red-500"
+                                        }`}
+                                      >
+                                        {bill.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td
+                                    colSpan={6}
+                                    className="px-6 py-12 text-center text-slate-400 font-semibold"
+                                  >
+                                    {billsLoading
+                                      ? "Loading bills..."
+                                      : "No billing records found."}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Pagination */}
+                      {recentBills.length < billsTotalCount && (
+                        <div className="flex justify-center pt-2">
+                          <button
+                            onClick={() =>
+                              loadRecentBills(
+                                billSearchQuery,
+                                billsOffset + 20,
+                                true,
+                              )
+                            }
+                            disabled={billsLoading}
+                            className="px-6 py-2 border border-indigo-600/30 text-indigo-500 hover:bg-indigo-500/10 font-bold rounded-2xl text-xs transition cursor-pointer flex items-center space-x-1.5"
+                          >
+                            {billsLoading ? (
+                              <span>Loading...</span>
+                            ) : (
+                              <>
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Load More Bills</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* SECTION 3: Bill Configurations Settings */}
+                  {billingSubTab === "settings" && (
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm max-w-xl space-y-6 animate-in fade-in duration-200">
+                      <div>
+                        <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
+                          Bill Header Configuration
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Configure your clinic/hospital name, address, and phone number printed on invoice headers.
+                        </p>
+                      </div>
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          setIsSubmitting(true);
+                          try {
+                            await fetchAPI("/api/facilities", {
+                              method: "PUT",
+                              body: JSON.stringify({
+                                id: doctorInfo?.active_facility_id,
+                                name: billingSettingsName.trim(),
+                                address: billingSettingsAddress.trim(),
+                                phone: billingSettingsPhone.trim(),
+                              }),
+                            });
+                            setToast({
+                              message: "Bill settings updated successfully!",
+                              type: "success",
+                            });
+                            
+                            // Update local doctorInfo facilities mapping so it refreshes immediately in context
+                            setDoctorInfo((prev) => {
+                              if (!prev) return null;
+                              const updatedFacs = prev.facilities?.map((f) => {
+                                if (f.id === prev.active_facility_id) {
+                                  return {
+                                    ...f,
+                                    name: billingSettingsName.trim(),
+                                    address: billingSettingsAddress.trim(),
+                                    phone: billingSettingsPhone.trim(),
+                                  };
+                                }
+                                return f;
+                              });
+                              return {
+                                ...prev,
+                                facilities: updatedFacs,
+                              };
+                            });
+                          } catch (err: any) {
+                            setToast({
+                              message: err.message || "Failed to save settings",
+                              type: "error",
+                            });
+                          } finally {
+                            setIsSubmitting(false);
+                          }
+                        }}
+                        className="space-y-4 text-xs"
                       >
-                        {billsLoading ? (
-                          <span>Loading...</span>
-                        ) : (
-                          <>
-                            <RotateCcw className="w-3.5 h-3.5" />
-                            <span>Load More Bills</span>
-                          </>
-                        )}
-                      </button>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Clinic / Hospital Name
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={billingSettingsName}
+                            onChange={(e) => setBillingSettingsName(e.target.value)}
+                            className="w-full px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Address Line
+                          </label>
+                          <textarea
+                            rows={3}
+                            required
+                            value={billingSettingsAddress}
+                            onChange={(e) => setBillingSettingsAddress(e.target.value)}
+                            className="w-full px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                            placeholder="e.g. Opposite IIMB, 154/11, Amalodbhavi Nagar, Panduranga Nagar, Bangalore - 560076 (India)"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-slate-400">
+                            Doctor / Admin Contact Phone
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={billingSettingsPhone}
+                            onChange={(e) => setBillingSettingsPhone(e.target.value)}
+                            className="w-full px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            placeholder="e.g. +91-80-26304050"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={isSubmitting}
+                          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                        >
+                          {isSubmitting ? "Saving..." : "Save Settings"}
+                        </button>
+                      </form>
                     </div>
                   )}
                 </div>
@@ -8844,9 +9207,8 @@ export default function Dashboard() {
             ];
           } else if (role === "PHARMACIST") {
             return [
-              { id: "pharmacy", label: "Pharmacy", icon: BriefcaseMedical },
+              { id: "billing", label: "Billing & Queue", icon: FileText },
               { id: "medicines", label: "Medicines", icon: Plus },
-              { id: "billing", label: "Ledger", icon: FileText },
               { id: "whatsapp", label: "WhatsApp", icon: Smartphone },
             ];
           } else if (role === "HOSPITAL_ADMIN") {
@@ -8892,12 +9254,7 @@ export default function Dashboard() {
                 icon: Settings,
               },
               { id: "queue", label: "Active Hospital Queue", icon: Clock },
-              {
-                id: "pharmacy",
-                label: "Pharmacy Queue",
-                icon: BriefcaseMedical,
-              },
-              { id: "billing", label: "Organization Ledger", icon: FileText },
+              { id: "billing", label: "Billing & Ledger", icon: FileText },
               { id: "medicines", label: "Pharmacy Stock", icon: Plus },
               { id: "analytics", label: "Facility Analytics", icon: Activity },
               {

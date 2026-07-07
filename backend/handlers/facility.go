@@ -5,15 +5,18 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"backend/db"
 )
 
 type Facility struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Role string `json:"role"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Role    string `json:"role"`
+	Address string `json:"address"`
+	Phone   string `json:"phone"`
 }
 
 func ListFacilities(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +27,7 @@ func ListFacilities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-		SELECT f.id, f.name, f.type, uf.role
+		SELECT f.id, f.name, f.type, uf.role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f
 		JOIN user_facilities uf ON f.id = uf.facility_id
 		JOIN users u ON uf.user_id = u.id
@@ -43,7 +46,7 @@ func ListFacilities(w http.ResponseWriter, r *http.Request) {
 	facilities := []Facility{}
 	for rows.Next() {
 		var f Facility
-		if err := rows.Scan(&f.ID, &f.Name, &f.Type, &f.Role); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Type, &f.Role, &f.Address, &f.Phone); err != nil {
 			log.Printf("ListFacilities scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
 			return
@@ -257,3 +260,79 @@ func DeleteFacilityStaff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Staff member removed from workspace successfully"})
 }
 
+func UpdateFacility(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	var input struct {
+		ID      int    `json:"id"`
+		Name    string `json:"name"`
+		Address string `json:"address"`
+		Phone   string `json:"phone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	if input.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Facility ID is required"})
+		return
+	}
+
+	if strings.TrimSpace(input.Name) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Facility name is required and cannot be empty"})
+		return
+	}
+
+	// Verify user is associated with this facility
+	var role string
+	err := db.Pool.QueryRow(r.Context(), `
+		SELECT role FROM user_facilities WHERE user_id = $1 AND facility_id = $2
+	`, userID, input.ID).Scan(&role)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you do not have access to this facility"})
+		return
+	}
+
+	// Hospital admins and doctors can update facility info
+	if role != "HOSPITAL_ADMIN" && role != "DOCTOR" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only admins or doctors can update facility info"})
+		return
+	}
+
+	_, err = db.Pool.Exec(r.Context(), `
+		UPDATE facilities
+		SET name = $1, address = $2, phone = $3
+		WHERE id = $4
+	`, strings.TrimSpace(input.Name), input.Address, input.Phone, input.ID)
+	if err != nil {
+		log.Printf("UpdateFacility DB error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to update facility info"})
+		return
+	}
+
+	// Invalidate profile cache for all users sharing this facility
+	rows, err := db.Pool.Query(r.Context(), "SELECT user_id FROM user_facilities WHERE facility_id = $1", input.ID)
+	if err != nil {
+		log.Printf("UpdateFacility user lookup error: %v", err)
+	} else {
+		defer rows.Close()
+		for rows.Next() {
+			var uID int
+			if err := rows.Scan(&uID); err != nil {
+				log.Printf("UpdateFacility row scan error: %v", err)
+				continue
+			}
+			db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(uID)+":*")
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("UpdateFacility row iteration error: %v", err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Facility details updated successfully"})
+}

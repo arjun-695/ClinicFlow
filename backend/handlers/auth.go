@@ -178,14 +178,16 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch facilities associated with the user
 	type SessionFacility struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-		Type string `json:"type"`
-		Role string `json:"role"`
+		ID      int    `json:"id"`
+		Name    string `json:"name"`
+		Type    string `json:"type"`
+		Role    string `json:"role"`
+		Address string `json:"address"`
+		Phone   string `json:"phone"`
 	}
 	facilities := []SessionFacility{}
 	rows, err := db.Pool.Query(r.Context(), `
-		SELECT f.id, f.name, f.type, uf.role 
+		SELECT f.id, f.name, f.type, uf.role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f 
 		JOIN user_facilities uf ON f.id = uf.facility_id 
 		JOIN users u ON uf.user_id = u.id
@@ -195,7 +197,7 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		for rows.Next() {
 			var f SessionFacility
-			if errScan := rows.Scan(&f.ID, &f.Name, &f.Type, &f.Role); errScan == nil {
+			if errScan := rows.Scan(&f.ID, &f.Name, &f.Type, &f.Role, &f.Address, &f.Phone); errScan == nil {
 				facilities = append(facilities, f)
 			}
 		}
