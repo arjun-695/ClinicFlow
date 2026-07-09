@@ -95,7 +95,65 @@ export const buildInvoicePDF = async (
   const facilityName = activeFacility?.name || bill.clinic_name || doctorInfo?.clinic_name || "ClinicFlow Hospital";
   const facilityAddress = activeFacility?.address || "Personal Clinic Workspace";
   const facilityPhone = activeFacility?.phone || doctorInfo?.phone || "";
+  const addressLines = doc.splitTextToSize(facilityAddress, 160);
 
+  const formattedDate = bill.created_at
+    ? new Date(bill.created_at).toLocaleString()
+    : new Date().toLocaleString();
+
+  let billY = 118;
+
+  // Reusable page adder helper
+  const addNewPage = () => {
+    doc.addPage();
+    // Draw top header box
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(15, 15, 180, 36, 2, 2, "S");
+
+    // Hospital Name / Clinic Name (Centered)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.setTextColor(30, 41, 59);
+    doc.text(facilityName, 105, 23, { align: "center" });
+
+    // Address under it (Centered, small font)
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    let addressY2 = 28;
+    addressLines.forEach((line: string) => {
+      doc.text(line, 105, addressY2, { align: "center" });
+      addressY2 += 3.5;
+    });
+
+    // Phone number centered underneath
+    if (facilityPhone) {
+      doc.text(`Tel: ${facilityPhone}`, 105, addressY2, { align: "center" });
+    }
+
+    // Invoice ID & Date at the top of subsequent pages
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(30, 41, 59);
+    doc.text("Invoice ID:", 20, 56);
+    doc.setFont("helvetica", "normal");
+    doc.text(`#INV-${bill.id}`, 45, 56);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Date:", 145, 56);
+    doc.setFont("helvetica", "normal");
+    doc.text(formattedDate, 158, 56);
+
+    // Draw content box for the current page content
+    doc.setDrawColor(30, 41, 59);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(15, 62, 180, 215, 2, 2, "S");
+
+    billY = 70;
+  };
+
+  // --- DRAW PAGE 1 ---
   // Draw top header box
   doc.setDrawColor(30, 41, 59);
   doc.setLineWidth(0.5);
@@ -111,7 +169,6 @@ export const buildInvoicePDF = async (
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  const addressLines = doc.splitTextToSize(facilityAddress, 160);
   let addressY = 28;
   addressLines.forEach((line: string) => {
     doc.text(line, 105, addressY, { align: "center" });
@@ -131,10 +188,6 @@ export const buildInvoicePDF = async (
 
   // Patient Details Box
   doc.roundedRect(15, 62, 180, 34, 2, 2, "S");
-
-  const formattedDate = bill.created_at
-    ? new Date(bill.created_at).toLocaleString()
-    : new Date().toLocaleString();
 
   // Patient Details Columns
   doc.setFontSize(9);
@@ -187,16 +240,33 @@ export const buildInvoicePDF = async (
   doc.line(15, 112, 195, 112);
 
   // Table Items list
-  let billY = 118;
   doc.setFont("helvetica", "normal");
   if (items && items.length > 0) {
     items.forEach((item: any) => {
-      if (billY > 230) return;
+      if (billY > 260) {
+        doc.line(15, billY, 195, billY);
+        addNewPage();
+
+        // Draw Table Header on new page
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 41, 59);
+        doc.text("Service / Item Name", 20, billY);
+        doc.text("Qty", 125, billY, { align: "center" });
+        doc.text("Unit Price", 155, billY, { align: "right" });
+        doc.text("Amount (Rs.)", 190, billY, { align: "right" });
+        
+        doc.setDrawColor(71, 85, 105);
+        doc.setLineWidth(0.5);
+        doc.line(15, billY + 2, 195, billY + 2);
+        billY += 8;
+        doc.setFont("helvetica", "normal");
+      }
       const nameText = item.dosage ? `${item.item_name} (${item.dosage})` : item.item_name;
       doc.text(nameText, 20, billY);
-      doc.text(item.quantity.toString(), 125, billY, { align: "center" });
-      doc.text(item.unit_price.toFixed(2), 155, billY, { align: "right" });
-      doc.text((item.quantity * item.unit_price).toFixed(2), 190, billY, { align: "right" });
+      doc.text((item.quantity || 0).toString(), 125, billY, { align: "center" });
+      doc.text((Number(item.unit_price) || 0).toFixed(2), 155, billY, { align: "right" });
+      doc.text(((Number(item.quantity) || 0) * (Number(item.unit_price) || 0)).toFixed(2), 190, billY, { align: "right" });
       billY += 7;
     });
   }
@@ -205,93 +275,58 @@ export const buildInvoicePDF = async (
   billY += 6;
 
   // Totals Box
-  if (billY < 240) {
-    doc.setFont("helvetica", "bold");
-    doc.text("Bill Amount:", 140, billY);
-    doc.text(bill.total_amount.toFixed(2), 190, billY, { align: "right" });
-    billY += 6;
-
-    const totalPaid = bill.total_amount - bill.remaining_amount;
-    doc.text("Amount Paid:", 140, billY);
-    doc.text(totalPaid.toFixed(2), 190, billY, { align: "right" });
-    billY += 6;
-
-    doc.setTextColor(220, 38, 38);
-    doc.text("Outstanding Dues:", 140, billY);
-    doc.text(bill.remaining_amount.toFixed(2), 190, billY, { align: "right" });
-    doc.setTextColor(30, 41, 59);
-    billY += 8;
-
-    doc.line(15, billY, 195, billY);
-    billY += 6;
-
-    // In Words
-    doc.setFont("helvetica", "bold");
-    doc.text("In Words :", 20, billY);
-    doc.setFont("helvetica", "normal");
-    const wordsText = numberToWords(bill.total_amount);
-    const wordsLines = doc.splitTextToSize(wordsText, 140);
-    let wordY = billY;
-    wordsLines.forEach((line: string) => {
-      doc.text(line, 42, wordY);
-      wordY += 4.5;
-    });
-    billY = wordY + 2;
+  if (billY > 230) {
+    addNewPage();
   }
 
-  let isOnNewPage = false;
+  doc.setFont("helvetica", "bold");
+  doc.text("Bill Amount:", 140, billY);
+  doc.text((Number(bill.total_amount) || 0).toFixed(2), 190, billY, { align: "right" });
+  billY += 6;
+
+  const totalPaid = (Number(bill.total_amount) || 0) - (Number(bill.remaining_amount) || 0);
+  doc.text("Amount Paid:", 140, billY);
+  doc.text((Number(totalPaid) || 0).toFixed(2), 190, billY, { align: "right" });
+  billY += 6;
+
+  doc.setTextColor(220, 38, 38);
+  doc.text("Outstanding Dues:", 140, billY);
+  doc.text((Number(bill.remaining_amount) || 0).toFixed(2), 190, billY, { align: "right" });
+  doc.setTextColor(30, 41, 59);
+  billY += 8;
+
+  doc.line(15, billY, 195, billY);
+  billY += 6;
+
+  // In Words
+  doc.setFont("helvetica", "bold");
+  doc.text("In Words :", 20, billY);
+  doc.setFont("helvetica", "normal");
+  const wordsText = numberToWords(Number(bill.total_amount) || 0);
+  const wordsLines = doc.splitTextToSize(wordsText, 140);
+  let wordY = billY;
+  wordsLines.forEach((line: string) => {
+    if (wordY > 265) {
+      addNewPage();
+      wordY = billY;
+    }
+    doc.text(line, 42, wordY);
+    wordY += 4.5;
+  });
+  billY = wordY + 2;
+
+  // --- PRESCRIPTION SECTION ---
   if (prescription) {
     if (billY > 170) {
-      doc.addPage();
-      isOnNewPage = true;
-
-      // Draw header on page 2
-      doc.setDrawColor(30, 41, 59);
-      doc.setLineWidth(0.5);
-      doc.roundedRect(15, 15, 180, 36, 2, 2, "S");
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(30, 41, 59);
-      doc.text(facilityName, 105, 23, { align: "center" });
-
-      doc.setFontSize(8);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(71, 85, 105);
-      let addressY2 = 28;
-      addressLines.forEach((line: string) => {
-        doc.text(line, 105, addressY2, { align: "center" });
-        addressY2 += 3.5;
-      });
-      if (facilityPhone) {
-        doc.text(`Tel: ${facilityPhone}`, 105, addressY2, { align: "center" });
-      }
-
-      doc.setFontSize(10);
-      const formattedDate = bill.created_at
-        ? new Date(bill.created_at).toLocaleDateString()
-        : new Date().toLocaleDateString();
-      doc.setFont("helvetica", "bold");
-      doc.text("Invoice ID:", 20, 56);
-      doc.setFont("helvetica", "normal");
-      doc.text(`#INV-${bill.id}`, 45, 56);
-
-      doc.setFont("helvetica", "bold");
-      doc.text("Date:", 145, 56);
-      doc.setFont("helvetica", "normal");
-      doc.text(formattedDate, 158, 56);
-
-      // Draw content box for prescription
-      doc.roundedRect(15, 62, 180, 215, 2, 2, "S");
-      billY = 70;
+      addNewPage();
     } else {
       billY += 6;
       doc.line(15, billY, 195, billY);
       billY += 6;
     }
 
-    const contentX = isOnNewPage ? 22 : 22;
-    const textValX = isOnNewPage ? 55 : 55;
+    const contentX = 22;
+    const textValX = 55;
 
     doc.setFont("helvetica", "bold");
     doc.setTextColor(79, 70, 229);
@@ -311,21 +346,26 @@ export const buildInvoicePDF = async (
     }
 
     if (prescription.notes) {
+      if (billY > 260) {
+        addNewPage();
+      }
       doc.setFont("helvetica", "bold");
       doc.text("Doctor Notes:", contentX, billY);
       doc.setFont("helvetica", "normal");
-      const notesLines = doc.splitTextToSize(
-        prescription.notes,
-        140,
-      );
+      const notesLines = doc.splitTextToSize(prescription.notes, 140);
       notesLines.forEach((line: string) => {
-        if (billY > 260) return;
+        if (billY > 260) {
+          addNewPage();
+        }
         doc.text(line, textValX, billY);
         billY += 4.5;
       });
     }
 
     if (prescription.items && prescription.items.length > 0) {
+      if (billY > 250) {
+        addNewPage();
+      }
       doc.setFont("helvetica", "bold");
       doc.setTextColor(79, 70, 229);
       doc.text("Prescribed Medicines:", contentX, billY);
@@ -333,11 +373,13 @@ export const buildInvoicePDF = async (
 
       doc.setTextColor(51, 65, 85);
       prescription.items.forEach((med: any) => {
-        if (billY > 260) return;
+        if (billY > 250) {
+          addNewPage();
+        }
         doc.setFont("helvetica", "bold");
         doc.text(med.medicine_name, contentX + 2, billY);
         doc.setFont("helvetica", "normal");
-        let details = `${med.dosage} | ${med.frequency} | ${med.duration}`;
+        let details = `${med.dosage || "N/A"} | ${med.frequency || "N/A"} | ${med.duration || "N/A"}`;
         if (med.instructions) {
           details += ` (${med.instructions})`;
         }
@@ -347,20 +389,23 @@ export const buildInvoicePDF = async (
     }
 
     if (prescription.lab_requests && prescription.lab_requests.length > 0) {
-      if (billY <= 260) {
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(79, 70, 229);
-        doc.text("Prescribed Tests:", contentX, billY);
-        billY += 5;
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(51, 65, 85);
-        prescription.lab_requests.forEach((test: string) => {
-          if (billY > 260) return;
-          doc.text(`• ${test}`, contentX + 2, billY);
-          billY += 4.5;
-        });
+      if (billY > 250) {
+        addNewPage();
       }
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.text("Prescribed Tests:", contentX, billY);
+      billY += 5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 65, 85);
+      prescription.lab_requests.forEach((test: string) => {
+        if (billY > 260) {
+          addNewPage();
+        }
+        doc.text(`• ${test}`, contentX + 2, billY);
+        billY += 4.5;
+      });
     }
   }
 
@@ -373,7 +418,8 @@ export const generateInvoicePDF = async (
   facilityDoctors: any[]
 ) => {
   const doc = await buildInvoicePDF(detail, doctorInfo, facilityDoctors);
+  const patientNameSafe = (detail.bill.patient_name || "Patient").replace(/\s+/g, "_");
   doc.save(
-    `Invoice_${detail.bill.patient_name.replace(/\s+/g, "_")}_${detail.bill.id}.pdf`
+    `Invoice_${patientNameSafe}_${detail.bill.id}.pdf`
   );
 };

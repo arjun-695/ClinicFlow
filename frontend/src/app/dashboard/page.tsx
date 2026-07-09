@@ -114,66 +114,178 @@ const TabBubble = dynamic(() => import("../../components/ui/tab-bubble"), {
 });
 
 const COMMON_MEDICINES = [
+  // --- Analgesics & Antipyretics (General/Pediatrics) ---
+  "Crocin 500mg",
+  "Crocin 650mg",
+  "Crocin Pain Relief",
+  "Dolo 650mg",
+  "Calpol 500mg",
+  "Calpol 650mg",
   "Paracetamol 500mg",
   "Paracetamol 650mg",
   "Ibuprofen 400mg",
-  "Amoxicillin 500mg",
-  "Metformin 500mg",
-  "Metformin 1000mg",
-  "Atorvastatin 10mg",
-  "Atorvastatin 20mg",
-  "Omeprazole 20mg",
+  "Ibugesic Plus (Ibuprofen + Paracetamol)",
+  "Mefenamic Acid (Meftal 500mg)",
+  "Mefenamic Acid + Dicyclomine (Meftal-Spas)",
+  "Diclofenac 50mg (Voveran)",
+  "Aceclofenac + Paracetamol (Zerodol P)",
+  "Etoricoxib 90mg (Nucoxia)",
+  "Etoricoxib 120mg (Nucoxia)",
+  "Tramadol 50mg (Tramazac)",
+  "Ultracet (Tramadol + Paracetamol)",
+
+  // --- Gastrointestinal (Gastroenterology) ---
+  "Omeprazole 20mg (Omez)",
   "Omeprazole 40mg",
-  "Pantoprazole 40mg",
-  "Cetirizine 10mg",
-  "Azithromycin 500mg",
-  "Amoxicillin + Clavulanic Acid 625mg",
-  "Losartan 50mg",
-  "Amlodipine 5mg",
-  "Amlodipine 10mg",
-  "Levocetirizine 5mg",
-  "Montelukast 10mg",
-  "Gabapentin 300mg",
-  "Ranitidine 150mg",
-  "Ciprofloxacin 500mg",
-  "Clopidogrel 75mg",
-  "Doxycycline 100mg",
-  "Sildenafil 50mg",
-  "Escitalopram 10mg",
-  "Alprazolam 0.25mg",
-  "Alprazolam 0.5mg",
-  "Telmisartan 40mg",
-  "Telmisartan 80mg",
-  "Diclofenac 50mg",
-  "Ondansetron 4mg",
-  "Ondansetron 8mg",
+  "Pantoprazole 40mg (Pan 40)",
+  "Pantoprazole + Domperidone (Pan-D)",
+  "Rabeprazole 20mg (Veloz)",
+  "Rabeprazole + Domperidone (Veloz-D)",
+  "Esomeprazole 40mg (Nexpro)",
+  "Ranitidine 150mg (Rantac)",
+  "Ondansetron 4mg (Emset)",
+  "Ondansetron 8mg (Emset)",
   "Domperidone 10mg",
-  "Loratadine 10mg",
-  "Spironolactone 25mg",
-  "Furosemide 40mg",
-  "Hydrochlorothiazide 12.5mg",
-  "Prednisolone 5mg",
-  "Methylprednisolone 4mg",
-  "Aspirin 75mg",
-  "Aspirin 150mg",
-  "Azithromycin 250mg",
+  "Metoclopramide 10mg (Reglan)",
+  "Loperamide 2mg (Lopamide)",
+  "Dicyclomine 10mg (Cyclopam)",
+  "Digene Gel / Antacid liquid",
+  "Cremaffin Plus Syrup",
+  "Sucralfate Suspension (Oraflam)",
+  "Sporolac / Probiotic Capsule",
+
+  // --- Antibiotics & Antivirals (General Medicine / Infectious Diseases) ---
+  "Amoxicillin 500mg",
+  "Amoxicillin + Clavulanic Acid 625mg (Augmentin)",
+  "Azithromycin 250mg (Azee)",
+  "Azithromycin 500mg (Azee)",
+  "Ciprofloxacin 500mg (Ciplox)",
+  "Doxycycline 100mg (Doxyt)",
+  "Ofloxacin 200mg (Oflox)",
+  "Ofloxacin + Ornidazole (O2)",
+  "Metronidazole 400mg (Metrogyl)",
+  "Cefixime 200mg (Taxim-O)",
+  "Cefuroxime Axetil 500mg (Ceftum)",
   "Clarithromycin 500mg",
-  "Metronidazole 400mg",
-  "Albendazole 400mg",
-  "Ofloxacin 200mg",
-  "Ornidazole 500mg",
-  "Vitamin C (Ascorbic Acid) 500mg",
-  "Vitamin D3 60K",
+  "Albendazole 400mg (Zentel)",
+  "Acyclovir 400mg (Acivir)",
+  "Oseltamivir 75mg (Antiflu)",
+
+  // --- Cardiovascular & Antihypertensives (Cardiology) ---
+  "Aspirin 75mg (Ecosprin)",
+  "Aspirin 150mg (Ecosprin)",
+  "Clopidogrel 75mg (Clopilet)",
+  "Atorvastatin 10mg (Lipivas)",
+  "Atorvastatin 20mg (Lipivas)",
+  "Atorvastatin 40mg (Lipivas)",
+  "Rosuvastatin 10mg (Rosuvas)",
+  "Rosuvastatin 20mg (Rosuvas)",
+  "Amlodipine 5mg (Amlokind)",
+  "Amlodipine 10mg (Amlokind)",
+  "Telmisartan 40mg (Telma)",
+  "Telmisartan 80mg (Telma)",
+  "Telmisartan + Amlodipine (Telma-AM)",
+  "Losartan 50mg (Covance)",
+  "Metoprolol Succinate 25mg (Metolar XR)",
+  "Metoprolol Succinate 50mg (Metolar XR)",
+  "Ramipril 2.5mg (Cardace)",
+  "Ramipril 5mg (Cardace)",
+  "Furosemide 40mg (Lasix)",
+  "Spironolactone 25mg (Aldactone)",
+  "Hydrochlorothiazide 12.5mg",
+
+  // --- Antidiabetics & Endocrinology (Diabetology / Thyroid) ---
+  "Metformin 500mg (Glycomet)",
+  "Metformin 1000mg (Glycomet SR)",
+  "Glimepiride 1mg (Amaryl)",
+  "Glimepiride 2mg (Amaryl)",
+  "Glimepiride + Metformin (Glimisave M2)",
+  "Teneligliptin 20mg (Dynaglipt)",
+  "Sitagliptin 50mg (Januvia)",
+  "Sitagliptin 100mg (Januvia)",
+  "Dapagliflozin 5mg (Forxiga)",
+  "Dapagliflozin 10mg (Forxiga)",
+  "Empagliflozin 10mg (Jardiance)",
+  "Empagliflozin 25mg (Jardiance)",
+  "Vildagliptin 50mg (Galvus)",
+  "Thyroxine Sodium 25mcg (Thyronorm)",
+  "Thyroxine Sodium 50mcg (Thyronorm)",
+  "Thyroxine Sodium 75mcg (Thyronorm)",
+  "Thyroxine Sodium 100mcg (Thyronorm)",
+  "Lantus Solostar Pen (Insulin Glargine)",
+
+  // --- Respiratory & Allergy (Pulmonology / ENT) ---
+  "Cetirizine 10mg (Okacet)",
+  "Levocetirizine 5mg (Lecope)",
+  "Montelukast 10mg",
+  "Montelukast + Levocetirizine (Montair LC)",
+  "Loratadine 10mg (Claritin)",
+  "Fexofenadine 120mg (Allegra)",
+  "Fexofenadine 180mg (Allegra)",
+  "Asthalin Inhaler (Salbutamol)",
+  "Budecort Inhaler (Budecort)",
+  "Duolin Inhaler (Levosalbutamol + Ipratropium)",
+  "Flomist Nasal Spray (Fluticasone)",
+  "Otrivin Nasal Drops (Xylometazoline)",
+  "Alex Cough Syrup (Dextromethorphan + Phenylephrine)",
+  "Ascoril LS Syrup (Ambroxol + Levosalbutamol)",
+
+  // --- Neurology & Psychiatry (Neurology / Mental Health) ---
+  "Escitalopram 10mg (Nexito)",
+  "Escitalopram 20mg (Nexito)",
+  "Sertraline 50mg (Sertima)",
+  "Sertraline 100mg (Sertima)",
+  "Fluoxetine 20mg (Fludac)",
+  "Alprazolam 0.25mg (Alprax)",
+  "Alprazolam 0.5mg (Alprax)",
+  "Clonazepam 0.25mg (Clonefit)",
+  "Clonazepam 0.5mg (Clonefit)",
+  "Gabapentin 300mg (Gabapin)",
+  "Pregabalin 75mg (Pregalin)",
+  "Pregabalin 150mg (Pregalin)",
+  "Amitriptyline 10mg (Tryptomer)",
+  "Amitriptyline 25mg (Tryptomer)",
+  "Levetiracetam 500mg (Keppra)",
+  "Sodium Valproate 200mg (Encorate)",
+  "Sodium Valproate 500mg (Encorate)",
+  "Donepezil 5mg (Aricept)",
+
+  // --- Dermatology (Skin / Infections) ---
+  "Fluconazole 150mg (Syscan)",
+  "Itraconazole 100mg (Canditral)",
+  "Itraconazole 200mg (Canditral)",
+  "Terbinafine 250mg (Sebifin)",
+  "Isotretinoin 10mg (Sotret)",
+  "Isotretinoin 20mg (Sotret)",
+  "Ketoconazole 2% Cream",
+  "Mupirocin 2% Ointment (T-Bact)",
+  "Betamethasone Dipropionate Cream (Betnovate)",
+  "Clobetasol Propionate Cream (Tenovate)",
+  "Hydrocortisone 1% Cream",
+
+  // --- Gynecology & Obstetrics ---
+  "Norethisterone 5mg (Regestrone)",
+  "Progesterone 200mg (Susten)",
+  "Cabergoline 0.5mg (Cabgolin)",
+  "Mifepristone 200mg + Misoprostol 200mcg Kit",
+  "Clomiphene Citrate 50mg (Clofert)",
+  "Doxylamine Succinate + Pyridoxine (Pregnidoxin)",
+
+  // --- Vitamins, Minerals & Supplements ---
+  "Vitamin C (Ascorbic Acid) 500mg (Limcee)",
+  "Vitamin D3 60K Capsule (Calcirol)",
   "Zinc Sulphate 20mg",
-  "B-Complex",
-  "Limcee",
-  "Becosules",
-  "Multivitamin",
-  "Calcium Carbonate 500mg",
-  "Folic Acid 5mg",
-  "Iron Supplement",
-  "Salbutamol Inhaler",
-  "Budecort Inhaler",
+  "B-Complex with Vitamin C (Becosules)",
+  "Multivitamin & Minerals (A to Z)",
+  "Calcium Carbonate + Vitamin D3 (Shelcal 500)",
+  "Folic Acid 5mg (Folvite)",
+  "Ferrous Ascorbate + Folic Acid (Orofer XT)",
+
+  // --- Ophthalmology & ENT Drops ---
+  "Carboxymethylcellulose 0.5% Eye Drops (Refresh Tears)",
+  "Ciplox Eye/Ear Drops (Ciprofloxacin)",
+  "Milflodex Eye Drops (Moxifloxacin)",
+  "Tobramycin Eye Drops (Toba)",
 ];
 
 // --- State Types ---
@@ -359,6 +471,7 @@ export default function Dashboard() {
     | "billing"
     | "medicines"
     | "analytics"
+    | "doctor-analytics"
     | "whatsapp"
     | "staff"
     | "queue"
@@ -426,6 +539,10 @@ export default function Dashboard() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [selectedDoctorForAnalytics, setSelectedDoctorForAnalytics] = useState<string>("");
+  const [doctorAnalytics, setDoctorAnalytics] = useState<AnalyticsData | null>(null);
+  const [loadingDoctorAnalytics, setLoadingDoctorAnalytics] = useState<boolean>(false);
+  const [doctorPatientTimeframe, setDoctorPatientTimeframe] = useState<"weekly" | "monthly" | "yearly">("weekly");
   const [currentPatientData, setCurrentPatientData] =
     useState<PatientDetail | null>(null);
   const [currentBillData, setCurrentBillData] = useState<BillDetail | null>(
@@ -722,12 +839,43 @@ export default function Dashboard() {
     }
   };
 
-  // --- URL Search Params History Sync ---
   const urlSyncRef = useRef("");
+
+  const isTabAuthorized = (tab: string, role: string, clinicMode: boolean): boolean => {
+    if (role === "USER") {
+      return ["appointments", "labs", "billing", "queue", "vitals"].includes(tab);
+    }
+    if (role === "PHARMACIST") {
+      return ["billing", "medicines", "whatsapp"].includes(tab);
+    }
+    if (role === "HOSPITAL_ADMIN") {
+      return [
+        "staff",
+        "patients",
+        "appointments",
+        "availability",
+        "queue",
+        "billing",
+        "medicines",
+        "analytics",
+        "doctor-analytics",
+        "reschedule-queue",
+        "whatsapp",
+      ].includes(tab);
+    }
+    if (role === "DOCTOR") {
+      const doctorTabs = ["patients", "prescriptions", "appointments", "queue", "availability"];
+      if (clinicMode) {
+        doctorTabs.push("whatsapp");
+      }
+      return doctorTabs.includes(tab);
+    }
+    return false;
+  };
 
   // 1. Read URL params on mount and browser back/forward navigation
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !doctorInfo) return;
 
     const handleUrlChange = () => {
       const params = new URLSearchParams(window.location.search);
@@ -736,23 +884,7 @@ export default function Dashboard() {
       const id = params.get("id");
 
       if (tab) {
-        const validTabs = [
-          "patients",
-          "appointments",
-          "billing",
-          "medicines",
-          "analytics",
-          "whatsapp",
-          "staff",
-          "queue",
-          "vitals",
-          "labs",
-          "reschedule-queue",
-          "availability",
-          "prescriptions",
-          "pharmacy",
-        ];
-        if (validTabs.includes(tab)) {
+        if (isTabAuthorized(tab, doctorInfo.role, isClinicMode)) {
           const isDoctorInHospital =
             doctorInfo?.role === "DOCTOR" && !isClinicMode;
           if (tab === "whatsapp" && isDoctorInHospital) {
@@ -792,7 +924,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("popstate", handleUrlChange);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, doctorInfo, isClinicMode]);
 
   // 2. Write state changes to URL history
   useEffect(() => {
@@ -840,6 +972,15 @@ export default function Dashboard() {
   useEffect(() => {
     if (!isAuthenticated) return;
     if (doctorInfo) {
+      // Check if there is a valid deep-linked tab in the URL
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      if (tab) {
+        if (isTabAuthorized(tab, doctorInfo.role, isClinicMode)) {
+          return; // Preserve the URL tab, do not apply default
+        }
+      }
+
       if (doctorInfo.role === "USER") {
         setActiveTab("vitals");
       } else if (doctorInfo.role === "HOSPITAL_ADMIN") {
@@ -850,7 +991,7 @@ export default function Dashboard() {
         setActiveTab("patients");
       }
     }
-  }, [doctorInfo, isAuthenticated]);
+  }, [doctorInfo, isAuthenticated, isClinicMode]);
 
   // --- Auto-assign in Clinic Mode ---
   useEffect(() => {
@@ -868,6 +1009,9 @@ export default function Dashboard() {
   // --- Load Data Hook ---
   useEffect(() => {
     if (isAuthenticated && doctorInfo) {
+      setSelectedDoctorForAnalytics("");
+      setDoctorAnalytics(null);
+      
       const needsSetup =
         doctorInfo.role === "DOCTOR" &&
         !doctorInfo.specialization &&
@@ -1167,6 +1311,23 @@ export default function Dashboard() {
     }
   };
 
+  const loadDoctorAnalytics = async (doctorId: string) => {
+    if (!doctorId) {
+      setDoctorAnalytics(null);
+      return;
+    }
+    setLoadingDoctorAnalytics(true);
+    try {
+      const data = await fetchAPI(`/api/analytics?doctor_id=${doctorId}`);
+      setDoctorAnalytics(data);
+    } catch (e) {
+      console.error("Failed to load doctor analytics", e);
+      setToast({ message: "Failed to load doctor analytics", type: "error" });
+    } finally {
+      setLoadingDoctorAnalytics(false);
+    }
+  };
+
   const loadStaff = async () => {
     try {
       const data = await fetchAPI("/api/facilities/staff");
@@ -1185,6 +1346,7 @@ export default function Dashboard() {
         appointments: data.appointments || [],
         prescriptions: data.prescriptions || [],
       });
+      loadLabRequests(id);
     } catch {
       setToast({ message: "Failed to load patient profile", type: "error" });
       setViewState({ type: "list" });
@@ -2084,7 +2246,81 @@ export default function Dashboard() {
     const { jsPDF } = await import("jspdf");
     const doc = new jsPDF();
 
-    // Draw top header box
+    const formattedDate = rx.created_at
+      ? new Date(rx.created_at).toLocaleDateString()
+      : new Date().toLocaleDateString();
+
+    let rxY = 78;
+
+    const addNewPrescriptionPage = () => {
+      doc.addPage();
+      
+      // Draw top header box
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
+
+      // Hospital Name / Clinic Name
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text(doctorInfo?.clinic_name || "ClinicFlow Hospital", 105, 25, {
+        align: "center",
+      });
+
+      // Row 1 metadata
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Name:", 20, 36);
+      doc.setFont("helvetica", "normal");
+      doc.text(rx.patient_name || "N/A", 35, 36);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Gender:", 90, 36);
+      doc.setFont("helvetica", "normal");
+      doc.text(rx.patient_gender || "N/A", 108, 36);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Date:", 145, 36);
+      doc.setFont("helvetica", "normal");
+      doc.text(formattedDate, 158, 36);
+
+      // Row 2 metadata
+      doc.setFont("helvetica", "bold");
+      doc.text("Age:", 20, 46);
+      doc.setFont("helvetica", "normal");
+      doc.text(rx.patient_age ? rx.patient_age.toString() : "N/A", 35, 46);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("Weight:", 90, 46);
+      doc.setFont("helvetica", "normal");
+      doc.text(rx.weight ? `${rx.weight} kg` : "N/A", 108, 46);
+
+      doc.setFont("helvetica", "bold");
+      doc.text("B/P:", 145, 46);
+      doc.setFont("helvetica", "normal");
+      doc.text(rx.bp || "N/A", 158, 46);
+
+      // Draw Left Box (Staff)
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(15, 62, 55, 215, 4, 4, "S");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Staff:", 20, 70);
+
+      // Draw Right Box (Prescriptions)
+      doc.roundedRect(75, 62, 120, 215, 4, 4, "S");
+      doc.text("Prescriptions (Contd.):", 80, 70);
+
+      rxY = 78;
+    };
+
+    // Draw top header box (Page 1)
     doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.5);
     doc.roundedRect(15, 15, 180, 42, 4, 4, "S");
@@ -2101,10 +2337,6 @@ export default function Dashboard() {
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(71, 85, 105);
-
-    const formattedDate = rx.created_at
-      ? new Date(rx.created_at).toLocaleDateString()
-      : new Date().toLocaleDateString();
 
     doc.setFont("helvetica", "bold");
     doc.text("Name:", 20, 36);
@@ -2189,7 +2421,6 @@ export default function Dashboard() {
     doc.text("Prescriptions:", 80, 70);
 
     doc.setFontSize(10);
-    let rxY = 78;
 
     // Diagnosis
     doc.setFont("helvetica", "bold");
@@ -2214,13 +2445,18 @@ export default function Dashboard() {
 
     // Medicines List
     if (rx.items && rx.items.length > 0) {
+      if (rxY > 255) {
+        addNewPrescriptionPage();
+      }
       doc.setFont("helvetica", "bold");
       doc.setTextColor(79, 70, 229);
       doc.text("Prescribed Medicines:", 80, rxY);
       rxY += 6;
 
       rx.items.forEach((item: any, index: number) => {
-        if (rxY > 255) return;
+        if (rxY > 250) {
+          addNewPrescriptionPage();
+        }
         doc.setFont("helvetica", "bold");
         doc.setTextColor(51, 65, 85);
         doc.text(`${index + 1}. ${item.medicine_name}`, 82, rxY);
@@ -2234,6 +2470,9 @@ export default function Dashboard() {
         rxY += 4.5;
 
         if (item.instructions) {
+          if (rxY > 260) {
+            addNewPrescriptionPage();
+          }
           doc.setFont("helvetica", "italic");
           doc.text(`Instructions: ${item.instructions}`, 85, rxY);
           rxY += 5;
@@ -2246,40 +2485,46 @@ export default function Dashboard() {
 
     // Recommended Lab tests
     if (rx.lab_requests && rx.lab_requests.length > 0) {
-      if (rxY < 255) {
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(79, 70, 229);
-        doc.text("Recommended Lab/Diagnostic Tests:", 80, rxY);
-        rxY += 6;
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(51, 65, 85);
-        rx.lab_requests.forEach((test: string) => {
-          if (rxY > 260) return;
-          doc.text(`• ${test}`, 85, rxY);
-          rxY += 5.5;
-        });
-        rxY += 3;
+      if (rxY > 255) {
+        addNewPrescriptionPage();
       }
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.text("Recommended Lab/Diagnostic Tests:", 80, rxY);
+      rxY += 6;
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 65, 85);
+      rx.lab_requests.forEach((test: string) => {
+        if (rxY > 260) {
+          addNewPrescriptionPage();
+        }
+        doc.text(`• ${test}`, 85, rxY);
+        rxY += 5.5;
+      });
+      rxY += 3;
     }
 
     // Clinical Notes / Advice
     if (rx.notes) {
-      if (rxY < 255) {
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(79, 70, 229);
-        doc.text("Clinical Notes / Advice:", 80, rxY);
-        rxY += 6;
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(51, 65, 85);
-        const lines = doc.splitTextToSize(rx.notes, 110);
-        lines.forEach((line: string) => {
-          if (rxY > 260) return;
-          doc.text(line, 82, rxY);
-          rxY += 5.5;
-        });
+      if (rxY > 255) {
+        addNewPrescriptionPage();
       }
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(79, 70, 229);
+      doc.text("Clinical Notes / Advice:", 80, rxY);
+      rxY += 6;
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(51, 65, 85);
+      const lines = doc.splitTextToSize(rx.notes, 110);
+      lines.forEach((line: string) => {
+        if (rxY > 260) {
+          addNewPrescriptionPage();
+        }
+        doc.text(line, 82, rxY);
+        rxY += 5.5;
+      });
     }
 
     return doc;
@@ -2763,6 +3008,11 @@ export default function Dashboard() {
                   id: "analytics",
                   label: "Facility Analytics",
                   icon: Activity,
+                },
+                {
+                  id: "doctor-analytics",
+                  label: "Doctor Analytics",
+                  icon: TrendingUp,
                 },
                 {
                   id: "reschedule-queue",
@@ -3415,31 +3665,22 @@ export default function Dashboard() {
                               </div>
                               <div>
                                 <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Heart Rate (bpm)
+                                  Heart Rate / Pulse (bpm)
                                 </label>
                                 <input
                                   type="number"
                                   placeholder="72"
                                   value={logHR}
-                                  onChange={(e) => setLogHR(e.target.value)}
+                                  onChange={(e) => {
+                                    setLogHR(e.target.value);
+                                    setLogPulse(e.target.value);
+                                  }}
                                   className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
                                 />
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-3 gap-3 mt-3">
-                              <div>
-                                <label className="text-[10px] font-bold uppercase text-slate-400">
-                                  Pulse (bpm)
-                                </label>
-                                <input
-                                  type="number"
-                                  placeholder="72"
-                                  value={logPulse}
-                                  onChange={(e) => setLogPulse(e.target.value)}
-                                  className="w-full mt-1 px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
-                                />
-                              </div>
+                            <div className="grid grid-cols-2 gap-3 mt-3">
                               <div>
                                 <label className="text-[10px] font-bold uppercase text-slate-400">
                                   SpO2 (%)
@@ -3901,11 +4142,11 @@ export default function Dashboard() {
                               setUploadResultSummary("");
                               setUploadLabRequestId(null);
                               setIsUploadLabOpen(false);
-                              const ptId =
+                               const ptId =
                                 doctorInfo?.role === "USER"
                                   ? ownPatientProfile?.patient?.id
-                                  : parseInt(newLabPatientId);
-                              if (ptId) loadLabRequests(ptId);
+                                  : currentPatientData?.patient?.id || parseInt(newLabPatientId);
+                               if (ptId) loadLabRequests(ptId);
                             } catch (err: any) {
                               setToast({
                                 message:
@@ -4878,27 +5119,16 @@ export default function Dashboard() {
                                   </div>
                                   <div>
                                     <label className="text-[9px] text-slate-400 uppercase font-bold">
-                                      Heart Rate (bpm)
+                                      Heart Rate / Pulse (bpm)
                                     </label>
                                     <input
                                       type="number"
                                       placeholder="e.g. 75"
                                       value={rxHR}
-                                      onChange={(e) => setRxHR(e.target.value)}
-                                      className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[9px] text-slate-400 uppercase font-bold">
-                                      Pulse (bpm)
-                                    </label>
-                                    <input
-                                      type="number"
-                                      placeholder="e.g. 75"
-                                      value={rxPulse}
-                                      onChange={(e) =>
-                                        setRxPulse(e.target.value)
-                                      }
+                                      onChange={(e) => {
+                                        setRxHR(e.target.value);
+                                        setRxPulse(e.target.value);
+                                      }}
                                       className="w-full mt-0.5 px-3 py-1.5 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
                                     />
                                   </div>
@@ -6908,6 +7138,208 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* TAB: DOCTOR ANALYTICS */}
+              {activeTab === "doctor-analytics" && (
+                <div className="space-y-8">
+                  {/* Select Doctor Header Card */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                    <div>
+                      <h2 className="text-xl font-black">Doctor Insights & Analytics</h2>
+                      <p className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                        Select a doctor from the hospital staff directory to view their performance metrics for the active workspace.
+                      </p>
+                    </div>
+                    <div className="w-full md:w-64">
+                      <select
+                        value={selectedDoctorForAnalytics}
+                        onChange={(e) => {
+                          const docId = e.target.value;
+                          setSelectedDoctorForAnalytics(docId);
+                          loadDoctorAnalytics(docId);
+                        }}
+                        className="w-full px-4 py-2.5 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                      >
+                        <option value="">-- Select a Doctor --</option>
+                        {facilityDoctors.map((doc) => (
+                          <option key={doc.id} value={doc.id}>
+                            {doc.name} {doc.specialization ? `(${doc.specialization})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {loadingDoctorAnalytics ? (
+                    <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600 animate-duration-1000"></div>
+                      <p className="text-xs text-[var(--text-muted)]">Fetching doctor analytics...</p>
+                    </div>
+                  ) : doctorAnalytics ? (
+                    <>
+                      {/* 1. Summary Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                              Total Patients Treated
+                            </span>
+                            <h3 className="text-3xl font-black mt-1">
+                              {doctorAnalytics.patients_weekly?.reduce(
+                                (s, p) => s + p.value,
+                                0,
+                              ) || 0}
+                            </h3>
+                            <p className="text-[10px] text-indigo-500 font-semibold mt-1">
+                              Based on prescriptions (past 7 days)
+                            </p>
+                          </div>
+                          <div className="p-3.5 bg-indigo-500/10 text-indigo-500 rounded-2xl">
+                            <Users className="w-6 h-6" />
+                          </div>
+                        </div>
+
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                              Revenue (Past 30 Days)
+                            </span>
+                            <h3 className="text-3xl font-black mt-1 text-emerald-500">
+                              ₹
+                              {(
+                                doctorAnalytics.revenue_daily?.reduce(
+                                  (s, r) => s + r.value,
+                                  0,
+                                ) || 0
+                              ).toLocaleString("en-IN")}
+                            </h3>
+                            <p className="text-[10px] text-emerald-500 font-semibold mt-1">
+                              Gross Invoiced
+                            </p>
+                          </div>
+                          <div className="p-3.5 bg-emerald-500/10 text-emerald-500 rounded-2xl">
+                            <DollarSign className="w-6 h-6" />
+                          </div>
+                        </div>
+
+                        <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm flex items-center justify-between">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                              Upcoming Agenda Slots
+                            </span>
+                            <h3 className="text-3xl font-black mt-1 text-amber-500">
+                              {doctorAnalytics.appointments_future?.reduce(
+                                (s, a) => s + a.value,
+                                0,
+                              ) || 0}
+                            </h3>
+                            <p className="text-[10px] text-amber-500 font-semibold mt-1">
+                              Next 14 Days
+                            </p>
+                          </div>
+                          <div className="p-3.5 bg-amber-500/10 text-amber-500 rounded-2xl">
+                            <Calendar className="w-6 h-6" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Graphs Grid */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Treated Patients Histogram */}
+                        <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
+                          <div className="flex justify-between items-center">
+                            <div>
+                              <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                                Patients Treated (Prescriptions)
+                              </h4>
+                              <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                                Historical performance data
+                              </p>
+                            </div>
+                            <div className="flex border border-[var(--border)] dark:border-zinc-800 rounded-xl overflow-hidden text-[10px] font-bold">
+                              {(["weekly", "monthly", "yearly"] as const).map(
+                                (t) => (
+                                  <button
+                                    key={t}
+                                    onClick={() => setDoctorPatientTimeframe(t)}
+                                    className={`px-3 py-1.5 cursor-pointer uppercase transition ${
+                                      doctorPatientTimeframe === t
+                                        ? "bg-indigo-600 text-white"
+                                        : "hover:bg-[var(--card-hover)] text-[var(--text-muted)] dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                    }`}
+                                  >
+                                    {t}
+                                  </button>
+                                ),
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="h-64 flex items-center justify-center p-2">
+                            {doctorPatientTimeframe === "weekly" ? (
+                              renderHistogram(doctorAnalytics.patients_weekly)
+                            ) : doctorPatientTimeframe === "monthly" ? (
+                              renderHistogram(doctorAnalytics.patients_monthly)
+                            ) : (
+                              renderHistogram(doctorAnalytics.patients_yearly)
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Daily Revenue Line Chart */}
+                        <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm space-y-4 text-[var(--foreground)] dark:text-white">
+                          <div>
+                            <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                              Daily Revenue Trend
+                            </h4>
+                            <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                              Invoices generated in the past 30 days
+                            </p>
+                          </div>
+
+                          <div className="h-64 flex items-center justify-center p-2">
+                            {doctorAnalytics.revenue_daily ? (
+                              renderLineChart(doctorAnalytics.revenue_daily)
+                            ) : (
+                              <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                                Loading chart data...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Future Appointments Histogram */}
+                        <div className="bg-white border border-[var(--border)] dark:bg-zinc-900 dark:border-zinc-800 rounded-3xl p-6 shadow-sm lg:col-span-2 space-y-4 text-[var(--foreground)] dark:text-white">
+                          <div>
+                            <h4 className="text-sm font-black text-[var(--foreground)] dark:text-white">
+                              Upcoming Booking Density (Next 14 Days)
+                            </h4>
+                            <p className="text-[10px] text-[var(--text-muted)] dark:text-zinc-400">
+                              Future slots scheduled date-wise
+                            </p>
+                          </div>
+
+                          <div className="h-64 flex items-center justify-center p-2">
+                            {doctorAnalytics.appointments_future ? (
+                              renderHistogram(doctorAnalytics.appointments_future)
+                            ) : (
+                              <div className="text-xs text-[var(--text-muted)] dark:text-zinc-400">
+                                Loading chart data...
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-12 text-center text-[var(--text-muted)]">
+                      <TrendingUp className="w-12 h-12 mx-auto text-indigo-500 mb-4 opacity-50" />
+                      <p className="font-bold text-sm">No Doctor Selected</p>
+                      <p className="text-xs mt-1">Please choose a doctor from the dropdown above to view their analytics.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* TAB: WHATSAPP LINKING */}
               {activeTab === "whatsapp" && (
                 <div className="max-w-xl mx-auto bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-6">
@@ -8235,6 +8667,90 @@ export default function Dashboard() {
                       </table>
                     </div>
                   </div>
+
+                  {/* Diagnostics & Lab Reports Log */}
+                  <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-4">
+                    <h3 className="text-sm font-black">Diagnostics & Lab Reports</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[var(--border)] bg-[var(--nav-bg)] text-slate-500 dark:text-slate-400 font-bold uppercase">
+                            <th className="px-4 py-3">Ordered Date</th>
+                            <th className="px-4 py-3">Test Name</th>
+                            <th className="px-4 py-3">Status</th>
+                            <th className="px-4 py-3">Findings / Summary</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {labRequests && labRequests.length > 0 ? (
+                            labRequests.map((lr) => (
+                              <tr
+                                key={lr.id}
+                                className="border-b border-[var(--border)] hover:bg-table-row-hover transition"
+                              >
+                                <td className="px-4 py-3 font-semibold text-slate-500">
+                                  {new Date(lr.requested_date).toLocaleDateString()}
+                                </td>
+                                <td className="px-4 py-3 font-bold text-slate-700 dark:text-slate-200">
+                                  {lr.test_name}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span
+                                    className={cn(
+                                      "inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold uppercase",
+                                      lr.status === "COMPLETED"
+                                        ? "bg-emerald-500/10 text-emerald-500"
+                                        : "bg-indigo-500/10 text-indigo-500",
+                                    )}
+                                  >
+                                    {lr.status}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-slate-400 max-w-xs truncate">
+                                  {lr.result_summary || "-"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {lr.status === "REQUESTED" &&
+                                    doctorInfo?.role !== "USER" && (
+                                      <button
+                                        onClick={() => {
+                                          setUploadLabRequestId(lr.id);
+                                          setIsUploadLabOpen(true);
+                                        }}
+                                        className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-md transition cursor-pointer border-none"
+                                      >
+                                        Update Result
+                                      </button>
+                                    )}
+                                  {lr.status === "COMPLETED" &&
+                                    lr.report_url && (
+                                      <a
+                                        href={lr.report_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-block px-3 py-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold rounded-xl transition animate-fade-in"
+                                      >
+                                        View Report
+                                      </a>
+                                    )}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td
+                                colSpan={5}
+                                className="px-4 py-6 text-center text-slate-400 font-semibold"
+                              >
+                                No diagnostics ordered.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -8894,6 +9410,7 @@ export default function Dashboard() {
               { id: "billing", label: "Billing & Ledger", icon: FileText },
               { id: "medicines", label: "Pharmacy Stock", icon: Plus },
               { id: "analytics", label: "Facility Analytics", icon: Activity },
+              { id: "doctor-analytics", label: "Doctor Analytics", icon: TrendingUp },
               {
                 id: "reschedule-queue",
                 label: "Reschedule Queue",

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"backend/db"
 	"golang.org/x/sync/errgroup"
@@ -38,27 +40,74 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// 1. Weekly Treated Patients (Distinct Patient count with Completed Appointments or Bills in past 7 days)
+	role, err := getUserRole(ctx, doctorID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve user role"})
+		return
+	}
+
+	targetDoctorID := doctorID
+	if strings.ToUpper(role) == "HOSPITAL_ADMIN" {
+		targetDoctorIDStr := r.URL.Query().Get("doctor_id")
+		if targetDoctorIDStr != "" {
+			parsedID, err := strconv.Atoi(targetDoctorIDStr)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid doctor_id parameter"})
+				return
+			}
+			// Verify that this doctor is associated with the admin's active facility.
+			var associated bool
+			checkQuery := `
+				SELECT EXISTS(
+					SELECT 1 FROM user_facilities 
+					WHERE user_id = $1 AND facility_id = $2
+				)
+			`
+			err = db.Pool.QueryRow(ctx, checkQuery, parsedID, facilityID).Scan(&associated)
+			if err != nil {
+				log.Printf("GetAnalytics user_facilities check error: %v", err)
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Database error checking doctor association"})
+				return
+			}
+			if !associated {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Doctor is not associated with this facility"})
+				return
+			}
+			targetDoctorID = parsedID
+		}
+	} else {
+		// Regular doctor or other roles: enforce security check if they try to access another ID
+		targetDoctorIDStr := r.URL.Query().Get("doctor_id")
+		if targetDoctorIDStr != "" {
+			parsedID, err := strconv.Atoi(targetDoctorIDStr)
+			if err != nil || parsedID != doctorID {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you can only access your own analytics"})
+				return
+			}
+		}
+	}
+
+	// 1. Weekly Treated Patients (Prescriptions written in past 7 days)
 	queryWeekly := `
-		SELECT TO_CHAR(d, 'Dy') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
+		SELECT TO_CHAR(d, 'Dy') AS label, COALESCE(COUNT(DISTINCT p.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, '1 day') d
-		LEFT JOIN appointments a ON DATE(a.appointment_date) = DATE(d) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
+		LEFT JOIN prescriptions p ON DATE(p.created_at) = DATE(d) AND p.doctor_id = $1 AND p.facility_id = $2 AND p.status != 'cancelled'
 		GROUP BY d ORDER BY d ASC
 	`
 
-	// 2. Monthly Treated Patients (Completed Patients in past 12 months)
+	// 2. Monthly Treated Patients (Prescriptions written in past 12 months)
 	queryMonthly := `
-		SELECT TO_CHAR(m, 'Mon') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
+		SELECT TO_CHAR(m, 'Mon') AS label, COALESCE(COUNT(DISTINCT p.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '11 months', CURRENT_DATE, '1 month') m
-		LEFT JOIN appointments a ON DATE_TRUNC('month', a.appointment_date) = DATE_TRUNC('month', m) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
+		LEFT JOIN prescriptions p ON DATE_TRUNC('month', p.created_at) = DATE_TRUNC('month', m) AND p.doctor_id = $1 AND p.facility_id = $2 AND p.status != 'cancelled'
 		GROUP BY m ORDER BY m ASC
 	`
 
-	// 3. Yearly Treated Patients (Completed Patients in past 5 years)
+	// 3. Yearly Treated Patients (Prescriptions written in past 5 years)
 	queryYearly := `
-		SELECT TO_CHAR(y, 'YYYY') AS label, COALESCE(COUNT(DISTINCT a.patient_id), 0)::float8 AS value
+		SELECT TO_CHAR(y, 'YYYY') AS label, COALESCE(COUNT(DISTINCT p.patient_id), 0)::float8 AS value
 		FROM generate_series(CURRENT_DATE - INTERVAL '4 years', CURRENT_DATE, '1 year') y
-		LEFT JOIN appointments a ON DATE_TRUNC('year', a.appointment_date) = DATE_TRUNC('year', y) AND a.doctor_id = $1 AND a.facility_id = $2 AND a.status = 'COMPLETED'
+		LEFT JOIN prescriptions p ON DATE_TRUNC('year', p.created_at) = DATE_TRUNC('year', y) AND p.doctor_id = $1 AND p.facility_id = $2 AND p.status != 'cancelled'
 		GROUP BY y ORDER BY y ASC
 	`
 
@@ -84,7 +133,7 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		var err error
-		weeklyPoints, err = queryDataPoints(gCtx, queryWeekly, doctorID, facilityID)
+		weeklyPoints, err = queryDataPoints(gCtx, queryWeekly, targetDoctorID, facilityID)
 		if err != nil {
 			log.Printf("GetAnalytics weekly error: %v", err)
 		}
@@ -93,7 +142,7 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		var err error
-		monthlyPoints, err = queryDataPoints(gCtx, queryMonthly, doctorID, facilityID)
+		monthlyPoints, err = queryDataPoints(gCtx, queryMonthly, targetDoctorID, facilityID)
 		if err != nil {
 			log.Printf("GetAnalytics monthly error: %v", err)
 		}
@@ -102,7 +151,7 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		var err error
-		yearlyPoints, err = queryDataPoints(gCtx, queryYearly, doctorID, facilityID)
+		yearlyPoints, err = queryDataPoints(gCtx, queryYearly, targetDoctorID, facilityID)
 		if err != nil {
 			log.Printf("GetAnalytics yearly error: %v", err)
 		}
@@ -111,7 +160,7 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		var err error
-		revenuePoints, err = queryDataPoints(gCtx, queryRevenue, doctorID, facilityID)
+		revenuePoints, err = queryDataPoints(gCtx, queryRevenue, targetDoctorID, facilityID)
 		if err != nil {
 			log.Printf("GetAnalytics revenue error: %v", err)
 		}
@@ -120,7 +169,7 @@ func GetAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	g.Go(func() error {
 		var err error
-		apptPoints, err = queryDataPoints(gCtx, queryAppts, doctorID, facilityID)
+		apptPoints, err = queryDataPoints(gCtx, queryAppts, targetDoctorID, facilityID)
 		if err != nil {
 			log.Printf("GetAnalytics future appts error: %v", err)
 		}
