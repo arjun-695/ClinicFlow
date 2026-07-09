@@ -1007,6 +1007,7 @@ export default function Dashboard() {
   }, [isAuthenticated, doctorInfo, isClinicMode, facilityDoctors]);
 
   // --- Load Data Hook ---
+  // --- Load Workspace Configuration on Mount ---
   useEffect(() => {
     if (isAuthenticated && doctorInfo) {
       setSelectedDoctorForAnalytics("");
@@ -1024,27 +1025,55 @@ export default function Dashboard() {
 
       if (doctorInfo.role === "USER") {
         loadOwnPatientProfile();
-        loadAppointments();
-        loadRecentBills();
       } else {
-        loadPatients();
         loadFacilityDoctors();
-        loadAppointments();
-        loadMedicines();
-        loadPrescriptions();
-        if (
-          doctorInfo.role === "PHARMACIST" ||
-          doctorInfo.role === "HOSPITAL_ADMIN"
-        ) {
-          loadPendingPrescriptions();
-        }
-        loadAnalytics();
-        loadRecentBills();
         loadWhatsAppTemplates();
-        loadStaff();
       }
     }
   }, [isAuthenticated, doctorInfo]);
+
+  // --- Load Tab Data Reactively (Lazy Loading) ---
+  useEffect(() => {
+    if (!isAuthenticated || !doctorInfo) return;
+
+    const needsSetup =
+      doctorInfo.role === "DOCTOR" &&
+      !doctorInfo.specialization &&
+      !doctorInfo.location &&
+      !doctorInfo.hospital_name;
+
+    if (needsSetup) return;
+
+    if (doctorInfo.role === "USER") {
+      if (activeTab === "appointments") {
+        loadAppointments();
+      } else if (activeTab === "billing") {
+        loadRecentBills();
+      } else if (activeTab === "labs" && ownPatientProfile?.patient?.id) {
+        loadLabRequests(ownPatientProfile.patient.id);
+      } else if (activeTab === "vitals" && ownPatientProfile?.patient?.id) {
+        loadVitals(ownPatientProfile.patient.id);
+      }
+    } else {
+      if (activeTab === "patients") {
+        loadPatients();
+      } else if (activeTab === "prescriptions") {
+        loadPrescriptions();
+      } else if (activeTab === "appointments") {
+        loadAppointments();
+      } else if (activeTab === "medicines" || activeTab === "pharmacy") {
+        loadMedicines();
+      } else if (activeTab === "billing" || activeTab === "queue") {
+        loadPendingPrescriptions();
+        loadRecentBills();
+        loadPatients();
+      } else if (activeTab === "analytics") {
+        loadAnalytics();
+      } else if (activeTab === "staff") {
+        loadStaff();
+      }
+    }
+  }, [isAuthenticated, doctorInfo, activeTab, ownPatientProfile?.patient?.id]);
 
   // Reactively load slots/availability/reschedules when tabs change
   useEffect(() => {
@@ -1440,7 +1469,7 @@ export default function Dashboard() {
         body: JSON.stringify({
           clinic_name: editClinicName.trim() || "My Clinic",
           name: editDoctorName.trim(),
-          phone: "",
+          phone: doctorInfo?.phone || "",
         }),
       });
       setDoctorInfo((prev) =>
@@ -1995,8 +2024,13 @@ export default function Dashboard() {
     }
   };
 
-  const toggleAppointmentStatus = async (id: number, currentStatus: string) => {
-    const nextStatus = currentStatus === "PENDING" ? "COMPLETED" : "PENDING";
+  const toggleAppointmentStatus = async (id: number, statusOrAction: string) => {
+    let nextStatus = statusOrAction;
+    if (statusOrAction === "PENDING") {
+      nextStatus = "COMPLETED";
+    } else if (statusOrAction === "COMPLETED") {
+      nextStatus = "PENDING";
+    }
     try {
       await fetchAPI("/api/appointments/status", {
         method: "PUT",
@@ -2531,8 +2565,10 @@ export default function Dashboard() {
   };
 
   const generateInvoicePDF = async (detail: BillDetail) => {
-    const { generateInvoicePDF: helperGenerate } = await import("./utils/pdfHelper");
-    await helperGenerate(detail, doctorInfo, facilityDoctors);
+    const { buildInvoicePDF } = await import("./utils/pdfHelper");
+    const doc = await buildInvoicePDF(detail, doctorInfo, facilityDoctors);
+    const patientNameSafe = (detail.bill.patient_name || "Patient").replace(/\s+/g, "_");
+    doc.save(`Invoice_${patientNameSafe}_${detail.bill.id}.pdf`);
   };
 
   // --- SVG Charts Draw Helpers ---
