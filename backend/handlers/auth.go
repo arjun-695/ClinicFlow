@@ -472,7 +472,7 @@ func GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 
 	googleAuthURL := fmt.Sprintf(
-		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s",
+		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s&prompt=select_account",
 		url.QueryEscape(clientID),
 		url.QueryEscape(redirectURI),
 		state,

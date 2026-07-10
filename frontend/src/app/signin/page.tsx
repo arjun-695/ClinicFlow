@@ -1,15 +1,20 @@
 import React from "react";
 import HeaderSimple from "../../components/HeaderSimple";
 import AuthForm from "../../components/AuthForm";
+import Image from "next/image";
 
 export default function SignInPage() {
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100 relative overflow-hidden flex flex-col justify-between">
       {/* Dynamic Blurred Background Image */}
       <div className="absolute inset-0 z-0 overflow-hidden">
-        <div 
-          className="absolute inset-0 bg-cover bg-center filter blur-[15px] scale-[1.05] opacity-25 animate-bg-pan-zoom"
-          style={{ backgroundImage: "url('/background.jpg')" }}
+        <Image
+          src="/background.jpg"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-center filter blur-[15px] scale-[1.05] opacity-25 animate-bg-pan-zoom"
         />
         {/* Shadow Overlay */}
         <div className="absolute inset-0 bg-[#090d16]/70" />

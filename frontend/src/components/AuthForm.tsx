@@ -25,6 +25,9 @@ export default function AuthForm({ variant }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Prefetch the dashboard page to make transition instant after authentication resolves
+    router.prefetch("/dashboard");
+
     const checkSession = async () => {
       try {
         const data = await fetchAPI("/api/auth/session");
