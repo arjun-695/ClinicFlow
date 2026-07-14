@@ -168,8 +168,9 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 	// Retrieve user details from DB
 	var email, name, clinicName, phone, role string
 	var location, photoURL, specialization, hospitalName *string
-	query := `SELECT email, name, clinic_name, phone, role, location, photo_url, specialization, hospital_name FROM users WHERE id = $1`
-	err = db.Pool.QueryRow(r.Context(), query, shopkeeperID).Scan(&email, &name, &clinicName, &phone, &role, &location, &photoURL, &specialization, &hospitalName)
+	var dob *time.Time
+	query := `SELECT email, name, clinic_name, phone, role, location, photo_url, specialization, hospital_name, dob FROM users WHERE id = $1`
+	err = db.Pool.QueryRow(r.Context(), query, shopkeeperID).Scan(&email, &name, &clinicName, &phone, &role, &location, &photoURL, &specialization, &hospitalName, &dob)
 	if err != nil {
 		log.Printf("CheckSession query error: %v", err)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"status": "Unauthenticated"})
@@ -234,6 +235,11 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 	if photoURL != nil { userMap["photo_url"] = *photoURL } else { userMap["photo_url"] = "" }
 	if specialization != nil { userMap["specialization"] = *specialization } else { userMap["specialization"] = "" }
 	if hospitalName != nil { userMap["hospital_name"] = *hospitalName } else { userMap["hospital_name"] = "" }
+	if dob != nil {
+		userMap["dob"] = dob.Format("2006-01-02")
+	} else {
+		userMap["dob"] = ""
+	}
 
 	res := map[string]interface{}{
 		"status": "Authenticated",
@@ -650,29 +656,19 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 // UpdateProfile updates the profile information for the doctor
 func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		ClinicName     string `json:"clinic_name"`
-		Name           string `json:"name"`
-		Phone          string `json:"phone"`
-		Location       string `json:"location"`
-		PhotoURL       string `json:"photo_url"`
-		Specialization string `json:"specialization"`
-		HospitalName   string `json:"hospital_name"`
+		ClinicName     *string `json:"clinic_name"`
+		Name           *string `json:"name"`
+		Phone          *string `json:"phone"`
+		Location       *string `json:"location"`
+		PhotoURL       *string `json:"photo_url"`
+		Specialization *string `json:"specialization"`
+		HospitalName   *string `json:"hospital_name"`
+		DOB            *string `json:"dob"` // YYYY-MM-DD
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		return
-	}
-
-	input.Name = CapitalizeName(input.Name)
-
-	if input.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
-		return
-	}
-
-	if input.ClinicName == "" {
-		input.ClinicName = "My Clinic"
 	}
 
 	doctorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
@@ -681,12 +677,100 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Fetch current profile to preserve omitted fields
+	var curClinicName, curName, curPhone string
+	var curLocation, curPhotoURL, curSpecialization, curHospitalName *string
+	var curDOB *time.Time // Scan dob as date/time type
+	
+	err := db.Pool.QueryRow(r.Context(), 
+		"SELECT clinic_name, name, phone, location, photo_url, specialization, hospital_name, dob FROM users WHERE id = $1", 
+		doctorID,
+	).Scan(&curClinicName, &curName, &curPhone, &curLocation, &curPhotoURL, &curSpecialization, &curHospitalName, &curDOB)
+	if err != nil {
+		log.Printf("UpdateProfile fetch existing error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve profile"})
+		return
+	}
+
+	// Merge input updates with existing profile fields
+	finalClinicName := curClinicName
+	if input.ClinicName != nil {
+		finalClinicName = *input.ClinicName
+	}
+	if finalClinicName == "" {
+		finalClinicName = "My Clinic"
+	}
+
+	finalName := curName
+	if input.Name != nil {
+		finalName = CapitalizeName(*input.Name)
+	}
+	if finalName == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Name is required"})
+		return
+	}
+
+	finalPhone := curPhone
+	if input.Phone != nil {
+		finalPhone = *input.Phone
+	}
+
+	finalLocation := curLocation
+	if input.Location != nil {
+		if *input.Location == "" {
+			finalLocation = nil
+		} else {
+			finalLocation = input.Location
+		}
+	}
+
+	finalPhotoURL := curPhotoURL
+	if input.PhotoURL != nil {
+		if *input.PhotoURL == "" {
+			finalPhotoURL = nil
+		} else {
+			finalPhotoURL = input.PhotoURL
+		}
+	}
+
+	finalSpecialization := curSpecialization
+	if input.Specialization != nil {
+		if *input.Specialization == "" {
+			finalSpecialization = nil
+		} else {
+			finalSpecialization = input.Specialization
+		}
+	}
+
+	finalHospitalName := curHospitalName
+	if input.HospitalName != nil {
+		if *input.HospitalName == "" {
+			finalHospitalName = nil
+		} else {
+			finalHospitalName = input.HospitalName
+		}
+	}
+
+	var dobVal *time.Time = curDOB
+	if input.DOB != nil {
+		if *input.DOB == "" {
+			dobVal = nil
+		} else {
+			parsedDate, err := time.Parse("2006-01-02", *input.DOB)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid date format for dob, expected YYYY-MM-DD"})
+				return
+			}
+			dobVal = &parsedDate
+		}
+	}
+
 	updateQuery := `
 		UPDATE users
-		SET clinic_name = $1, name = $2, phone = $3, location = $4, photo_url = $5, specialization = $6, hospital_name = $7
-		WHERE id = $8
+		SET clinic_name = $1, name = $2, phone = $3, location = $4, photo_url = $5, specialization = $6, hospital_name = $7, dob = $8
+		WHERE id = $9
 	`
-	_, err := db.Pool.Exec(r.Context(), updateQuery, input.ClinicName, input.Name, input.Phone, input.Location, input.PhotoURL, input.Specialization, input.HospitalName, doctorID)
+	_, err = db.Pool.Exec(r.Context(), updateQuery, finalClinicName, finalName, finalPhone, finalLocation, finalPhotoURL, finalSpecialization, finalHospitalName, dobVal, doctorID)
 	if err != nil {
 		log.Printf("UpdateProfile DB update error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -696,8 +780,9 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// Fetch updated profile
 	var email, name, clinicName, phone, role string
 	var locationPtr, photoURLPtr, specializationPtr, hospitalNamePtr *string
-	selectQuery := `SELECT email, name, clinic_name, phone, role, location, photo_url, specialization, hospital_name FROM users WHERE id = $1`
-	err = db.Pool.QueryRow(r.Context(), selectQuery, doctorID).Scan(&email, &name, &clinicName, &phone, &role, &locationPtr, &photoURLPtr, &specializationPtr, &hospitalNamePtr)
+	var dobPtr *time.Time
+	selectQuery := `SELECT email, name, clinic_name, phone, role, location, photo_url, specialization, hospital_name, dob FROM users WHERE id = $1`
+	err = db.Pool.QueryRow(r.Context(), selectQuery, doctorID).Scan(&email, &name, &clinicName, &phone, &role, &locationPtr, &photoURLPtr, &specializationPtr, &hospitalNamePtr, &dobPtr)
 	if err != nil {
 		log.Printf("UpdateProfile DB select error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -719,6 +804,11 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if photoURLPtr != nil { userMap["photo_url"] = *photoURLPtr } else { userMap["photo_url"] = "" }
 	if specializationPtr != nil { userMap["specialization"] = *specializationPtr } else { userMap["specialization"] = "" }
 	if hospitalNamePtr != nil { userMap["hospital_name"] = *hospitalNamePtr } else { userMap["hospital_name"] = "" }
+	if dobPtr != nil {
+		userMap["dob"] = dobPtr.Format("2006-01-02")
+	} else {
+		userMap["dob"] = ""
+	}
 
 	writeJSON(w, http.StatusOK, userMap)
 }

@@ -21,6 +21,7 @@ type Patient struct {
 	Phone          string    `json:"phone"`
 	Gender         string    `json:"gender"`
 	Age            int       `json:"age"`
+	DOB            *string   `json:"dob"`
 	MedicalHistory string    `json:"medical_history"`
 	DuesCount      int       `json:"dues_count"`
 	TotalDues      float64   `json:"total_dues"`
@@ -71,15 +72,25 @@ type PrescriptionSummary struct {
 	AmountPaid          float64            `json:"amount_paid"`
 }
 
+// Helper to calculate age from DOB
+func calculateAge(dob time.Time) int {
+	now := time.Now()
+	age := now.Year() - dob.Year()
+	if now.Month() < dob.Month() || (now.Month() == dob.Month() && now.Day() < dob.Day()) {
+		age--
+	}
+	return age
+}
+
 // CreatePatient handles patient creation
 func CreatePatient(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Name           string `json:"name"`
-		Phone          string `json:"phone"`
-		Gender         string `json:"gender"`
-		Age            int    `json:"age"`
-		MedicalHistory string `json:"medical_history"`
-		DoctorIDs      []int  `json:"doctor_ids"` // Assign to multiple doctors
+		Name           string  `json:"name"`
+		Phone          string  `json:"phone"`
+		Gender         string  `json:"gender"`
+		DOB            *string `json:"dob"` // YYYY-MM-DD
+		MedicalHistory string  `json:"medical_history"`
+		DoctorIDs      []int   `json:"doctor_ids"` // Assign to multiple doctors
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -104,6 +115,18 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 
 	if input.Gender == "" {
 		input.Gender = "Male"
+	}
+
+	var dobVal interface{} = nil
+	var calculatedAge int = 0
+	if input.DOB != nil && *input.DOB != "" {
+		parsedDate, err := time.Parse("2006-01-02", *input.DOB)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid date format for dob, expected YYYY-MM-DD"})
+			return
+		}
+		dobVal = parsedDate
+		calculatedAge = calculateAge(parsedDate)
 	}
 
 	creatorID, ok := r.Context().Value(ShopkeeperIDKey).(int)
@@ -181,12 +204,12 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	query := `INSERT INTO patients (doctor_id, name, phone, gender, age, medical_history, facility_id) 
-	          VALUES ($1, $2, $3, $4, $5, $6, $7) 
+	query := `INSERT INTO patients (doctor_id, name, phone, gender, dob, age, medical_history, facility_id) 
+	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
 	          RETURNING id, created_at`
 	var id int
 	var createdAt time.Time
-	err = tx.QueryRow(r.Context(), query, primaryDoctorID, input.Name, input.Phone, input.Gender, input.Age, input.MedicalHistory, facilityID).Scan(&id, &createdAt)
+	err = tx.QueryRow(r.Context(), query, primaryDoctorID, input.Name, input.Phone, input.Gender, dobVal, calculatedAge, input.MedicalHistory, facilityID).Scan(&id, &createdAt)
 	if err != nil {
 		log.Printf("CreatePatient DB error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -224,7 +247,8 @@ func CreatePatient(w http.ResponseWriter, r *http.Request) {
 		"name":            input.Name,
 		"phone":           input.Phone,
 		"gender":          input.Gender,
-		"age":             input.Age,
+		"age":             calculatedAge,
+		"dob":             input.DOB,
 		"medical_history": input.MedicalHistory,
 		"created_at":      createdAt,
 	})
@@ -285,9 +309,9 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		if treatedOnly {
 			// In hospital mode, doctors only see patients they have treated in the past or are referred/assigned to them
 			query := `
-				SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+				SELECT p.id, p.name, p.phone, p.gender, COALESCE(EXTRACT(YEAR FROM AGE(p.dob))::int, p.age) as age, p.medical_history, p.created_at,
 				       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
-				       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+				       COALESCE(SUM(b.remaining_amount), 0) as total_dues, p.dob
 				FROM patients p
 				LEFT JOIN bills b ON p.id = b.patient_id
 				WHERE p.facility_id = $4 AND (
@@ -304,9 +328,9 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Doctors only see patients assigned to them via patient_doctors
 			query := `
-				SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+				SELECT p.id, p.name, p.phone, p.gender, COALESCE(EXTRACT(YEAR FROM AGE(p.dob))::int, p.age) as age, p.medical_history, p.created_at,
 				       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
-				       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+				       COALESCE(SUM(b.remaining_amount), 0) as total_dues, p.dob
 				FROM patients p
 				JOIN patient_doctors pd ON p.id = pd.patient_id
 				LEFT JOIN bills b ON p.id = b.patient_id
@@ -320,9 +344,9 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Admin/Receptionist sees all patients in the facility
 		query := `
-			SELECT p.id, p.name, p.phone, p.gender, p.age, p.medical_history, p.created_at,
+			SELECT p.id, p.name, p.phone, p.gender, COALESCE(EXTRACT(YEAR FROM AGE(p.dob))::int, p.age) as age, p.medical_history, p.created_at,
 			       COALESCE(COUNT(b.id) FILTER (WHERE b.remaining_amount > 0), 0) as dues_count,
-			       COALESCE(SUM(b.remaining_amount), 0) as total_dues
+			       COALESCE(SUM(b.remaining_amount), 0) as total_dues, p.dob
 			FROM patients p
 			LEFT JOIN bills b ON p.id = b.patient_id
 			WHERE p.facility_id = $3
@@ -343,7 +367,7 @@ func ListPatients(w http.ResponseWriter, r *http.Request) {
 	patients := []Patient{}
 	for rows.Next() {
 		var p Patient
-		err := rows.Scan(&p.ID, &p.Name, &p.Phone, &p.Gender, &p.Age, &p.MedicalHistory, &p.CreatedAt, &p.DuesCount, &p.TotalDues)
+		err := rows.Scan(&p.ID, &p.Name, &p.Phone, &p.Gender, &p.Age, &p.MedicalHistory, &p.CreatedAt, &p.DuesCount, &p.TotalDues, &p.DOB)
 		if err != nil {
 			log.Printf("ListPatients scan error: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
@@ -422,8 +446,8 @@ func GetPatient(w http.ResponseWriter, r *http.Request) {
 
 	// Load patient info
 	var p Patient
-	err = db.Pool.QueryRow(ctx, "SELECT id, name, phone, gender, age, medical_history, created_at FROM patients WHERE id = $1", id).Scan(
-		&p.ID, &p.Name, &p.Phone, &p.Gender, &p.Age, &p.MedicalHistory, &p.CreatedAt,
+	err = db.Pool.QueryRow(ctx, "SELECT id, name, phone, gender, COALESCE(EXTRACT(YEAR FROM AGE(dob))::int, age) as age, medical_history, created_at, dob FROM patients WHERE id = $1", id).Scan(
+		&p.ID, &p.Name, &p.Phone, &p.Gender, &p.Age, &p.MedicalHistory, &p.CreatedAt, &p.DOB,
 	)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Patient not found"})
@@ -671,5 +695,99 @@ func DeletePatient(w http.ResponseWriter, r *http.Request) {
 	db.InvalidateCache(r.Context(), "patient:detail:"+strconv.Itoa(patientID))
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Patient deleted successfully"})
+}
+
+// UpdatePatient updates patient details
+func UpdatePatient(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ID             int     `json:"id"`
+		Name           string  `json:"name"`
+		Phone          string  `json:"phone"`
+		Gender         string  `json:"gender"`
+		DOB            *string `json:"dob"` // YYYY-MM-DD
+		MedicalHistory string  `json:"medical_history"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	if input.ID <= 0 || input.Name == "" || input.Phone == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Valid patient ID, Name, and Phone are required"})
+		return
+	}
+
+	if !ptPhoneRegex.MatchString(input.Phone) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid phone number format"})
+		return
+	}
+
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityID, err := GetActiveFacilityID(r, userID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get active facility"})
+		return
+	}
+
+	// Verify permissions: user must belong to same facility as the patient
+	var sameFacility bool
+	err = db.Pool.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM patients WHERE id = $1 AND facility_id = $2)", input.ID, facilityID).Scan(&sameFacility)
+	if err != nil || !sameFacility {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: patient does not belong to your facility"})
+		return
+	}
+
+	// Fetch existing dob and age to preserve them if dob is omitted in request
+	var existingDOB *time.Time
+	var existingAge int
+	err = db.Pool.QueryRow(r.Context(), "SELECT dob, age FROM patients WHERE id = $1 AND facility_id = $2", input.ID, facilityID).Scan(&existingDOB, &existingAge)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Patient not found"})
+		return
+	}
+
+	var dobVal interface{} = existingDOB
+	var calculatedAge int = existingAge
+
+	if input.DOB != nil {
+		if *input.DOB == "" {
+			dobVal = nil
+			calculatedAge = 0
+		} else {
+			parsedDate, err := time.Parse("2006-01-02", *input.DOB)
+			if err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid date format for dob, expected YYYY-MM-DD"})
+				return
+			}
+			dobVal = parsedDate
+			calculatedAge = calculateAge(parsedDate)
+		}
+	}
+
+	input.Name = CapitalizeName(input.Name)
+
+	query := `
+		UPDATE patients
+		SET name = $1, phone = $2, gender = $3, dob = $4, age = $5, medical_history = $6
+		WHERE id = $7 AND facility_id = $8
+	`
+	_, err = db.Pool.Exec(r.Context(), query, input.Name, input.Phone, input.Gender, dobVal, calculatedAge, input.MedicalHistory, input.ID, facilityID)
+	if err != nil {
+		log.Printf("UpdatePatient DB error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+
+	// Invalidate caches
+	db.InvalidateCache(r.Context(), "patients:list:*:"+strconv.Itoa(facilityID)+":*")
+	db.InvalidateCache(r.Context(), "patient:detail:*:"+strconv.Itoa(input.ID))
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Patient updated successfully"})
 }
 

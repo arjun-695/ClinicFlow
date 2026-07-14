@@ -306,6 +306,7 @@ export interface Patient {
   dues_count: number;
   total_dues: number;
   created_at: string;
+  dob?: string;
 }
 
 export interface BillItem {
@@ -456,6 +457,7 @@ export default function Dashboard() {
     hospital_name?: string;
     active_facility_id?: number;
     facilities?: { id: number; name: string; type: string; role: string; address?: string; phone?: string }[];
+    dob?: string;
   } | null>(null);
 
   const isClinicMode =
@@ -564,7 +566,7 @@ export default function Dashboard() {
   const [newPtPhone, setNewPtPhone] = useState("");
   const [newPtPhoneCode, setNewPtPhoneCode] = useState("+91");
   const [newPtGender, setNewPtGender] = useState("Male");
-  const [newPtAge, setNewPtAge] = useState("");
+  const [newPtDOB, setNewPtDOB] = useState("");
   const [newPtHistory, setNewPtHistory] = useState("");
   const [facilityDoctors, setFacilityDoctors] = useState<any[]>([]);
   const [selectedDoctorIds, setSelectedDoctorIds] = useState<number[]>([]);
@@ -687,6 +689,17 @@ export default function Dashboard() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [editClinicName, setEditClinicName] = useState("");
   const [editDoctorName, setEditDoctorName] = useState("");
+  const [editDoctorPhone, setEditDoctorPhone] = useState("");
+  const [editDoctorDOB, setEditDoctorDOB] = useState("");
+
+  // Edit Patient Form State
+  const [isEditPatientOpen, setIsEditPatientOpen] = useState(false);
+  const [editPtName, setEditPtName] = useState("");
+  const [editPtPhone, setEditPtPhone] = useState("");
+  const [editPtPhoneCode, setEditPtPhoneCode] = useState("+91");
+  const [editPtGender, setEditPtGender] = useState("Male");
+  const [editPtDOB, setEditPtDOB] = useState("");
+  const [editPtHistory, setEditPtHistory] = useState("");
 
   // WhatsApp templates
   const [waTemplates, setWaTemplates] = useState<
@@ -1469,7 +1482,8 @@ export default function Dashboard() {
         body: JSON.stringify({
           clinic_name: editClinicName.trim() || "My Clinic",
           name: editDoctorName.trim(),
-          phone: doctorInfo?.phone || "",
+          phone: editDoctorPhone.trim(),
+          dob: editDoctorDOB || null,
         }),
       });
       setDoctorInfo((prev) =>
@@ -1478,6 +1492,8 @@ export default function Dashboard() {
               ...prev,
               name: editDoctorName.trim(),
               clinic_name: editClinicName.trim() || "My Clinic",
+              phone: editDoctorPhone.trim(),
+              dob: editDoctorDOB || undefined,
             }
           : null,
       );
@@ -1908,7 +1924,7 @@ export default function Dashboard() {
           name: newPtName,
           phone: combinedPhone,
           gender: newPtGender,
-          age: parseInt(newPtAge) || 0,
+          dob: newPtDOB || null,
           medical_history: newPtHistory,
           doctor_ids: selectedDoctorIds,
         }),
@@ -1917,7 +1933,7 @@ export default function Dashboard() {
       setNewPtName("");
       setNewPtPhone("");
       setNewPtPhoneCode("+91");
-      setNewPtAge("");
+      setNewPtDOB("");
       setNewPtHistory("");
       setSelectedDoctorIds([]);
       setIsAddPatientOpen(false);
@@ -1925,6 +1941,40 @@ export default function Dashboard() {
     } catch (e: any) {
       setToast({
         message: e.message || "Failed to register patient",
+        type: "error",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdatePatientSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPatientData) return;
+    const combinedPhone = getCombinedPhone(editPtPhoneCode, editPtPhone);
+    if (!editPtName || !editPtPhone) return;
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      await fetchAPI("/api/patients", {
+        method: "PUT",
+        body: JSON.stringify({
+          id: currentPatientData.patient.id,
+          name: editPtName,
+          phone: combinedPhone,
+          gender: editPtGender,
+          dob: editPtDOB || null,
+          medical_history: editPtHistory,
+        }),
+      });
+      setToast({ message: "Patient details updated successfully", type: "success" });
+      setIsEditPatientOpen(false);
+      loadPatientDetails(currentPatientData.patient.id);
+      loadPatients();
+    } catch (e: any) {
+      setToast({
+        message: e.message || "Failed to update patient details",
         type: "error",
       });
     } finally {
@@ -2874,6 +2924,29 @@ export default function Dashboard() {
                     className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none h-8 w-40"
                   />
                 </div>
+                <div>
+                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">
+                    Phone
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Phone"
+                    value={editDoctorPhone}
+                    onChange={(e) => setEditDoctorPhone(e.target.value)}
+                    className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none h-8 w-40"
+                  />
+                </div>
+                <div>
+                  <label className="text-[8px] font-bold uppercase text-slate-400 block mb-0.5">
+                    Date of Birth
+                  </label>
+                  <input
+                    type="date"
+                    value={editDoctorDOB}
+                    onChange={(e) => setEditDoctorDOB(e.target.value)}
+                    className="px-2.5 py-1 border border-[var(--border)] rounded-xl bg-[var(--input-bg)] text-xs font-semibold focus:ring-1 focus:ring-indigo-500 outline-none h-8 w-40"
+                  />
+                </div>
                 <div className="flex items-center space-x-1 pt-4">
                   <button
                     onClick={handleUpdateProfile}
@@ -2946,8 +3019,8 @@ export default function Dashboard() {
                           <div className="border-t border-slate-100 dark:border-slate-800/50 mt-1 pt-1">
                             <button
                               onClick={() => {
-                                setIsFacilityDropdownOpen(false);
-                                setIsCreateWorkspaceOpen(true);
+                                  setIsFacilityDropdownOpen(false);
+                                  setIsCreateWorkspaceOpen(true);
                               }}
                               className="w-full text-left px-3.5 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/10 flex items-center space-x-1.5 transition cursor-pointer"
                             >
@@ -2963,18 +3036,27 @@ export default function Dashboard() {
                       {doctorInfo?.clinic_name || "ClinicFlow"}
                     </h1>
                   )}
-                  <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
-                    Doctor: {doctorInfo?.name}
-                  </p>
+                  <div className="flex flex-col">
+                    <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
+                      Name: {doctorInfo?.name}
+                    </p>
+                    <p className="text-[9px] text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2 mt-0.5">
+                      <span>Role: <strong>{doctorInfo?.role}</strong></span>
+                      {doctorInfo?.phone && <span>• Phone: <strong>{doctorInfo.phone}</strong></span>}
+                      {doctorInfo?.dob && <span>• DOB: <strong>{doctorInfo.dob}</strong></span>}
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={() => {
                     setEditClinicName(doctorInfo?.clinic_name || "");
                     setEditDoctorName(doctorInfo?.name || "");
+                    setEditDoctorPhone(doctorInfo?.phone || "");
+                    setEditDoctorDOB(doctorInfo?.dob || "");
                     setIsEditingProfile(true);
                   }}
                   className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
-                  title="Edit Profile Name"
+                  title="Edit Profile Details"
                 >
                   <Edit3 className="w-3.5 h-3.5" />
                 </button>
@@ -4429,15 +4511,16 @@ export default function Dashboard() {
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
                                   <label className="text-[10px] font-bold uppercase text-slate-400">
-                                    Age
+                                    Date of Birth
                                   </label>
                                   <input
-                                    type="number"
-                                    value={newPtAge}
+                                    type="date"
+                                    value={newPtDOB}
                                     onChange={(e) =>
-                                      setNewPtAge(e.target.value)
+                                      setNewPtDOB(e.target.value)
                                     }
                                     className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    required
                                   />
                                 </div>
                                 <div>
@@ -8296,15 +8379,51 @@ export default function Dashboard() {
 
             {currentPatientData ? (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Profile Card */}
+                 {/* Profile Card */}
                 <div className="bg-[var(--card)] border border-[var(--border)] rounded-3xl p-6 shadow-sm space-y-5 lg:col-span-1">
-                  <div>
-                    <h2 className="text-2xl font-black">
-                      {currentPatientData.patient.name}
-                    </h2>
-                    <p className="text-xs text-slate-400 font-bold uppercase mt-1">
-                      Patient ID: #PAT-{currentPatientData.patient.id}
-                    </p>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h2 className="text-2xl font-black">
+                        {currentPatientData.patient.name}
+                      </h2>
+                      <p className="text-xs text-slate-400 font-bold uppercase mt-1">
+                        Patient ID: #PAT-{currentPatientData.patient.id}
+                      </p>
+                    </div>
+                    {((doctorInfo?.role === "DOCTOR" && isClinicMode) ||
+                      doctorInfo?.role === "HOSPITAL_ADMIN" ||
+                      doctorInfo?.role === "RECEPTIONIST") && (
+                      <button
+                        onClick={() => {
+                          const phoneFull = currentPatientData.patient.phone;
+                          let code = "+91";
+                          let num = phoneFull;
+                          const codes = [
+                            "+91", "+1", "+44", "+971", "+61", "+65", "+86", "+81",
+                            "+49", "+33", "+7", "+92", "+880", "+977", "+94",
+                          ];
+                          for (const c of codes) {
+                            if (phoneFull.startsWith(c)) {
+                              code = c;
+                              num = phoneFull.substring(c.length);
+                              break;
+                            }
+                          }
+                          setEditPtName(currentPatientData.patient.name);
+                          setEditPtPhone(num);
+                          setEditPtPhoneCode(code);
+                          setEditPtGender(currentPatientData.patient.gender);
+                          setEditPtDOB(currentPatientData.patient.dob || "");
+                          setEditPtHistory(currentPatientData.patient.medical_history || "");
+                          setIsEditPatientOpen(true);
+                        }}
+                        className="p-1.5 text-indigo-500 hover:bg-indigo-500/10 rounded-xl cursor-pointer flex items-center gap-1 text-[11px] font-bold border-none bg-transparent outline-none"
+                        title="Edit Patient Details"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="space-y-3.5 border-t border-[var(--border)] pt-4 text-xs">
@@ -8346,6 +8465,136 @@ export default function Dashboard() {
                       </span>
                     </div>
                   </div>
+
+                  {/* Edit Patient Modal Panel */}
+                  <FloatingPanelRoot
+                    isOpen={isEditPatientOpen}
+                    onOpenChange={setIsEditPatientOpen}
+                  >
+                    <FloatingPanelContent className="w-80 sm:w-96 text-left">
+                      <FloatingPanelBody>
+                        <form
+                          onSubmit={handleUpdatePatientSubmit}
+                          className="space-y-3.5 text-xs text-[var(--foreground)]"
+                        >
+                          <div className="flex justify-between items-center mb-2">
+                            <h3 className="text-sm font-black">Edit Patient Details</h3>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Full Name
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={editPtName}
+                              onChange={(e) => setEditPtName(e.target.value)}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Phone Number (with Country Code)
+                            </label>
+                            <div className="flex gap-2 mt-1">
+                              <div className="w-24 flex-shrink-0">
+                                <select
+                                  value={editPtPhoneCode}
+                                  onChange={(e) =>
+                                    setEditPtPhoneCode(e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer h-[34px]"
+                                >
+                                  <option value="+91">🇮🇳 +91</option>
+                                  <option value="+1">🇺🇸 +1</option>
+                                  <option value="+44">🇬🇧 +44</option>
+                                  <option value="+971">🇦🇪 +971</option>
+                                  <option value="+61">🇦🇺 +61</option>
+                                  <option value="+65">🇸🇬 +65</option>
+                                  <option value="+86">🇨🇳 +86</option>
+                                  <option value="+81">🇯🇵 +81</option>
+                                  <option value="+49">🇩🇪 +49</option>
+                                  <option value="+33">🇫🇷 +33</option>
+                                  <option value="+7">🇷🇺 +7</option>
+                                  <option value="+92">🇵🇰 +92</option>
+                                  <option value="+880">🇧🇩 +880</option>
+                                  <option value="+977">🇳🇵 +977</option>
+                                  <option value="+94">🇱🇰 +94</option>
+                                </select>
+                              </div>
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. 9999999999"
+                                value={editPtPhone}
+                                onChange={(e) =>
+                                  setEditPtPhone(e.target.value)
+                                }
+                                className="flex-grow px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none h-[34px]"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Date of Birth
+                              </label>
+                              <input
+                                type="date"
+                                value={editPtDOB}
+                                onChange={(e) =>
+                                  setEditPtDOB(e.target.value)
+                                }
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400">
+                                Gender
+                              </label>
+                              <select
+                                value={editPtGender}
+                                onChange={(e) =>
+                                  setEditPtGender(e.target.value)
+                                }
+                                className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                              >
+                                <option>Male</option>
+                                <option>Female</option>
+                                <option>Other</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] font-bold uppercase text-slate-400">
+                              Medical History Summary
+                            </label>
+                            <textarea
+                              placeholder="Allergies, chronic illness, major surgeries..."
+                              value={editPtHistory}
+                              onChange={(e) =>
+                                setEditPtHistory(e.target.value)
+                              }
+                              rows={3}
+                              className="w-full mt-1 px-4 py-2 border border-[var(--border)] rounded-2xl bg-[var(--input-bg)] text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                            />
+                          </div>
+
+                          <div className="flex space-x-3 pt-3">
+                            <FloatingPanelCloseButton className="w-1/2 py-2.5 rounded-2xl border border-[var(--border)] font-bold text-slate-500 hover:bg-[var(--card-hover)] transition cursor-pointer justify-center" />
+                            <FloatingPanelSubmitButton
+                              label="Save Changes"
+                              className="w-1/2 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md transition cursor-pointer ml-0 h-auto justify-center"
+                            />
+                          </div>
+                        </form>
+                      </FloatingPanelBody>
+                    </FloatingPanelContent>
+                  </FloatingPanelRoot>
                 </div>
 
                 {/* Booking History & Bills */}

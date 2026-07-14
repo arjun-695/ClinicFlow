@@ -659,7 +659,8 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 
 	var totalCount int
 	var countQuery string
-	if role == "USER" {
+	roleUpper := strings.ToUpper(role)
+	if roleUpper == "USER" {
 		countQuery = `
 			SELECT COUNT(*)
 			FROM bills b
@@ -667,7 +668,7 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 			WHERE p.phone = $1
 		`
 		err = db.Pool.QueryRow(r.Context(), countQuery, phone).Scan(&totalCount)
-	} else {
+	} else if roleUpper == "DOCTOR" {
 		countQuery = `
 			SELECT COUNT(*)
 			FROM bills b
@@ -676,6 +677,15 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 			  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%')
 		`
 		err = db.Pool.QueryRow(r.Context(), countQuery, doctorID, search, facilityID).Scan(&totalCount)
+	} else {
+		countQuery = `
+			SELECT COUNT(*)
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			WHERE b.facility_id = $2
+			  AND ($1 = '' OR p.name ILIKE '%' || $1 || '%')
+		`
+		err = db.Pool.QueryRow(r.Context(), countQuery, search, facilityID).Scan(&totalCount)
 	}
 	if err != nil {
 		log.Printf("ListBills count error: %v", err)
@@ -690,7 +700,7 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 		Scan(dest ...any) error
 		Close()
 	}
-	if role == "USER" {
+	if roleUpper == "USER" {
 		query = `
 			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
 			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
@@ -703,7 +713,7 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 			LIMIT $2 OFFSET $3
 		`
 		rows, err = db.Pool.Query(r.Context(), query, phone, limit, offset)
-	} else {
+	} else if roleUpper == "DOCTOR" {
 		query = `
 			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
 			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
@@ -717,6 +727,20 @@ func ListBills(w http.ResponseWriter, r *http.Request) {
 			LIMIT $3 OFFSET $4
 		`
 		rows, err = db.Pool.Query(r.Context(), query, doctorID, search, limit, offset, facilityID)
+	} else {
+		query = `
+			SELECT b.id, b.patient_id, p.name as patient_name, p.phone as patient_phone,
+			       b.doctor_id, COALESCE(d.clinic_name, '') as clinic_name, b.description, b.total_amount,
+			       b.remaining_amount, b.status, b.promised_due_date, b.invoice_url, b.created_at, b.notified
+			FROM bills b
+			JOIN patients p ON b.patient_id = p.id
+			LEFT JOIN users d ON b.doctor_id = d.id
+			WHERE b.facility_id = $4
+			  AND ($1 = '' OR p.name ILIKE '%' || $1 || '%')
+			ORDER BY b.created_at DESC
+			LIMIT $2 OFFSET $3
+		`
+		rows, err = db.Pool.Query(r.Context(), query, search, limit, offset, facilityID)
 	}
 	if err != nil {
 		log.Printf("ListBills query error: %v", err)

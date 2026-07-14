@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS prescription_items (
     id SERIAL PRIMARY KEY,
     prescription_id INT NOT NULL REFERENCES prescriptions(id) ON DELETE CASCADE,
     medicine_name TEXT NOT NULL,          -- free text (doctor may prescribe non-inventory items)
-    medicine_id INT REFERENCES medicines(id),  -- nullable link to inventory
+    medicine_id INT REFERENCES medicines(id) ON DELETE SET NULL,  -- nullable link to inventory
     dosage TEXT NOT NULL DEFAULT '',       -- e.g., "500mg"
     frequency TEXT NOT NULL DEFAULT '',    -- e.g., "twice daily"
     duration TEXT NOT NULL DEFAULT '',     -- e.g., "7 days"
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS dispensing_items (
     id SERIAL PRIMARY KEY,
     dispensing_id INT NOT NULL REFERENCES dispensing_records(id) ON DELETE CASCADE,
     prescription_item_id INT NOT NULL REFERENCES prescription_items(id),
-    medicine_id INT REFERENCES medicines(id),
+    medicine_id INT REFERENCES medicines(id) ON DELETE SET NULL,
     tablets_given INTEGER NOT NULL DEFAULT 0,
     cost_per_tablet NUMERIC(12,2) NOT NULL DEFAULT 0,
     line_total NUMERIC(12,2) NOT NULL DEFAULT 0,    -- tablets_given * cost_per_tablet

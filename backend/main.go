@@ -253,10 +253,12 @@ func main() {
 	// Patients / Customers (Aliases)
 	mux.HandleFunc("GET /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
 	mux.HandleFunc("POST /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
+	mux.HandleFunc("PUT /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.UpdatePatient)))))
 	mux.HandleFunc("DELETE /api/patients", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DeletePatient)))
 	mux.HandleFunc("GET /api/patients/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
 	mux.HandleFunc("GET /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListPatients)))
 	mux.HandleFunc("POST /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.CreatePatient)))))
+	mux.HandleFunc("PUT /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.RequireMedicalStaffOrReceptionist(bodySizeLimit(1<<20, handlers.UpdatePatient)))))
 	mux.HandleFunc("DELETE /api/customers", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DeletePatient)))
 	mux.HandleFunc("GET /api/customers/detail", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetPatient)))
 
