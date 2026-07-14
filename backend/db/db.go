@@ -41,6 +41,23 @@ func InitDB() {
 		log.Fatalf("Database connection check failed: %v\n", err)
 	}
 
+	// Run full schema migrations in correct order
+	migrationFiles := []string{
+		"schema.sql",
+		"migration_pivot.sql",
+		"migration_roles_queue_labs.sql",
+		"migration_rbac_pharmacy_slots.sql",
+		"migration_vitals_lab_requests.sql",
+		"migration_whatsapp_templates.sql",
+		"migration_indexing.sql",
+	}
+
+	for _, file := range migrationFiles {
+		if err := runSQLFile(context.Background(), Pool, file); err != nil {
+			log.Printf("Migration warning for %s: %v. Continuing...", file, err)
+		}
+	}
+
 	// Run schema migrations/alterations
 	_, err = Pool.Exec(context.Background(), `
 		ALTER TABLE bills ADD COLUMN IF NOT EXISTS last_reminder_sent_at TIMESTAMPTZ;
@@ -73,4 +90,35 @@ func InitDB() {
 	}
 
 	fmt.Println("Successfully connected to the database!")
+}
+
+func findMigrationFile(filename string) (string, error) {
+	paths := []string{
+		filename,
+		"../" + filename,
+		"../../" + filename,
+	}
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("migration file %s not found in any expected paths", filename)
+}
+
+func runSQLFile(ctx context.Context, pool *pgxpool.Pool, filename string) error {
+	path, err := findMigrationFile(filename)
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read migration file %s: %v", filename, err)
+	}
+	_, err = pool.Exec(ctx, string(content))
+	if err != nil {
+		return fmt.Errorf("failed to execute migration file %s: %v", filename, err)
+	}
+	log.Printf("Successfully applied migration file: %s", filename)
+	return nil
 }
