@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -144,8 +144,8 @@ func InitWhatsApp() {
 	dbLog := waLog.Stdout("Database", "OFF", true)
 	clientLog = waLog.Stdout("Client", "OFF", true)
 
-	// Initialize sqlstore using postgres driver with background context
-	container, err = sqlstore.New(context.Background(), "postgres", dbConnStr, dbLog)
+	// Initialize sqlstore using pgx driver with background context
+	container, err = sqlstore.New(context.Background(), "pgx", dbConnStr, dbLog)
 	if err != nil {
 		log.Fatalf("Failed to initialize whatsmeow sqlstore: %v", err)
 	}
