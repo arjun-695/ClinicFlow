@@ -318,6 +318,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/facilities/staff", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DeleteFacilityStaff)))
 	mux.HandleFunc("POST /api/facilities", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.CreateFacility))))
 	mux.HandleFunc("PUT /api/facilities", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateFacility))))
+	mux.HandleFunc("DELETE /api/facilities", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DeleteFacility)))
 
 	// Analytics
 	mux.HandleFunc("GET /api/analytics", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.GetAnalytics)))

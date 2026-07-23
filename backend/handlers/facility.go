@@ -74,17 +74,28 @@ func CreateFacility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sanitize and validate facility name
+	input.Name = strings.TrimSpace(input.Name)
 	if input.Name == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Facility name is required"})
 		return
 	}
+
+	// Sanitize and validate facility type
+	input.Type = strings.ToUpper(strings.TrimSpace(input.Type))
 	if input.Type != "CLINIC" && input.Type != "HOSPITAL" {
 		input.Type = "CLINIC"
 	}
-	if input.Role == "" {
-		// Try to read user's role
-		err := db.Pool.QueryRow(r.Context(), "SELECT role FROM users WHERE id = $1", userID).Scan(&input.Role)
-		if err != nil {
+
+	// Determine role: creator of a workspace is assigned HOSPITAL_ADMIN (or validated input role)
+	if input.Type == "HOSPITAL" || strings.TrimSpace(input.Role) == "" {
+		input.Role = "HOSPITAL_ADMIN"
+	} else {
+		input.Role = strings.ToUpper(strings.TrimSpace(input.Role))
+		switch input.Role {
+		case "HOSPITAL_ADMIN", "DOCTOR", "PHARMACIST", "RECEPTIONIST":
+			// valid role
+		default:
 			input.Role = "HOSPITAL_ADMIN"
 		}
 	}
@@ -215,15 +226,16 @@ func DeleteFacilityStaff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	adminRole, err := getUserRole(r.Context(), adminID)
-	if err != nil || adminRole != "HOSPITAL_ADMIN" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Only Hospital Admins can remove staff"})
-		return
-	}
-
 	facilityID, err := GetActiveFacilityID(r, adminID)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Failed to resolve active facility"})
+		return
+	}
+
+	var adminFacilityRole string
+	err = db.Pool.QueryRow(r.Context(), "SELECT role FROM user_facilities WHERE user_id = $1 AND facility_id = $2", adminID, facilityID).Scan(&adminFacilityRole)
+	if err != nil || strings.ToUpper(adminFacilityRole) != "HOSPITAL_ADMIN" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only workspace administrators can remove staff"})
 		return
 	}
 
@@ -299,7 +311,8 @@ func UpdateFacility(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hospital admins and doctors can update facility info
-	if role != "HOSPITAL_ADMIN" && role != "DOCTOR" {
+	normalizedRole := strings.ToUpper(role)
+	if normalizedRole != "HOSPITAL_ADMIN" && normalizedRole != "DOCTOR" {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only admins or doctors can update facility info"})
 		return
 	}
@@ -336,3 +349,92 @@ func UpdateFacility(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Facility details updated successfully"})
 }
+
+// DeleteFacility deletes a workspace (facility) after verifying authorization
+func DeleteFacility(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	facilityIDStr := r.URL.Query().Get("id")
+	if facilityIDStr == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Facility ID is required"})
+		return
+	}
+
+	facilityID, err := strconv.Atoi(facilityIDStr)
+	if err != nil || facilityID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid facility ID"})
+		return
+	}
+
+	// Verify user belongs to this facility
+	var userFacRole string
+	err = db.Pool.QueryRow(r.Context(), "SELECT role FROM user_facilities WHERE user_id = $1 AND facility_id = $2", userID, facilityID).Scan(&userFacRole)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you do not belong to this workspace"})
+		return
+	}
+
+	if strings.ToUpper(userFacRole) != "HOSPITAL_ADMIN" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only workspace administrators can delete this workspace"})
+		return
+	}
+
+	// Find all affected user IDs before deleting associations for multi-user cache invalidation
+	rows, err := db.Pool.Query(r.Context(), "SELECT user_id FROM user_facilities WHERE facility_id = $1", facilityID)
+	var affectedUserIDs []int
+	if err == nil {
+		for rows.Next() {
+			var uID int
+			if errScan := rows.Scan(&uID); errScan == nil {
+				affectedUserIDs = append(affectedUserIDs, uID)
+			}
+		}
+		rows.Close()
+	}
+	if len(affectedUserIDs) == 0 {
+		affectedUserIDs = []int{userID}
+	}
+
+	tx, err := db.Pool.Begin(r.Context())
+	if err != nil {
+		log.Printf("DeleteFacility tx begin error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	// Remove all user associations for this facility
+	_, err = tx.Exec(r.Context(), "DELETE FROM user_facilities WHERE facility_id = $1", facilityID)
+	if err != nil {
+		log.Printf("DeleteFacility user_facilities delete error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete workspace user associations"})
+		return
+	}
+
+	// Delete the facility record
+	_, err = tx.Exec(r.Context(), "DELETE FROM facilities WHERE id = $1", facilityID)
+	if err != nil {
+		log.Printf("DeleteFacility facility delete error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete workspace"})
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		log.Printf("DeleteFacility commit error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+
+	// Invalidate profile cache for all affected users
+	for _, uID := range affectedUserIDs {
+		db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(uID)+":*")
+		db.InvalidateCache(r.Context(), "user:role:"+strconv.Itoa(uID))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Workspace deleted successfully"})
+}
+

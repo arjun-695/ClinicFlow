@@ -69,7 +69,7 @@ export default function LandingPage() {
     p.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
  
-  // 1. Verify auth session on load
+  // 1. Verify auth session in background without blocking initial page render
   useEffect(() => {
     const checkSession = async () => {
       try {
@@ -79,8 +79,6 @@ export default function LandingPage() {
         }
       } catch {
         // ignore
-      } finally {
-        setCheckingAuth(false);
       }
     };
     checkSession();
@@ -103,8 +101,6 @@ export default function LandingPage() {
 
   // 4. Hardware-Accelerated Animation Loop (requestAnimationFrame + Lerp)
   useEffect(() => {
-    if (checkingAuth) return;
-    
     let rAF: number;
     
     const animate = () => {
@@ -151,7 +147,7 @@ export default function LandingPage() {
 
     rAF = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(rAF);
-  }, [checkingAuth]);
+  }, []);
 
   // Handler to adjust denominations in the calculator widget
   const adjustCount = (denom: number, amount: number) => {
@@ -168,42 +164,6 @@ export default function LandingPage() {
     0
   );
 
-  if (checkingAuth) {
-    const letters = "Clinically".split("");
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center space-y-6 text-slate-100">
-        <style>{`
-          @keyframes letter-bounce {
-            0%, 100% {
-              transform: translateY(0);
-            }
-            50% {
-              transform: translateY(-15px);
-            }
-          }
-          .bounce-letter {
-            display: inline-block;
-            animation: letter-bounce 1.2s infinite ease-in-out;
-          }
-        `}</style>
-        <div className="flex space-x-1 font-sans text-3xl font-black tracking-tight text-white">
-          {letters.map((letter, idx) => (
-            <span
-              key={idx}
-              className="bounce-letter text-indigo-400"
-              style={{ animationDelay: `${idx * 0.1}s` }}
-            >
-              {letter}
-            </span>
-          ))}
-        </div>
-        <div className="text-[10px] font-bold text-slate-500 tracking-widest uppercase animate-pulse">
-          Syncing Portal...
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-[500vh] bg-[#030712] text-slate-100 font-sans selection:bg-indigo-500 selection:text-white relative">
       
@@ -214,6 +174,8 @@ export default function LandingPage() {
           loop
           muted
           playsInline
+          preload="metadata"
+          poster="/background.jpg"
           className="absolute inset-0 w-full h-full object-cover"
         >
           <source src="/Doctor_folding_hands_final_pose_202606091414.mp4" type="video/mp4" />

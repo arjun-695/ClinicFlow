@@ -739,6 +739,12 @@ export default function Dashboard() {
   const [newWorkspaceType, setNewWorkspaceType] = useState<
     "CLINIC" | "HOSPITAL"
   >("CLINIC");
+  const [workspaceToDelete, setWorkspaceToDelete] = useState<{
+    id: number;
+    name: string;
+    type: string;
+  } | null>(null);
+  const [isDeletingWorkspace, setIsDeletingWorkspace] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [labRequests, setLabRequests] = useState<any[]>([]);
@@ -1549,6 +1555,30 @@ export default function Dashboard() {
       setIsSubmitting(false);
     }
   };
+
+  const handleDeleteWorkspace = async (facilityId: number) => {
+    setIsDeletingWorkspace(true);
+    try {
+      await fetchAPI(`/api/facilities?id=${facilityId}`, {
+        method: "DELETE",
+      });
+      setToast({ message: "Workspace deleted successfully", type: "success" });
+      setWorkspaceToDelete(null);
+      if (doctorInfo?.active_facility_id === facilityId) {
+        localStorage.removeItem("active_facility_id");
+      }
+      await checkAuthSession();
+    } catch (err: any) {
+      console.error("Failed to delete workspace", err);
+      setToast({
+        message: err.message || "Failed to delete workspace",
+        type: "error",
+      });
+    } finally {
+      setIsDeletingWorkspace(false);
+    }
+  };
+
 
   // Load WhatsApp templates
   const loadWhatsAppTemplates = async () => {
@@ -2994,26 +3024,45 @@ export default function Dashboard() {
                           </div>
                           <div className="max-h-60 overflow-y-auto">
                             {doctorInfo.facilities.map((fac) => (
-                              <button
+                              <div
                                 key={fac.id}
-                                onClick={async () => {
-                                  setIsFacilityDropdownOpen(false);
-                                  await handleSwitchFacility(fac.id);
-                                }}
                                 className={cn(
-                                  "w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
+                                  "group w-full px-3 py-1.5 text-xs font-semibold flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
                                   fac.id === doctorInfo.active_facility_id
                                     ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20"
                                     : "text-slate-700 dark:text-slate-300",
                                 )}
                               >
-                                <span className="truncate mr-2">
-                                  {fac.name}
-                                </span>
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                  {fac.type}
-                                </span>
-                              </button>
+                                <button
+                                  onClick={async () => {
+                                    setIsFacilityDropdownOpen(false);
+                                    await handleSwitchFacility(fac.id);
+                                  }}
+                                  className="flex-1 text-left flex items-center justify-between mr-2 min-w-0 cursor-pointer"
+                                >
+                                  <span className="truncate mr-1.5 font-medium">
+                                    {fac.name}
+                                  </span>
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
+                                    {fac.type}
+                                  </span>
+                                </button>
+
+                                {fac.role === "HOSPITAL_ADMIN" && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setIsFacilityDropdownOpen(false);
+                                      setWorkspaceToDelete(fac);
+                                    }}
+                                    title="Delete Workspace"
+                                    className="opacity-0 group-hover:opacity-100 p-1 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition shrink-0 cursor-pointer ml-1"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             ))}
                           </div>
                           <div className="border-t border-slate-100 dark:border-slate-800/50 mt-1 pt-1">
@@ -3032,9 +3081,18 @@ export default function Dashboard() {
                       )}
                     </div>
                   ) : (
-                    <h1 className="text-lg font-black tracking-tight">
-                      {doctorInfo?.clinic_name || "ClinicFlow"}
-                    </h1>
+                    <div className="flex items-center space-x-2">
+                      <h1 className="text-lg font-black tracking-tight">
+                        {doctorInfo?.clinic_name || "ClinicFlow"}
+                      </h1>
+                      <button
+                        onClick={() => setIsCreateWorkspaceOpen(true)}
+                        className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 rounded-xl flex items-center space-x-1 border border-emerald-200 dark:border-emerald-900/50 transition cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Create Workspace</span>
+                      </button>
+                    </div>
                   )}
                   <div className="flex flex-col">
                     <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
@@ -3268,6 +3326,45 @@ export default function Dashboard() {
             </FloatingPanelBody>
           </FloatingPanelContent>
         </FloatingPanelRoot>
+
+        {/* Delete Workspace Confirmation Modal */}
+        {workspaceToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-150">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center space-x-3 text-red-600 dark:text-red-400">
+                <div className="p-2.5 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900 dark:text-white">Delete Workspace?</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">This action cannot be undone.</p>
+                </div>
+              </div>
+              
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                Are you sure you want to delete <span className="font-bold text-slate-900 dark:text-white">"{workspaceToDelete.name}"</span>? All users linked to this workspace will lose access to it.
+              </p>
+
+              <div className="flex items-center justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceToDelete(null)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-2xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingWorkspace}
+                  onClick={() => handleDeleteWorkspace(workspaceToDelete.id)}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-2xl transition disabled:opacity-50 flex items-center space-x-1.5 cursor-pointer shadow-md"
+                >
+                  {isDeletingWorkspace ? "Deleting..." : "Delete Workspace"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {toast && (
           <div
@@ -6794,13 +6891,34 @@ export default function Dashboard() {
                             placeholder="e.g. +91-80-26304050"
                           />
                         </div>
-                        <button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
-                        >
-                          {isSubmitting ? "Saving..." : "Save Settings"}
-                        </button>
+                        <div className="flex items-center justify-between pt-3 border-t border-[var(--border)] mt-4">
+                          <button
+                            type="submit"
+                            disabled={isSubmitting}
+                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl text-xs shadow-md transition disabled:opacity-50 cursor-pointer"
+                          >
+                            {isSubmitting ? "Saving..." : "Save Settings"}
+                          </button>
+
+                          {(() => {
+                            const currentFac = doctorInfo?.facilities?.find(
+                              (f) => f.id === doctorInfo.active_facility_id
+                            );
+                            if (currentFac && currentFac.role === "HOSPITAL_ADMIN") {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => setWorkspaceToDelete(currentFac)}
+                                  className="px-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/30 dark:hover:bg-red-900/50 dark:text-red-400 font-bold rounded-2xl text-xs border border-red-200 dark:border-red-900/50 transition cursor-pointer flex items-center space-x-1.5"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete Workspace</span>
+                                </button>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                       </form>
                     </div>
                   )}
