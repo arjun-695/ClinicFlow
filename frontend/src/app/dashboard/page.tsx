@@ -883,7 +883,7 @@ export default function Dashboard() {
       ].includes(tab);
     }
     if (role === "DOCTOR") {
-      const doctorTabs = ["patients", "prescriptions", "appointments", "queue", "availability"];
+      const doctorTabs = ["queue", "patients", "prescriptions", "appointments", "doctor-analytics", "availability"];
       if (clinicMode) {
         doctorTabs.push("whatsapp");
       }
@@ -3213,6 +3213,7 @@ export default function Dashboard() {
             } else {
               // Default to DOCTOR
               allTabs.push(
+                { id: "queue", label: "Patient Queue", icon: Clock },
                 {
                   id: "patients",
                   label: isClinicMode
@@ -3226,7 +3227,11 @@ export default function Dashboard() {
                   label: "Appointment Slots",
                   icon: Calendar,
                 },
-                { id: "queue", label: "Patient Queue", icon: Clock },
+                {
+                  id: "doctor-analytics",
+                  label: "My Analytics",
+                  icon: TrendingUp,
+                },
                 { id: "availability", label: "Slot Settings", icon: Settings },
               );
               if (isClinicMode) {

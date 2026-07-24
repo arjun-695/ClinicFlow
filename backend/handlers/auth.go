@@ -435,8 +435,8 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 // GoogleLogin redirects the user to the Google OAuth consent screen
 func GoogleLogin(w http.ResponseWriter, r *http.Request) {
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	redirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
+	clientID := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+	redirectURI := strings.TrimRight(strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URI")), "/")
 	if clientID == "" || redirectURI == "" {
 		http.Error(w, "Google OAuth is not configured on the server", http.StatusNotImplemented)
 		return
@@ -489,9 +489,9 @@ func GoogleLogin(w http.ResponseWriter, r *http.Request) {
 
 // GoogleCallback processes the callback redirect from Google
 func GoogleCallback(w http.ResponseWriter, r *http.Request) {
-	clientID := os.Getenv("GOOGLE_CLIENT_ID")
-	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	redirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
+	clientID := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+	clientSecret := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))
+	redirectURI := strings.TrimRight(strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URI")), "/")
 	
 	// Determine frontend origin dynamically from cookie
 	frontendOrigin := "http://localhost:3000"
