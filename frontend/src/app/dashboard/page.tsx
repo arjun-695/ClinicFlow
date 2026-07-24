@@ -309,6 +309,15 @@ export interface Patient {
   dob?: string;
 }
 
+type Workspace = {
+  id: number;
+  name: string;
+  type: string;
+  role: string;
+  address?: string;
+  phone?: string;
+};
+
 export interface BillItem {
   id?: number;
   item_name: string;
@@ -456,11 +465,14 @@ export default function Dashboard() {
     specialization?: string;
     hospital_name?: string;
     active_facility_id?: number;
-    facilities?: { id: number; name: string; type: string; role: string; address?: string; phone?: string }[];
+    facilities?: Workspace[];
     dob?: string;
   } | null>(null);
 
-  const activeFac = doctorInfo?.facilities?.find((f) => f.id === doctorInfo.active_facility_id);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const activeFac =
+    workspaces.find((f) => f.id === doctorInfo?.active_facility_id) ||
+    doctorInfo?.facilities?.find((f) => f.id === doctorInfo.active_facility_id);
   const currentRole = activeFac?.role || doctorInfo?.role || "DOCTOR";
 
   const isClinicMode =
@@ -841,6 +853,21 @@ export default function Dashboard() {
       if (data.status === "Authenticated") {
         setIsAuthenticated(true);
         setDoctorInfo(data.user);
+        // The profile response is cached. Fetch the workspace collection
+        // separately so a just-created, deleted, or newly granted workspace
+        // never makes the switcher disappear while that cache is refreshed.
+        try {
+          const facilities = await fetchAPI("/api/facilities");
+          if (Array.isArray(facilities)) {
+            setWorkspaces(facilities);
+            setDoctorInfo((current) =>
+              current ? { ...current, facilities } : current,
+            );
+          }
+        } catch (error) {
+          console.error("Failed to refresh workspace list", error);
+          setWorkspaces(Array.isArray(data.user.facilities) ? data.user.facilities : []);
+        }
         if (data.user.active_facility_id) {
           localStorage.setItem(
             "active_facility_id",
@@ -1031,38 +1058,31 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, doctorInfo, isClinicMode, facilityDoctors]);
 
-  // --- Load Data Hook ---
-  // --- Load Workspace Configuration on Mount ---
+  // Reload configuration whenever the active workspace changes.
   useEffect(() => {
-    if (isAuthenticated && doctorInfo) {
-      setSelectedDoctorForAnalytics("");
-      setDoctorAnalytics(null);
-      
-      const needsSetup =
-        doctorInfo.role === "DOCTOR" &&
-        !doctorInfo.specialization &&
-        !doctorInfo.location &&
-        !doctorInfo.hospital_name;
+    if (!isAuthenticated || !doctorInfo) return;
 
-      if (needsSetup) {
-        return; // Don't load dashboard data during onboarding/setup
-      }
+    setSelectedDoctorForAnalytics("");
+    setDoctorAnalytics(null);
+    const needsSetup =
+      doctorInfo.role === "DOCTOR" &&
+      !doctorInfo.specialization &&
+      !doctorInfo.location &&
+      !doctorInfo.hospital_name;
+    if (needsSetup) return;
 
-      if (currentRole === "USER") {
-        loadOwnPatientProfile();
-      } else {
-        loadFacilityDoctors();
-        const hasWhatsAppAccess =
-          currentRole === "HOSPITAL_ADMIN" ||
-          (currentRole === "DOCTOR" && isClinicMode);
-        if (hasWhatsAppAccess) {
-          loadWhatsAppTemplates();
-        }
-      }
+    if (currentRole === "USER") {
+      loadOwnPatientProfile();
+      return;
+    }
+
+    loadFacilityDoctors();
+    if (currentRole === "HOSPITAL_ADMIN" || (currentRole === "DOCTOR" && isClinicMode)) {
+      loadWhatsAppTemplates();
     }
   }, [isAuthenticated, doctorInfo, currentRole, isClinicMode]);
 
-  // --- Load Tab Data Reactively (Lazy Loading) ---
+  // Lazy-load tab data for the active workspace.
   useEffect(() => {
     if (!isAuthenticated || !doctorInfo) return;
 
@@ -1071,38 +1091,26 @@ export default function Dashboard() {
       !doctorInfo.specialization &&
       !doctorInfo.location &&
       !doctorInfo.hospital_name;
-
     if (needsSetup) return;
 
     if (doctorInfo.role === "USER") {
-      if (activeTab === "appointments") {
-        loadAppointments();
-      } else if (activeTab === "billing") {
-        loadRecentBills();
-      } else if (activeTab === "labs" && ownPatientProfile?.patient?.id) {
-        loadLabRequests(ownPatientProfile.patient.id);
-      } else if (activeTab === "vitals" && ownPatientProfile?.patient?.id) {
-        loadVitals(ownPatientProfile.patient.id);
-      }
-    } else {
-      if (activeTab === "patients") {
-        loadPatients();
-      } else if (activeTab === "prescriptions") {
-        loadPrescriptions();
-      } else if (activeTab === "appointments") {
-        loadAppointments();
-      } else if (activeTab === "medicines" || activeTab === "pharmacy") {
-        loadMedicines();
-      } else if (activeTab === "billing" || activeTab === "queue") {
-        loadPendingPrescriptions();
-        loadRecentBills();
-        loadPatients();
-      } else if (activeTab === "analytics") {
-        loadAnalytics();
-      } else if (activeTab === "staff") {
-        loadStaff();
-      }
+      if (activeTab === "appointments") loadAppointments();
+      else if (activeTab === "billing") loadRecentBills();
+      else if (activeTab === "labs" && ownPatientProfile?.patient?.id) loadLabRequests(ownPatientProfile.patient.id);
+      else if (activeTab === "vitals" && ownPatientProfile?.patient?.id) loadVitals(ownPatientProfile.patient.id);
+      return;
     }
+
+    if (activeTab === "patients") loadPatients();
+    else if (activeTab === "prescriptions") loadPrescriptions();
+    else if (activeTab === "appointments") loadAppointments();
+    else if (activeTab === "medicines" || activeTab === "pharmacy") loadMedicines();
+    else if (activeTab === "billing" || activeTab === "queue") {
+      loadPendingPrescriptions();
+      loadRecentBills();
+      loadPatients();
+    } else if (activeTab === "analytics") loadAnalytics();
+    else if (activeTab === "staff") loadStaff();
   }, [isAuthenticated, doctorInfo, activeTab, ownPatientProfile?.patient?.id]);
 
   // Reactively load slots/availability/reschedules when tabs change
@@ -1524,11 +1532,19 @@ export default function Dashboard() {
   };
 
   const handleSwitchFacility = async (facilityId: number) => {
+    if (facilityId === doctorInfo?.active_facility_id) {
+      setIsFacilityDropdownOpen(false);
+      return;
+    }
+    const previousFacilityId = localStorage.getItem("active_facility_id");
     try {
       localStorage.setItem("active_facility_id", facilityId.toString());
       setToast({ message: "Switching workspace...", type: "success" });
       await checkAuthSession();
+      setViewState({ type: "list" });
     } catch (e) {
+      if (previousFacilityId) localStorage.setItem("active_facility_id", previousFacilityId);
+      else localStorage.removeItem("active_facility_id");
       console.error("Failed to switch facility", e);
       setToast({ message: "Failed to switch workspace", type: "error" });
     }
@@ -1575,10 +1591,18 @@ export default function Dashboard() {
       });
       setToast({ message: "Workspace deleted successfully", type: "success" });
       setWorkspaceToDelete(null);
+      const remainingWorkspaces = workspaces.filter((workspace) => workspace.id !== facilityId);
+      setWorkspaces(remainingWorkspaces);
       if (doctorInfo?.active_facility_id === facilityId) {
-        localStorage.removeItem("active_facility_id");
+        const nextWorkspace = remainingWorkspaces[0];
+        if (nextWorkspace) {
+          localStorage.setItem("active_facility_id", nextWorkspace.id.toString());
+        } else {
+          localStorage.removeItem("active_facility_id");
+        }
       }
       await checkAuthSession();
+      setViewState({ type: "list" });
     } catch (err: any) {
       console.error("Failed to delete workspace", err);
       setToast({
@@ -1590,15 +1614,11 @@ export default function Dashboard() {
     }
   };
 
-  const canDeleteWorkspace = (fac?: { id: number; name: string; type: string; role?: string } | null) => {
+  const canDeleteWorkspace = (fac?: Pick<Workspace, "id" | "name" | "type" | "role"> | null) => {
     if (!fac) return false;
     const roleUpper = fac.role?.toUpperCase() || "";
     const typeUpper = fac.type?.toUpperCase() || "";
-    return (
-      roleUpper === "HOSPITAL_ADMIN" ||
-      typeUpper === "CLINIC" ||
-      roleUpper === "DOCTOR"
-    );
+    return roleUpper === "HOSPITAL_ADMIN" || (typeUpper === "CLINIC" && roleUpper === "DOCTOR");
   };
 
 
@@ -3020,8 +3040,7 @@ export default function Dashboard() {
             ) : (
               <div className="flex items-center space-x-2.5" ref={dropdownRef}>
                 <div>
-                  {doctorInfo?.facilities &&
-                  doctorInfo.facilities.length > 0 ? (
+                  {doctorInfo ? (
                     <div className="relative">
                       <button
                         onClick={() =>
@@ -3030,7 +3049,7 @@ export default function Dashboard() {
                         className="flex items-center space-x-1 cursor-pointer select-none text-left focus:outline-none"
                       >
                         <h1 className="text-lg font-black tracking-tight flex items-center hover:opacity-80 text-zinc-950 dark:text-zinc-50">
-                          {doctorInfo?.clinic_name || "ClinicFlow"}
+                          {activeFac?.name || doctorInfo.clinic_name || "ClinicFlow"}
                           <ChevronDown
                             className={cn(
                               "w-4 h-4 ml-1 text-slate-400 transition-transform duration-200",
@@ -3046,7 +3065,11 @@ export default function Dashboard() {
                             Switch Workspace
                           </div>
                           <div className="max-h-60 overflow-y-auto">
-                            {doctorInfo.facilities.map((fac) => (
+                            {workspaces.length === 0 ? (
+                              <p className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400">
+                                No workspaces are available yet.
+                              </p>
+                            ) : workspaces.map((fac) => (
                               <div
                                 key={fac.id}
                                 className={cn(
@@ -3103,20 +3126,7 @@ export default function Dashboard() {
                         </div>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex items-center space-x-2">
-                      <h1 className="text-lg font-black tracking-tight">
-                        {doctorInfo?.clinic_name || "ClinicFlow"}
-                      </h1>
-                      <button
-                        onClick={() => setIsCreateWorkspaceOpen(true)}
-                        className="px-2.5 py-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 rounded-xl flex items-center space-x-1 border border-emerald-200 dark:border-emerald-900/50 transition cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Create Workspace</span>
-                      </button>
-                    </div>
-                  )}
+                  ) : null}
                   <div className="flex flex-col">
                     <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">
                       Name: {doctorInfo?.name}

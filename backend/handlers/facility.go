@@ -30,9 +30,7 @@ func ListFacilities(w http.ResponseWriter, r *http.Request) {
 		SELECT f.id, f.name, f.type, COALESCE(uf.role, 'HOSPITAL_ADMIN') as role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f
 		JOIN user_facilities uf ON f.id = uf.facility_id
-		JOIN users u ON uf.user_id = u.id
 		WHERE uf.user_id = $1
-		AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
 		ORDER BY f.name ASC
 	`
 	rows, err := db.Pool.Query(r.Context(), query, userID)
@@ -382,8 +380,18 @@ func DeleteFacility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find all affected user IDs before deleting associations for multi-user cache invalidation
-	rows, err := db.Pool.Query(r.Context(), "SELECT user_id FROM user_facilities WHERE facility_id = $1", facilityID)
+	// Read associations and delete the workspace in one transaction. The foreign
+	// key on user_facilities cascades, so deleting it separately is unnecessary
+	// and leaves a race between authorization and deletion.
+	tx, err := db.Pool.Begin(r.Context())
+	if err != nil {
+		log.Printf("DeleteFacility tx begin error: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	rows, err := tx.Query(r.Context(), "SELECT user_id FROM user_facilities WHERE facility_id = $1", facilityID)
 	var affectedUserIDs []int
 	if err == nil {
 		for rows.Next() {
@@ -398,27 +406,14 @@ func DeleteFacility(w http.ResponseWriter, r *http.Request) {
 		affectedUserIDs = []int{userID}
 	}
 
-	tx, err := db.Pool.Begin(r.Context())
-	if err != nil {
-		log.Printf("DeleteFacility tx begin error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "An internal error occurred"})
-		return
-	}
-	defer tx.Rollback(r.Context())
-
-	// Remove all user associations for this facility
-	_, err = tx.Exec(r.Context(), "DELETE FROM user_facilities WHERE facility_id = $1", facilityID)
-	if err != nil {
-		log.Printf("DeleteFacility user_facilities delete error: %v", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete workspace user associations"})
-		return
-	}
-
-	// Delete the facility record
-	_, err = tx.Exec(r.Context(), "DELETE FROM facilities WHERE id = $1", facilityID)
+	result, err := tx.Exec(r.Context(), "DELETE FROM facilities WHERE id = $1", facilityID)
 	if err != nil {
 		log.Printf("DeleteFacility facility delete error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to delete workspace"})
+		return
+	}
+	if result.RowsAffected() != 1 {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Workspace no longer exists"})
 		return
 	}
 
@@ -436,4 +431,3 @@ func DeleteFacility(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Workspace deleted successfully"})
 }
-

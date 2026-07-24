@@ -191,9 +191,8 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 		SELECT f.id, f.name, f.type, COALESCE(uf.role, 'HOSPITAL_ADMIN') as role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f 
 		JOIN user_facilities uf ON f.id = uf.facility_id 
-		JOIN users u ON uf.user_id = u.id
 		WHERE uf.user_id = $1
-		AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
+		ORDER BY f.name ASC
 	`, shopkeeperID)
 	if err == nil {
 		for rows.Next() {
@@ -495,7 +494,7 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 	clientID := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
 	clientSecret := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))
 	redirectURI := strings.TrimRight(strings.TrimSpace(os.Getenv("GOOGLE_REDIRECT_URI")), "/")
-	
+
 	// Determine frontend origin dynamically from cookie
 	frontendOrigin := "http://localhost:3000"
 	if originCookie, err := r.Cookie("google_oauth_origin"); err == nil && originCookie.Value != "" {
@@ -612,7 +611,7 @@ func GoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	query := `SELECT id, COALESCE(google_id, ''), name, clinic_name, phone, role FROM users WHERE email = $1`
 	err = db.Pool.QueryRow(r.Context(), query, claims.Email).Scan(&id, &googleID, &dbName, &dbClinicName, &dbPhone, &dbRole)
-	
+
 	if err != nil || id == 0 {
 		// New User signup via Google
 		insertQuery := `
@@ -684,9 +683,9 @@ func UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	var curClinicName, curName, curPhone string
 	var curLocation, curPhotoURL, curSpecialization, curHospitalName *string
 	var curDOB *time.Time // Scan dob as date/time type
-	
-	err := db.Pool.QueryRow(r.Context(), 
-		"SELECT clinic_name, name, phone, location, photo_url, specialization, hospital_name, dob FROM users WHERE id = $1", 
+
+	err := db.Pool.QueryRow(r.Context(),
+		"SELECT clinic_name, name, phone, location, photo_url, specialization, hospital_name, dob FROM users WHERE id = $1",
 		doctorID,
 	).Scan(&curClinicName, &curName, &curPhone, &curLocation, &curPhotoURL, &curSpecialization, &curHospitalName, &curDOB)
 	if err != nil {
@@ -1139,7 +1138,7 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		if input.Name != "" && existingName == "" {
 			nameToUpdate = input.Name
 		}
-		
+
 		updateQuery := `
 			UPDATE users 
 			SET role = $1,
@@ -1154,7 +1153,7 @@ func AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("AcceptInvite existing user update error: %v", err)
 		}
-		
+
 		// Invalidate cache for the modified user
 		db.InvalidateCache(r.Context(), "user:role:"+strconv.Itoa(newUserID))
 		db.InvalidateCache(r.Context(), "doctor:profile:"+strconv.Itoa(newUserID)+":*")
