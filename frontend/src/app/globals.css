@@ -54,47 +54,47 @@
 @variant dark (&:where(.dark, .dark *));
 
 :root {
-  --card: #fcfcfc;
-  --ring: #f59e0b;
-  --input: #d8d8d8;
-  --muted: #efefef;
-  --accent: #e8e8e8;
-  --border: #d8d8d8;
-  --radius: 0.5rem;
-  --chart-1: #f59e0b;
-  --chart-2: #fcd34d;
-  --chart-3: #fef3c7;
-  --chart-4: #fffbeb;
-  --chart-5: #b45309;
-  --popover: #fcfcfc;
-  --primary: #f59e0b;
-  --primary-hover: #d97706;
-  --sidebar: #fbfbfb;
-  --secondary: #fcd34d;
-  --background: #f9f9f9;
-  --foreground: #202020;
-  --destructive: #e54d2e;
-  --sidebar-ring: #b5b5b5;
-  --sidebar-accent: #f7f7f7;
-  --sidebar-border: #ebebeb;
-  --card-foreground: #202020;
-  --sidebar-primary: #f59e0b;
-  --muted-foreground: #646464;
-  --accent-foreground: #202020;
-  --popover-foreground: #202020;
-  --primary-foreground: #000000;
-  --sidebar-foreground: #252525;
-  --secondary-foreground: #78350f;
+  --card: #ffffff;
+  --ring: #4f46e5;
+  --input: #f1f5f9;
+  --muted: #f8fafc;
+  --accent: #e0e7ff;
+  --border: #e2e8f0;
+  --radius: 0.75rem;
+  --chart-1: #4f46e5;
+  --chart-2: #059669;
+  --chart-3: #0284c7;
+  --chart-4: #f59e0b;
+  --chart-5: #e11d48;
+  --popover: #ffffff;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --sidebar: #ffffff;
+  --secondary: #059669;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --destructive: #e11d48;
+  --sidebar-ring: #cbd5e1;
+  --sidebar-accent: #f1f5f9;
+  --sidebar-border: #e2e8f0;
+  --card-foreground: #0f172a;
+  --sidebar-primary: #4f46e5;
+  --muted-foreground: #64748b;
+  --accent-foreground: #4f46e5;
+  --popover-foreground: #0f172a;
+  --primary-foreground: #ffffff;
+  --sidebar-foreground: #1e293b;
+  --secondary-foreground: #ffffff;
   --destructive-foreground: #ffffff;
-  --sidebar-accent-foreground: #343434;
-  --sidebar-primary-foreground: #000000;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-primary-foreground: #ffffff;
 
-  /* Compatibility mappings to avoid breaking existing styles */
-  --card-hover: var(--accent);
-  --input-bg: var(--input);
-  --text-muted: var(--muted-foreground);
-  --nav-bg: var(--sidebar);
-  --table-row-hover: var(--primary);
+  /* Compatibility mappings */
+  --card-hover: #f1f5f9;
+  --input-bg: #f8fafc;
+  --text-muted: #64748b;
+  --nav-bg: #ffffff;
+  --table-row-hover: #f1f5f9;
 }
 
 .dark {

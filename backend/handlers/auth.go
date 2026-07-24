@@ -188,7 +188,7 @@ func CheckSession(w http.ResponseWriter, r *http.Request) {
 	}
 	facilities := []SessionFacility{}
 	rows, err := db.Pool.Query(r.Context(), `
-		SELECT f.id, f.name, f.type, uf.role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
+		SELECT f.id, f.name, f.type, COALESCE(uf.role, 'HOSPITAL_ADMIN') as role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f 
 		JOIN user_facilities uf ON f.id = uf.facility_id 
 		JOIN users u ON uf.user_id = u.id

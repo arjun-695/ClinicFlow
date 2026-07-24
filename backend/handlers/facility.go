@@ -27,7 +27,7 @@ func ListFacilities(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-		SELECT f.id, f.name, f.type, uf.role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
+		SELECT f.id, f.name, f.type, COALESCE(uf.role, 'HOSPITAL_ADMIN') as role, COALESCE(f.address, '') as address, COALESCE(f.phone, '') as phone
 		FROM facilities f
 		JOIN user_facilities uf ON f.id = uf.facility_id
 		JOIN users u ON uf.user_id = u.id
@@ -370,16 +370,25 @@ func DeleteFacility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify user belongs to this facility
-	var userFacRole string
-	err = db.Pool.QueryRow(r.Context(), "SELECT role FROM user_facilities WHERE user_id = $1 AND facility_id = $2", userID, facilityID).Scan(&userFacRole)
+	// Verify user belongs to this facility and has deletion permission (HOSPITAL_ADMIN or clinic doctor)
+	var userFacRole, facType string
+	err = db.Pool.QueryRow(r.Context(), `
+		SELECT COALESCE(uf.role, 'HOSPITAL_ADMIN'), f.type 
+		FROM user_facilities uf 
+		JOIN facilities f ON uf.facility_id = f.id 
+		WHERE uf.user_id = $1 AND uf.facility_id = $2
+	`, userID, facilityID).Scan(&userFacRole, &facType)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: you do not belong to this workspace"})
 		return
 	}
 
-	if strings.ToUpper(userFacRole) != "HOSPITAL_ADMIN" {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only workspace administrators can delete this workspace"})
+	userFacRoleUpper := strings.ToUpper(userFacRole)
+	facTypeUpper := strings.ToUpper(facType)
+
+	canDelete := userFacRoleUpper == "HOSPITAL_ADMIN" || (facTypeUpper == "CLINIC" && (userFacRoleUpper == "DOCTOR" || userFacRoleUpper == "HOSPITAL_ADMIN"))
+	if !canDelete {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: only workspace administrators or clinic owners can delete this workspace"})
 		return
 	}
 

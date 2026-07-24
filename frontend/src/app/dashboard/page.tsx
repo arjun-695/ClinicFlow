@@ -1579,6 +1579,19 @@ export default function Dashboard() {
     }
   };
 
+  const canDeleteWorkspace = (fac?: { id: number; name: string; type: string; role?: string } | null) => {
+    if (!fac) return false;
+    const roleUpper = fac.role?.toUpperCase() || "";
+    const typeUpper = fac.type?.toUpperCase() || "";
+    return (
+      roleUpper === "HOSPITAL_ADMIN" ||
+      typeUpper === "CLINIC" ||
+      roleUpper === "DOCTOR" ||
+      roleUpper === ""
+    );
+  };
+
+
 
   // Load WhatsApp templates
   const loadWhatsAppTemplates = async () => {
@@ -3048,7 +3061,7 @@ export default function Dashboard() {
                                   </span>
                                 </button>
 
-                                {fac.role === "HOSPITAL_ADMIN" && (
+                                {canDeleteWorkspace(fac) && (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -6904,7 +6917,7 @@ export default function Dashboard() {
                             const currentFac = doctorInfo?.facilities?.find(
                               (f) => f.id === doctorInfo.active_facility_id
                             );
-                            if (currentFac && currentFac.role === "HOSPITAL_ADMIN") {
+                            if (currentFac && canDeleteWorkspace(currentFac)) {
                               return (
                                 <button
                                   type="button"
