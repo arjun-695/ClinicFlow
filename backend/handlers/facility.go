@@ -87,18 +87,8 @@ func CreateFacility(w http.ResponseWriter, r *http.Request) {
 		input.Type = "CLINIC"
 	}
 
-	// Determine role: creator of a workspace is assigned HOSPITAL_ADMIN (or validated input role)
-	if input.Type == "HOSPITAL" || strings.TrimSpace(input.Role) == "" {
-		input.Role = "HOSPITAL_ADMIN"
-	} else {
-		input.Role = strings.ToUpper(strings.TrimSpace(input.Role))
-		switch input.Role {
-		case "HOSPITAL_ADMIN", "DOCTOR", "PHARMACIST", "RECEPTIONIST":
-			// valid role
-		default:
-			input.Role = "HOSPITAL_ADMIN"
-		}
-	}
+	// The creator of a workspace is always assigned the HOSPITAL_ADMIN role for this workspace
+	input.Role = "HOSPITAL_ADMIN"
 
 	// Start a transaction
 	tx, err := db.Pool.Begin(r.Context())
