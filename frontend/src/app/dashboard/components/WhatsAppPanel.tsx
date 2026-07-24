@@ -22,6 +22,7 @@ const WhatsAppPanel = React.memo(({ setToast }: WhatsAppPanelProps) => {
   const [pairPhoneCode, setPairPhoneCode] = useState("+91");
   const [pairCode, setPairCode] = useState("");
   const [isPairing, setIsPairing] = useState(false);
+  const [hasPermission, setHasPermission] = useState(true);
 
   const getCombinedPhone = (phoneCode: string, rawPhone: string) => {
     const clean = rawPhone.replace(/[\s+-]/g, "");
@@ -38,13 +39,18 @@ const WhatsAppPanel = React.memo(({ setToast }: WhatsAppPanelProps) => {
       setWaStatus(data.status);
       setWaQR(data.qr || "");
       setWaConnectedPhone(data.phone || "");
-    } catch (e) {
+      setHasPermission(true);
+    } catch (e: any) {
       console.error("Failed to load WhatsApp Status", e);
+      if (e?.status === 403) {
+        setHasPermission(false);
+      }
     }
   }, []);
 
   // 5s status polling loop
   useEffect(() => {
+    if (!hasPermission) return;
     loadWhatsAppStatus();
     let interval: ReturnType<typeof setInterval>;
     if (waStatus !== "CONNECTED") {
@@ -53,7 +59,7 @@ const WhatsAppPanel = React.memo(({ setToast }: WhatsAppPanelProps) => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [loadWhatsAppStatus, waStatus]);
+  }, [loadWhatsAppStatus, waStatus, hasPermission]);
 
   // Convert QR text to dataURL using dynamic import of qrcode
   useEffect(() => {
@@ -158,17 +164,23 @@ const WhatsAppPanel = React.memo(({ setToast }: WhatsAppPanelProps) => {
           <span
             className={cn(
               "font-black uppercase",
-              waStatus === "CONNECTED"
-                ? "text-emerald-500"
-                : "text-amber-500 animate-pulse",
+              !hasPermission
+                ? "text-red-500"
+                : waStatus === "CONNECTED"
+                  ? "text-emerald-500"
+                  : "text-amber-500 animate-pulse",
             )}
           >
-            {waStatus}
+            {!hasPermission ? "FORBIDDEN" : waStatus}
           </span>
         </div>
       </div>
 
-      {waStatus !== "CONNECTED" && (
+      {!hasPermission ? (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-center text-xs text-red-500 font-bold">
+          Forbidden: You do not have permission to view WhatsApp settings for this workspace.
+        </div>
+      ) : waStatus !== "CONNECTED" && (
         <div className="space-y-6 border-t border-[var(--border)] pt-6">
           <div className="flex justify-center space-x-2 border border-[var(--border)] rounded-xl p-1 text-[10px] font-bold">
             <button

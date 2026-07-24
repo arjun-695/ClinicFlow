@@ -123,6 +123,11 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
+		// 3. Fallback to token query parameter (useful for EventSource/SSE)
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
+
 		if token == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -348,7 +353,7 @@ func main() {
 	mux.HandleFunc("GET /api/queue", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ListQueue)))
 	mux.HandleFunc("PUT /api/queue/status", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.UpdateQueueStatus))))
 	mux.HandleFunc("PUT /api/queue/reorder", rateLimitMiddleware(generalLimiter, authMiddleware(bodySizeLimit(1<<20, handlers.ReorderQueue))))
-	mux.HandleFunc("GET /api/queue/stream", rateLimitMiddleware(generalLimiter, handlers.ServeQueueWS))
+	mux.HandleFunc("GET /api/queue/stream", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.ServeQueueWS)))
 	mux.HandleFunc("DELETE /api/queue", rateLimitMiddleware(generalLimiter, authMiddleware(handlers.DeleteQueueEntry)))
 
 	// Lab and Vitals
@@ -413,9 +418,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 			origin == "http://localhost:3000" || 
 			origin == "http://localhost:3001" || 
 			origin == "http://127.0.0.1:3000" || 
-			origin == "http://127.0.0.1:3001" || 
-			strings.HasSuffix(origin, ":3000") || 
-			strings.HasSuffix(origin, ":3001")
+			origin == "http://127.0.0.1:3001"
 
 		if !isAllowed && origin != "" {
 			if extra := os.Getenv("ALLOWED_ORIGINS"); extra != "" {

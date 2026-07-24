@@ -124,20 +124,27 @@ func CheckWhatsAppAccess(r *http.Request, userID int) (int, bool, error) {
 		return 0, false, fmt.Errorf("failed to load facility type: %w", err)
 	}
 
-	userRole, err := getUserRole(r.Context(), userID)
+	var workspaceRole string
+	err = db.Pool.QueryRow(r.Context(), `
+		SELECT COALESCE(role, 'STAFF') 
+		FROM user_facilities 
+		WHERE user_id = $1 AND facility_id = $2
+	`, userID, facilityID).Scan(&workspaceRole)
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to load user role: %w", err)
+		return 0, false, fmt.Errorf("failed to load workspace role: %w", err)
 	}
 
+	workspaceRoleUpper := strings.ToUpper(workspaceRole)
+
 	if facType == "HOSPITAL" {
-		if userRole == "HOSPITAL_ADMIN" {
+		if workspaceRoleUpper == "HOSPITAL_ADMIN" {
 			return facilityID, true, nil
 		}
 		return facilityID, false, nil
 	}
 
 	// Clinic / Personal workspace: doctor or admin can access
-	if userRole == "HOSPITAL_ADMIN" || userRole == "DOCTOR" {
+	if workspaceRoleUpper == "HOSPITAL_ADMIN" || workspaceRoleUpper == "DOCTOR" {
 		return facilityID, true, nil
 	}
 

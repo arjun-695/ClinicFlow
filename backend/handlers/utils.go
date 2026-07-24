@@ -38,7 +38,7 @@ func GetActiveFacilityID(r *http.Request, userID int) (int, error) {
 					JOIN facilities f ON uf.facility_id = f.id
 					JOIN users u ON uf.user_id = u.id
 					WHERE uf.user_id = $1 AND uf.facility_id = $2
-					AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
+					AND (u.role IN ('DOCTOR', 'HOSPITAL_ADMIN', 'RECEPTIONIST', 'PHARMACIST') OR f.type = 'HOSPITAL')
 				)
 			`
 			err := db.Pool.QueryRow(r.Context(), query, userID, id).Scan(&exists)
@@ -56,7 +56,7 @@ func GetActiveFacilityID(r *http.Request, userID int) (int, error) {
 		JOIN facilities f ON uf.facility_id = f.id
 		JOIN users u ON uf.user_id = u.id
 		WHERE uf.user_id = $1
-		AND (u.role = 'DOCTOR' OR f.type = 'HOSPITAL')
+		AND (u.role IN ('DOCTOR', 'HOSPITAL_ADMIN', 'RECEPTIONIST', 'PHARMACIST') OR f.type = 'HOSPITAL')
 		LIMIT 1
 	`
 	err := db.Pool.QueryRow(r.Context(), fallbackQuery, userID).Scan(&firstFacilityID)

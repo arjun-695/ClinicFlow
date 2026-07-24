@@ -460,11 +460,13 @@ export default function Dashboard() {
     dob?: string;
   } | null>(null);
 
+  const activeFac = doctorInfo?.facilities?.find((f) => f.id === doctorInfo.active_facility_id);
+  const currentRole = activeFac?.role || doctorInfo?.role || "DOCTOR";
+
   const isClinicMode =
     !doctorInfo ||
-    doctorInfo.facilities?.find((f) => f.id === doctorInfo.active_facility_id)
-      ?.type !== "HOSPITAL";
-  const isDoctorInHospital = doctorInfo?.role === "DOCTOR" && !isClinicMode;
+    activeFac?.type !== "HOSPITAL";
+  const isDoctorInHospital = currentRole === "DOCTOR" && !isClinicMode;
 
   // Tabs & Views
   const [activeTab, setActiveTab] = useState<
@@ -796,14 +798,13 @@ export default function Dashboard() {
     }
   }, [isInviteOpen]);
 
-  // Automatically set selectedDoctorIds to the logged-in doctor if role is DOCTOR when registering a patient
   useEffect(() => {
-    if (isAddPatientOpen && doctorInfo?.role === "DOCTOR" && doctorInfo?.id) {
+    if (isAddPatientOpen && currentRole === "DOCTOR" && doctorInfo?.id) {
       setSelectedDoctorIds([doctorInfo.id]);
     } else {
       setSelectedDoctorIds([]);
     }
-  }, [isAddPatientOpen, doctorInfo]);
+  }, [isAddPatientOpen, doctorInfo, currentRole]);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -865,7 +866,10 @@ export default function Dashboard() {
       return ["appointments", "labs", "billing", "queue", "vitals"].includes(tab);
     }
     if (role === "PHARMACIST") {
-      return ["billing", "medicines", "whatsapp"].includes(tab);
+      return ["billing", "medicines"].includes(tab);
+    }
+    if (role === "RECEPTIONIST") {
+      return ["patients", "appointments", "queue", "billing"].includes(tab);
     }
     if (role === "HOSPITAL_ADMIN") {
       return [
@@ -903,9 +907,9 @@ export default function Dashboard() {
       const id = params.get("id");
 
       if (tab) {
-        if (isTabAuthorized(tab, doctorInfo.role, isClinicMode)) {
+        if (isTabAuthorized(tab, currentRole, isClinicMode)) {
           const isDoctorInHospital =
-            doctorInfo?.role === "DOCTOR" && !isClinicMode;
+            currentRole === "DOCTOR" && !isClinicMode;
           if (tab === "whatsapp" && isDoctorInHospital) {
             setActiveTab("patients");
           } else {
@@ -943,7 +947,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener("popstate", handleUrlChange);
     };
-  }, [isAuthenticated, doctorInfo, isClinicMode]);
+  }, [isAuthenticated, doctorInfo, isClinicMode, currentRole]);
 
   // 2. Write state changes to URL history
   useEffect(() => {
@@ -995,22 +999,24 @@ export default function Dashboard() {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get("tab");
       if (tab) {
-        if (isTabAuthorized(tab, doctorInfo.role, isClinicMode)) {
+        if (isTabAuthorized(tab, currentRole, isClinicMode)) {
           return; // Preserve the URL tab, do not apply default
         }
       }
 
-      if (doctorInfo.role === "USER") {
+      if (currentRole === "USER") {
         setActiveTab("vitals");
-      } else if (doctorInfo.role === "HOSPITAL_ADMIN") {
+      } else if (currentRole === "HOSPITAL_ADMIN") {
         setActiveTab("staff");
-      } else if (doctorInfo.role === "PHARMACIST") {
+      } else if (currentRole === "PHARMACIST") {
         setActiveTab("billing");
+      } else if (currentRole === "RECEPTIONIST") {
+        setActiveTab("patients");
       } else {
         setActiveTab("patients");
       }
     }
-  }, [doctorInfo, isAuthenticated, isClinicMode]);
+  }, [doctorInfo, isAuthenticated, isClinicMode, currentRole]);
 
   // --- Auto-assign in Clinic Mode ---
   useEffect(() => {
@@ -1042,14 +1048,19 @@ export default function Dashboard() {
         return; // Don't load dashboard data during onboarding/setup
       }
 
-      if (doctorInfo.role === "USER") {
+      if (currentRole === "USER") {
         loadOwnPatientProfile();
       } else {
         loadFacilityDoctors();
-        loadWhatsAppTemplates();
+        const hasWhatsAppAccess =
+          currentRole === "HOSPITAL_ADMIN" ||
+          (currentRole === "DOCTOR" && isClinicMode);
+        if (hasWhatsAppAccess) {
+          loadWhatsAppTemplates();
+        }
       }
     }
-  }, [isAuthenticated, doctorInfo]);
+  }, [isAuthenticated, doctorInfo, currentRole, isClinicMode]);
 
   // --- Load Tab Data Reactively (Lazy Loading) ---
   useEffect(() => {
@@ -1099,19 +1110,19 @@ export default function Dashboard() {
     if (!isAuthenticated) return;
     if (
       activeTab === "reschedule-queue" &&
-      doctorInfo?.role === "HOSPITAL_ADMIN"
+      currentRole === "HOSPITAL_ADMIN"
     ) {
       loadRescheduleQueue();
     }
     if (activeTab === "availability" && doctorInfo) {
-      if (doctorInfo.role === "DOCTOR") {
+      if (currentRole === "DOCTOR") {
         setConfigDoctorId(doctorInfo.id.toString());
         loadDoctorAvailability(doctorInfo.id.toString());
       } else {
         setConfigDoctorId("");
       }
     }
-  }, [activeTab, doctorInfo, isAuthenticated]);
+  }, [activeTab, doctorInfo, isAuthenticated, currentRole]);
 
   // Keep details updated
   useEffect(() => {
@@ -1586,8 +1597,7 @@ export default function Dashboard() {
     return (
       roleUpper === "HOSPITAL_ADMIN" ||
       typeUpper === "CLINIC" ||
-      roleUpper === "DOCTOR" ||
-      roleUpper === ""
+      roleUpper === "DOCTOR"
     );
   };
 
@@ -3157,7 +3167,7 @@ export default function Dashboard() {
       <nav className="hidden md:block border-b border-[var(--border)] bg-[var(--nav-bg)] py-1.5 transition-all">
         <div className="max-w-7xl mx-auto px-4 flex items-center space-x-1 overflow-x-auto">
           {(() => {
-            const role = doctorInfo?.role || "DOCTOR";
+            const role = currentRole;
             const allTabs: { id: string; label: string; icon: any }[] = [];
             if (role === "USER") {
               allTabs.push(
@@ -3174,7 +3184,13 @@ export default function Dashboard() {
               allTabs.push(
                 { id: "billing", label: "Billing & Queue", icon: FileText },
                 { id: "medicines", label: "Medicines Inventory", icon: Plus },
-                { id: "whatsapp", label: "WhatsApp Gateway", icon: Smartphone },
+              );
+            } else if (role === "RECEPTIONIST") {
+              allTabs.push(
+                { id: "patients", label: "Patient Directory", icon: Users },
+                { id: "appointments", label: "Appointments", icon: Calendar },
+                { id: "queue", label: "Queue Management", icon: Clock },
+                { id: "billing", label: "Billing", icon: FileText },
               );
             } else if (role === "HOSPITAL_ADMIN") {
               allTabs.push(
@@ -7790,9 +7806,14 @@ export default function Dashboard() {
                               <div className="flex justify-end space-x-2 pt-1">
                                 <button
                                   onClick={() =>
-                                    loadWhatsAppTemplates().then(() =>
-                                      setEditingTemplate(null),
-                                    )
+                                    loadWhatsAppTemplates()
+                                      .then(() => setEditingTemplate(null))
+                                      .catch(() => {
+                                        setToast({
+                                          message: "Failed to reset template",
+                                          type: "error",
+                                        });
+                                      })
                                   }
                                   className="px-3 py-1.5 border border-[var(--border)] text-slate-500 font-bold rounded-xl text-[10px] hover:bg-[var(--card-hover)] cursor-pointer"
                                 >
@@ -9771,7 +9792,7 @@ export default function Dashboard() {
       {/* 4. Mobile Bottom Navigation Bar */}
       {(() => {
         const getMobileTabs = () => {
-          const role = doctorInfo?.role || "DOCTOR";
+          const role = currentRole;
           if (role === "USER") {
             return [
               { id: "appointments", label: "Slots", icon: Calendar },
@@ -9783,7 +9804,13 @@ export default function Dashboard() {
             return [
               { id: "billing", label: "Billing & Queue", icon: FileText },
               { id: "medicines", label: "Medicines", icon: Plus },
-              { id: "whatsapp", label: "WhatsApp", icon: Smartphone },
+            ];
+          } else if (role === "RECEPTIONIST") {
+            return [
+              { id: "patients", label: "Patients", icon: Users },
+              { id: "appointments", label: "Slots", icon: Calendar },
+              { id: "queue", label: "Queue", icon: Clock },
+              { id: "billing", label: "Billing", icon: FileText },
             ];
           } else if (role === "HOSPITAL_ADMIN") {
             return [
@@ -9810,7 +9837,7 @@ export default function Dashboard() {
         };
 
         const getMoreTabs = () => {
-          const role = doctorInfo?.role || "DOCTOR";
+          const role = currentRole;
           const primaryIds = getMobileTabs().map((t) => t.id);
           const allTabs = [];
           if (role === "HOSPITAL_ADMIN") {

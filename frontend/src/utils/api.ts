@@ -1,5 +1,14 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export async function fetchAPI(path: string, options: RequestInit = {}) {
   const url = `${API_URL}${path}`;
 
@@ -40,7 +49,7 @@ export async function fetchAPI(path: string, options: RequestInit = {}) {
     } catch {
       // ignore
     }
-    throw new Error(errMsg);
+    throw new ApiError(errMsg, response.status);
   }
 
   return response.json();

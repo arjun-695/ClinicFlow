@@ -635,16 +635,39 @@ func ReorderQueue(w http.ResponseWriter, r *http.Request) {
 
 // ServeQueueWS sets up SSE stream
 func ServeQueueWS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	userID, ok := r.Context().Value(ShopkeeperIDKey).(int)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	doctorIDStr := r.URL.Query().Get("doctor_id")
 	doctorID, err := strconv.Atoi(doctorIDStr)
 	if err != nil {
+		http.Error(w, "Invalid doctor ID", http.StatusBadRequest)
 		return
 	}
+
+	if userID != doctorID {
+		var sharesFacility bool
+		queryShares := `
+			SELECT EXISTS(
+				SELECT 1 
+				FROM user_facilities uf1
+				JOIN user_facilities uf2 ON uf1.facility_id = uf2.facility_id
+				WHERE uf1.user_id = $1 AND uf2.user_id = $2
+			)
+		`
+		err = db.Pool.QueryRow(r.Context(), queryShares, userID, doctorID).Scan(&sharesFacility)
+		if err != nil || !sharesFacility {
+			http.Error(w, "Forbidden: you do not have permission to view this doctor's queue status", http.StatusForbidden)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
 
 	sendChan := make(chan []byte, 10)
 

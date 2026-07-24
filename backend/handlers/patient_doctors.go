@@ -159,7 +159,7 @@ func ListDoctorsForPatient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-		SELECT u.id, u.name, u.email, u.phone, u.specialization
+		SELECT u.id, u.name, u.email, u.phone, COALESCE(u.specialization, '') as specialization
 		FROM patient_doctors pd
 		JOIN users u ON pd.doctor_id = u.id
 		WHERE pd.patient_id = $1 AND pd.facility_id = $2
@@ -254,7 +254,7 @@ func ListFacilityDoctors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := `
-		SELECT u.id, u.name, u.email, u.phone, u.specialization
+		SELECT u.id, u.name, u.email, u.phone, COALESCE(u.specialization, '') as specialization
 		FROM user_facilities uf
 		JOIN users u ON uf.user_id = u.id
 		WHERE uf.facility_id = $1 AND u.role = 'DOCTOR'

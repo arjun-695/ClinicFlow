@@ -314,7 +314,10 @@ func Signup(w http.ResponseWriter, r *http.Request) {
 
 	role := "DOCTOR"
 	if input.Role != "" {
-		role = strings.ToUpper(input.Role)
+		rRole := strings.ToUpper(input.Role)
+		if rRole == "DOCTOR" || rRole == "USER" {
+			role = rRole
+		}
 	}
 
 	query := `
@@ -836,6 +839,19 @@ func RoleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var currentRole, specialization, location, hospitalName string
+	queryCheck := `SELECT role, COALESCE(specialization, ''), COALESCE(location, ''), COALESCE(hospital_name, '') FROM users WHERE id = $1`
+	err := db.Pool.QueryRow(r.Context(), queryCheck, userID).Scan(&currentRole, &specialization, &location, &hospitalName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to verify current profile state"})
+		return
+	}
+
+	if currentRole == "USER" || currentRole == "HOSPITAL_ADMIN" || (currentRole == "DOCTOR" && (specialization != "" || location != "" || hospitalName != "")) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "Role has already been configured"})
+		return
+	}
+
 	input.Role = strings.ToUpper(input.Role)
 	if input.Role != "USER" && input.Role != "DOCTOR" && input.Role != "HOSPITAL_ADMIN" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid role specified"})
@@ -852,7 +868,7 @@ func RoleSetup(w http.ResponseWriter, r *http.Request) {
 		SET role = $1, location = $2, photo_url = $3, specialization = $4, hospital_name = $5, clinic_name = $6, name = COALESCE(NULLIF($7, ''), name), phone = COALESCE(NULLIF($8, ''), phone)
 		WHERE id = $9
 	`
-	_, err := db.Pool.Exec(r.Context(), updateQuery, input.Role, input.Location, input.PhotoURL, input.Specialization, input.HospitalName, clinicName, input.Name, input.Phone, userID)
+	_, err = db.Pool.Exec(r.Context(), updateQuery, input.Role, input.Location, input.PhotoURL, input.Specialization, input.HospitalName, clinicName, input.Name, input.Phone, userID)
 	if err != nil {
 		log.Printf("RoleSetup update error: %v", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to save profile setup"})

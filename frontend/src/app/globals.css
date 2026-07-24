@@ -49,44 +49,47 @@
   --color-slate-850: #151f32;
   --color-slate-925: #0b111e;
   --color-slate-650: #475569;
+  --color-success-teal: #14B8A6;
+  --color-medical-blue: #0EA5E9;
+  --color-tertiary: #8127cf;
 }
 
 @variant dark (&:where(.dark, .dark *));
 
 :root {
   --card: #ffffff;
-  --ring: #4f46e5;
+  --ring: #4648d4;
   --input: #f1f5f9;
   --muted: #f8fafc;
   --accent: #e0e7ff;
   --border: #e2e8f0;
   --radius: 0.75rem;
-  --chart-1: #4f46e5;
-  --chart-2: #059669;
-  --chart-3: #0284c7;
-  --chart-4: #f59e0b;
-  --chart-5: #e11d48;
+  --chart-1: #4648d4;
+  --chart-2: #14B8A6;
+  --chart-3: #0ea5e9;
+  --chart-4: #8127cf;
+  --chart-5: #ba1a1a;
   --popover: #ffffff;
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
+  --primary: #4648d4;
+  --primary-hover: #3536b3;
   --sidebar: #ffffff;
-  --secondary: #059669;
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --destructive: #e11d48;
+  --secondary: #595e6c;
+  --background: #f7f9fb;
+  --foreground: #191c1e;
+  --destructive: #ba1a1a;
   --sidebar-ring: #cbd5e1;
   --sidebar-accent: #f1f5f9;
   --sidebar-border: #e2e8f0;
-  --card-foreground: #0f172a;
-  --sidebar-primary: #4f46e5;
-  --muted-foreground: #64748b;
-  --accent-foreground: #4f46e5;
-  --popover-foreground: #0f172a;
+  --card-foreground: #191c1e;
+  --sidebar-primary: #4648d4;
+  --muted-foreground: #464554;
+  --accent-foreground: #4648d4;
+  --popover-foreground: #191c1e;
   --primary-foreground: #ffffff;
   --sidebar-foreground: #1e293b;
   --secondary-foreground: #ffffff;
   --destructive-foreground: #ffffff;
-  --sidebar-accent-foreground: #0f172a;
+  --sidebar-accent-foreground: #191c1e;
   --sidebar-primary-foreground: #ffffff;
 
   /* Compatibility mappings */

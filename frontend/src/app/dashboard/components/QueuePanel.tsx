@@ -172,7 +172,8 @@ const QueuePanel = React.memo(
 
       const targetDoctorId = getBoardTarget();
       if (isAuthenticated && targetDoctorId) {
-        const url = `${API_URL}/api/queue/stream?doctor_id=${targetDoctorId}`;
+        const token = localStorage.getItem("auth_token");
+        const url = `${API_URL}/api/queue/stream?doctor_id=${targetDoctorId}${token ? `&token=${token}` : ""}`;
         ev = new EventSource(url, { withCredentials: true });
 
         ev.onmessage = (event) => {
